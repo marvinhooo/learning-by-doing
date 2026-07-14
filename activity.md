@@ -35,3 +35,14 @@ Iteration Counter: 0
 - Fix: Neue Secret Keys werden nur noch im `apikey`-Header gesendet; nur der alte JWT-basierte `service_role`-Key erhaelt weiterhin einen `Authorization: Bearer`-Header.
 - Der Upload bleibt durch `x-upsert` wiederholbar und ueberschreibt gleichnamige Dateien kontrolliert.
 - Der Iteration Counter blieb unveraendert, da der Run manuell/interaktiv gestartet wurde.
+
+## 2026-07-14 - GitHub-Pages-Produktivsetzung (manueller Run)
+
+- Status: erfolgreich veroeffentlicht.
+- Leeres Repository `marvinhooo/learning-by-doing` als `origin` eingetragen und `main` ohne PDFs gepusht.
+- GitHub-Actions-Run 29343090502 inklusive Build, Artifact-Upload und Pages-Deployment erfolgreich abgeschlossen.
+- Produktions-URL: `https://marvinhooo.github.io/learning-by-doing/`.
+- Verifiziert: Startseite HTTP 200, Manifest HTTP 200, bekannte PDF auf GitHub Pages HTTP 404 und derselbe Pfad ueber den oeffentlichen Supabase-Storage-Endpunkt HTTP 400; der Bucket ist damit nicht oeffentlich auslieferbar.
+- Der produktive Build enthaelt die konfigurierte Supabase Project URL und ausschliesslich den oeffentlichen Publishable Key.
+- Offen bleibt der authentifizierte Ende-zu-Ende-Test mit dem echten Benutzer; Passwort oder Secret Key werden dafuer nicht an Codex uebermittelt.
+- Der Iteration Counter blieb unveraendert, da der Run manuell/interaktiv gestartet wurde.

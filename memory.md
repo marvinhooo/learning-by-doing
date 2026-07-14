@@ -12,4 +12,6 @@
 - Kurs-PDFs bleiben aus GitHub ausgeschlossen und liegen in einem privaten, nur lesbaren Supabase-Bucket; der administrative Secret Key beziehungsweise alte Service-Role-Key darf nie im Browser oder Repository stehen.
 - Beim direkten Storage-Upload wird ein neuer `sb_secret_...`-Key nur als `apikey` gesendet; lediglich der alte JWT-basierte `service_role`-Key darf zusaetzlich als Bearer-Token verwendet werden.
 - GitHub Pages liefert nur statische Dateien und einen Publishable Key aus; Row Level Security (RLS; zeilenbasierte Zugriffskontrolle) schützt Lernstand und PDFs.
-- `index.html` ist ab Version 2 der kanonische Einstieg; `cs336-lernwerk.html` bleibt als Weiterleitung erhalten. Der Quellenbestand umfasst 15 Lecture-PDFs und die sechs Assignment-PDFs zu A1 bis A5 inklusive A5-Supplement.
+- `index.html` ist ab Version 2 der kanonische Einstieg; `cs336-lernwerk.html` bleibt als Weiterleitung erhalten. Der Quellenbestand umfasst seit Lecture 10 insgesamt 16 Lecture-PDFs und die sechs Assignment-PDFs zu A1 bis A5 inklusive A5-Supplement.
+- Das Produktions-Repository ist `https://github.com/marvinhooo/learning-by-doing`; GitHub Pages ist unter `https://marvinhooo.github.io/learning-by-doing/` erreichbar.
+- Das Supabase-Projekt wird produktiv ueber die Project URL `https://uvivqobunkdeuosgxhvn.supabase.co` angesprochen; im GitHub-Build wird nur der oeffentliche Publishable Key verwendet.

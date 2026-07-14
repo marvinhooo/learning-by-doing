@@ -59,10 +59,11 @@ Eine offline-first, interaktive deutschsprachige Lernhilfe, die einen Lernenden 
 - Version 1 ist am 2026-07-14 als `cs336-lernwerk.html` abgeschlossen.
 - Enthalten sind 12 Lernmodule, 43 Konzepte, 52 Formelkarten, 47 kontextspezifische Symboleintraege, 54 Glossarbegriffe, 11 interaktive Labs, 12 Diagnosefragen, 12 Quizfragen sowie Coaches fuer A1 bis A5.
 - Statische JavaScript-Pruefung, Desktop- und Mobilansicht sowie die zentralen Interaktionspfade wurden erfolgreich verifiziert; die Browserkonsole blieb ohne Fehler oder Warnungen.
-- Version 2 ist technisch vorbereitet: `index.html` ist der Einstieg, Supabase-Schema und private Storage-Regeln, Offline-/Konfliktsynchronisation, PWA-Dateien, mobile Safe-Area-Anpassungen sowie ein GitHub-Actions-Deployment sind enthalten.
+- Version 2 ist unter `https://marvinhooo.github.io/learning-by-doing/` veroeffentlicht: `index.html` ist der Einstieg, Supabase-Schema und private Storage-Regeln, Offline-/Konfliktsynchronisation, PWA-Dateien, mobile Safe-Area-Anpassungen sowie das GitHub-Actions-Deployment sind enthalten.
 
 ## Offener Rest
 
 - Inhaltliche Erweiterungen nach realen Lernfragen und bearbeiteten Assignments.
 - Optional spaeter: terminierte Spaced-Repetition-Wiederholungen; Import und Export des lokalen Lernstands sind bereits enthalten.
-- Extern offen: separates Supabase-Projekt anlegen und konfigurieren, Benutzer freischalten, PDFs hochladen sowie GitHub-Repository/Pages aktivieren; erst danach ist ein echter Ende-zu-Ende-Cloudtest moeglich.
+- Offen: Login, signierter PDF-Aufruf und Geraetesynchronisation mit dem echten Benutzer auf iPhone/iPad Ende-zu-Ende pruefen.
+- Die neu hinzugefuegte Lecture 10 ist privat hochladbar, aber noch nicht inhaltlich in Quellenkarten und Lernmodule eingearbeitet.
