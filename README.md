@@ -21,11 +21,11 @@ Inoffizielle, deutschsprachige Lernhilfe für Stanford CS336 „Language Models 
 
 ## PDFs einmalig privat hochladen
 
-Der Upload läuft lokal mit einem temporär gesetzten Service-Role-Key. Der Schlüssel wird weder gespeichert noch ausgegeben:
+Der Upload läuft lokal mit einem temporär gesetzten Secret Key (`sb_secret_...`). Der Schlüssel wird weder gespeichert noch ausgegeben. Der alte `service_role`-Key wird aus Kompatibilitaetsgruenden ebenfalls akzeptiert:
 
 ```bash
 SUPABASE_URL="https://PROJECT.supabase.co" \
-SUPABASE_SERVICE_ROLE_KEY="..." \
+SUPABASE_SECRET_KEY="sb_secret_..." \
 node scripts/upload-pdfs.mjs
 ```
 

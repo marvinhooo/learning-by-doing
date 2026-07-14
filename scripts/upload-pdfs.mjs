@@ -4,11 +4,11 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const supabaseUrl = process.env.SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const adminKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
 const bucket = process.env.SUPABASE_PDF_BUCKET || "cs336-pdfs";
 
-if (!supabaseUrl || !serviceRoleKey) {
-  throw new Error("Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in the current shell. Never commit the service role key.");
+if (!supabaseUrl || !adminKey) {
+  throw new Error("Set SUPABASE_URL and SUPABASE_SECRET_KEY in the current shell. Never commit the secret key.");
 }
 
 const sources = [path.join(root, "CS336 lectures")];
@@ -32,8 +32,8 @@ for (const file of files) {
   const response = await fetch(`${supabaseUrl}/storage/v1/object/${bucket}/${encodedPath}`, {
     method: "POST",
     headers: {
-      apikey: serviceRoleKey,
-      authorization: `Bearer ${serviceRoleKey}`,
+      apikey: adminKey,
+      authorization: `Bearer ${adminKey}`,
       "content-type": "application/pdf",
       "x-upsert": "true"
     },
