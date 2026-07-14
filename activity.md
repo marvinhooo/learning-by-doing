@@ -58,3 +58,17 @@ Iteration Counter: 0
 - Zwei unabhaengige Read-only-Code-Reviews fanden nach den Korrekturen keine verbleibenden High- oder Medium-Blocker.
 - Commit `49a261b` wurde gepusht; GitHub-Actions-Run 29349877544 schloss erfolgreich ab. Die Produktionsseite antwortete mit HTTP 200 und enthielt die neuen Akkordeon- und Mobile-Navigationsmarker.
 - Der Iteration Counter blieb unveraendert, da der Run manuell/interaktiv gestartet wurde.
+
+## 2026-07-14 - UX- und Accessibility-Audit nach aktuellen Standards (manueller Run)
+
+- Status: Umsetzung und statische Verifikation abgeschlossen; Produktionspruefung nach Deployment ausstehend.
+- Abgleich mit WCAG 2.2, WAI-ARIA Authoring Practices und aktuellen Apple-Vorgaben fuer iPhone/iPad durchgefuehrt.
+- Light-Theme-Kontraste, Fokusindikatoren und Form-Control-Grenzen auf AA-taugliche Werte angehoben; Skip-Link und dynamische Seitentitel ergaenzt.
+- Hauptnavigation auf semantische Links umgestellt; Browser-Zurueck/-Vorwaerts, iOS-Swipe und Scrollpositionswiederherstellung implementiert.
+- Dialog und mobiler Drawer mit Hintergrund-Inertheit, Fokusbegrenzung, Escape, Scrim und Fokuswiederherstellung vervollstaendigt; Offcanvas-Breakpoint auf 1180 Pixel angehoben.
+- Globale Suche als zugängliche Combobox mit Listbox, Ergebnismeldung und Pfeiltastensteuerung umgesetzt.
+- Dateiimport, Kompetenzwahl, Filter, Assignment-Hinweise und relevante Statusmeldungen tastatur- und screenreaderfreundlich nachgebessert.
+- Detailseiten von wiederholten Panel-Kacheln zu einem ruhigeren Lesefluss verdichtet; Attention-Matrix als echte Tabelle und Lab-Diagramme ohne winzige SVG-Beschriftungen umgesetzt.
+- Service-Worker-Cleanup auf eigene `cs336-shell-*`-Caches begrenzt, damit andere GitHub-Pages-Projekte auf demselben Origin unberuehrt bleiben.
+- Verifiziert: Inline-JavaScript, Service Worker, Build- und Upload-Skripte parsen; `git diff --check` ist sauber; der reproduzierbare Site-Build enthaelt weder PDFs noch Notebooks.
+- Der Iteration Counter blieb unveraendert, da der Run manuell/interaktiv gestartet wurde.

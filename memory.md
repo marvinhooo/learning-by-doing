@@ -8,6 +8,9 @@
 - Symbole und Formeln erhalten einen eigenstaendigen, durchsuchbaren Tafelwerk-Bereich mit Dimensionen, Intuition, Fehlerbildern und Quellen.
 - Wiederholte Referenzsammlungen werden dauerhaft als kompakte Listen mit nativen Akkordeons dargestellt; Karten bleiben auf klar begrenzte Arbeits- und Fokusflaechen beschraenkt. Formeln sind schon geschlossen vollstaendig sichtbar und umbrechen ohne internes horizontales Scrollen.
 - Im iPad-Hochformat nutzt die Hauptnavigation ein Offcanvas-Menue mit Fokusmanagement; zentrale Touch-Ziele bleiben auf iPhone und iPad mindestens 44 Pixel gross.
+- Die responsive Hauptnavigation nutzt bis 1180 Pixel einen beschrifteten modalen Drawer; Browser-History, interne Zurueck-Aktionen und Scrollpositionswiederherstellung bleiben Teil des Navigationsvertrags.
+- Dialoge, Drawer und die globale Combobox folgen dauerhaft den WAI-ARIA-Interaktionsmustern mit Fokusbegrenzung, Escape, Fokuswiederherstellung und stabilen Statusmeldungen.
+- Service Worker duerfen beim Aktivieren ausschliesslich eigene Caches mit dem Praefix `cs336-shell-` bereinigen, weil mehrere GitHub-Pages-Repositories denselben Origin teilen.
 - Browser-Fortschritt, Notizen und Lesezeichen werden sofort benutzerspezifisch lokal gespeichert und nach Login optional ueber Supabase synchronisiert; Darstellungsmodus und zuletzt geoeffnete Ansicht bleiben geraetespezifisch.
 - Fuer Cloud-Funktionen wird derselbe Supabase-Account beziehungsweise dieselbe Organisation wie beim Immo-Checker genutzt, aber dauerhaft ein separates Projekt `CS336-Lernwerk`.
 - Die Anmeldung nutzt E-Mail und Passwort ohne oeffentliche Registrierung; aktive Benutzer werden per Membership-Tabelle freigeschaltet.

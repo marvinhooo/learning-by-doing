@@ -22,7 +22,10 @@
       --text: #f4f7fb;
       --muted: #a7b5ca;
       --border: #2a3b57;
+      --control-border: #61738f;
       --primary: #74a7ff;
+      --on-primary: #07111f;
+      --focus-ring: #74a7ff;
       --primary-soft: rgba(116, 167, 255, .14);
       --accent: #59d8c5;
       --accent-soft: rgba(89, 216, 197, .12);
@@ -44,18 +47,21 @@
       --text: #142033;
       --muted: #5c6d83;
       --border: #d5dfeb;
+      --control-border: #718096;
       --primary: #315fbb;
+      --on-primary: #ffffff;
+      --focus-ring: #315fbb;
       --primary-soft: rgba(49, 95, 187, .1);
       --accent: #087f72;
       --accent-soft: rgba(8, 127, 114, .1);
-      --warning: #9a6400;
+      --warning: #825300;
       --danger: #bb3042;
-      --success: #1d8150;
+      --success: #176c42;
       --shadow: 0 18px 50px rgba(34, 54, 83, .1);
     }
 
     * { box-sizing: border-box; }
-    html { scroll-behavior: smooth; }
+    html { scroll-behavior: smooth; scroll-padding-top: calc(5.5rem + env(safe-area-inset-top)); }
     body {
       margin: 0;
       min-height: 100vh;
@@ -69,7 +75,6 @@
     }
 
     button, input, select, textarea { font: inherit; }
-    button, a { -webkit-tap-highlight-color: transparent; }
     a { color: var(--primary); }
     code, .mono { font-family: var(--mono); }
     code {
@@ -78,11 +83,27 @@
       background: var(--surface-3);
       color: var(--text);
     }
-    button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible {
-      outline: 3px solid color-mix(in srgb, var(--primary), transparent 38%);
+    button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible, main:focus-visible {
+      outline: 3px solid var(--focus-ring);
       outline-offset: 2px;
     }
+    button:active, summary:active, a:active { transform: translateY(1px); }
     ::selection { background: var(--primary); color: var(--bg); }
+
+    .skip-link {
+      position: fixed;
+      z-index: 200;
+      top: max(.65rem, env(safe-area-inset-top));
+      left: max(.65rem, env(safe-area-inset-left));
+      padding: .7rem 1rem;
+      border: 2px solid var(--focus-ring);
+      border-radius: 10px;
+      background: var(--surface);
+      color: var(--text);
+      font-weight: 700;
+      transform: translateY(-180%);
+    }
+    .skip-link:focus { transform: translateY(0); }
 
     .app-shell {
       display: grid;
@@ -98,11 +119,13 @@
       display: flex;
       flex-direction: column;
       gap: 1.25rem;
-      padding: calc(1.35rem + env(safe-area-inset-top)) 1rem calc(1.35rem + env(safe-area-inset-bottom));
+      padding: calc(1.35rem + env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) calc(1.35rem + env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
       border-right: 1px solid var(--border);
       background: color-mix(in srgb, var(--bg) 88%, transparent);
       backdrop-filter: blur(16px);
       z-index: 20;
+      overflow-y: auto;
+      overscroll-behavior: contain;
     }
 
     .brand {
@@ -119,7 +142,7 @@
       height: 42px;
       border-radius: 13px;
       background: linear-gradient(145deg, var(--primary), var(--accent));
-      color: #07111f;
+      color: var(--on-primary);
       font-family: var(--mono);
       font-weight: 800;
       box-shadow: 0 9px 24px color-mix(in srgb, var(--primary), transparent 65%);
@@ -140,6 +163,7 @@
       background: transparent;
       color: var(--muted);
       text-align: left;
+      text-decoration: none;
       cursor: pointer;
     }
     .nav-button:hover { background: var(--surface-2); color: var(--text); }
@@ -190,11 +214,11 @@
       backdrop-filter: blur(18px);
     }
 
-    .search-wrap { position: relative; }
+    .search-wrap, .search-field { position: relative; min-width: 0; }
     .search-input {
       width: 100%;
       padding: .72rem 1rem .72rem 2.65rem;
-      border: 1px solid var(--border);
+      border: 1px solid var(--control-border);
       border-radius: 12px;
       background: var(--surface);
       color: var(--text);
@@ -208,10 +232,11 @@
       top: calc(100% + .45rem);
       max-height: min(60vh, 520px);
       overflow: auto;
-      border: 1px solid var(--border);
+      border: 1px solid var(--control-border);
       border-radius: 14px;
       background: var(--surface);
       box-shadow: var(--shadow);
+      z-index: 30;
     }
     .search-results[hidden] { display: none; }
     .search-result {
@@ -225,12 +250,16 @@
       background: transparent;
       color: var(--text);
       text-align: left;
+      text-decoration: none;
       cursor: pointer;
     }
     .search-result:last-child { border-bottom: 0; }
-    .search-result:hover { background: var(--surface-2); }
+    .search-result:hover, .search-result:active, .search-result.is-active, .search-result[aria-selected="true"] { background: var(--surface-2); }
     .result-type { color: var(--accent); font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; }
+    .result-copy { min-width: 0; }
+    .result-copy strong, .result-copy small { overflow-wrap: anywhere; }
     .result-copy small { display: block; color: var(--muted); }
+    .search-empty { padding: 1rem; }
 
     .toolbar { display: flex; gap: .5rem; }
     .account-button { position: relative; }
@@ -250,7 +279,7 @@
     .account-button[data-cloud-status="offline"]::after,
     .account-button[data-cloud-status="error"]::after { background: var(--danger); }
     .icon-button, .button, .chip, .seg-button {
-      border: 1px solid var(--border);
+      border: 1px solid var(--control-border);
       border-radius: 10px;
       background: var(--surface);
       color: var(--text);
@@ -259,13 +288,13 @@
     .icon-button { width: 44px; height: 44px; display: grid; place-items: center; }
     .icon-button:hover, .button:hover, .chip:hover, .seg-button:hover { border-color: var(--primary); }
     .button { padding: .6rem .9rem; font-weight: 650; }
-    .button.primary { border-color: transparent; background: var(--primary); color: #07111f; }
+    .button.primary { border-color: transparent; background: var(--primary); color: var(--on-primary); }
     .button.ghost { background: transparent; }
     .button.danger { color: var(--danger); }
     .button.small { padding: .42rem .65rem; font-size: .82rem; }
     .button[disabled] { opacity: .45; cursor: not-allowed; }
 
-    main { width: min(1480px, 100%); margin: 0 auto; padding: 2rem max(clamp(1rem, 4vw, 3rem), env(safe-area-inset-right)) calc(5rem + env(safe-area-inset-bottom)) max(clamp(1rem, 4vw, 3rem), env(safe-area-inset-left)); }
+    main { width: min(1480px, 100%); margin: 0 auto; padding: 2rem max(clamp(1rem, 4vw, 3rem), env(safe-area-inset-right)) calc(5rem + env(safe-area-inset-bottom)) max(clamp(1rem, 4vw, 3rem), env(safe-area-inset-left)); scroll-margin-top: calc(5.5rem + env(safe-area-inset-top)); }
     .view[hidden] { display: none; }
     .view-header { margin-bottom: 1.6rem; }
     .eyebrow { margin: 0 0 .35rem; color: var(--accent); font-size: .76rem; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
@@ -289,7 +318,7 @@
       position: relative;
       overflow: hidden;
       padding: clamp(1.25rem, 4vw, 2.5rem);
-      border: 1px solid var(--border);
+      border: 1px solid var(--control-border);
       border-radius: 24px;
       background: linear-gradient(145deg, var(--surface), color-mix(in srgb, var(--surface-2), var(--primary) 8%));
       box-shadow: var(--shadow);
@@ -334,7 +363,7 @@
     .badge.primary { border-color: color-mix(in srgb, var(--primary), transparent 55%); color: var(--primary); background: var(--primary-soft); }
     .badge.accent { border-color: color-mix(in srgb, var(--accent), transparent 55%); color: var(--accent); background: var(--accent-soft); }
     .chip { padding: .42rem .72rem; }
-    .chip.is-active { background: var(--primary); color: #07111f; border-color: var(--primary); }
+    .chip.is-active { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
 
     .timeline { position: relative; display: grid; gap: 1rem; margin-left: .5rem; }
     .timeline::before { content: ""; position: absolute; left: 18px; top: 22px; bottom: 22px; width: 2px; background: var(--border); }
@@ -354,7 +383,7 @@
     .input, .select, .textarea {
       width: 100%;
       padding: .68rem .78rem;
-      border: 1px solid var(--border);
+      border: 1px solid var(--control-border);
       border-radius: 10px;
       background: var(--surface);
       color: var(--text);
@@ -370,6 +399,8 @@
     .detail-aside { position: sticky; top: 88px; display: grid; gap: .8rem; }
     .detail-section { margin-bottom: 1.5rem; }
     .detail-section h3 { padding-bottom: .45rem; border-bottom: 1px solid var(--border); }
+    .reading-section { padding-block: .25rem 1.35rem; border-bottom: 1px solid var(--border); }
+    .reading-section + .reading-section { padding-top: 1.35rem; }
     .callout { padding: .9rem 1rem; border-left: 4px solid var(--primary); border-radius: 0 12px 12px 0; background: var(--primary-soft); }
     .callout.warning { border-color: var(--warning); background: color-mix(in srgb, var(--warning), transparent 90%); }
     .callout.accent { border-color: var(--accent); background: var(--accent-soft); }
@@ -377,7 +408,7 @@
     .check-list li { display: grid; grid-template-columns: 1.25rem 1fr; gap: .5rem; }
     .check-list li::before { content: "→"; color: var(--accent); font-family: var(--mono); }
     .source-link { display: inline-flex; align-items: center; gap: .35rem; font-size: .82rem; }
-    button.source-link { padding: 0; border: 0; background: transparent; color: var(--primary); text-align: left; cursor: pointer; }
+    button.source-link { min-height: 24px; padding: 0; border: 0; background: transparent; color: var(--primary); text-align: left; cursor: pointer; }
 
     .formula-display {
       overflow: visible;
@@ -530,8 +561,8 @@
     .lab-note { margin-top: .8rem; color: var(--muted); font-size: .82rem; }
     .token-row { display: flex; flex-wrap: wrap; gap: .35rem; margin: .5rem 0 1rem; }
     .token { padding: .35rem .5rem; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); font-family: var(--mono); }
-    .matrix { display: grid; gap: 3px; width: min(100%, 520px); margin: 1rem auto; }
-    .matrix-cell { min-height: 44px; display: grid; place-items: center; border-radius: 6px; background: color-mix(in srgb, var(--primary) var(--heat, 0%), var(--surface)); color: var(--text); font: .75rem var(--mono); }
+    .matrix-table { width: min(100%, 520px); margin: 1rem auto; border-collapse: separate; border-spacing: 3px; table-layout: fixed; }
+    .matrix-table th, .matrix-table td { min-height: 44px; padding: .55rem .3rem; border-radius: 6px; background: color-mix(in srgb, var(--primary) var(--heat, 0%), var(--surface)); color: var(--text); font: .75rem var(--mono); text-align: center; overflow-wrap: anywhere; }
     .bar-list { display: grid; gap: .55rem; }
     .bar-row { display: grid; grid-template-columns: minmax(72px, auto) 1fr 60px; gap: .55rem; align-items: center; }
     .bar-track { height: 18px; border-radius: 5px; background: var(--surface-3); overflow: hidden; }
@@ -543,11 +574,14 @@
     .metric { padding: .8rem; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
     .metric strong { display: block; font-size: 1.25rem; }
     .metric span { color: var(--muted); font-size: .76rem; }
-    .svg-chart { width: 100%; height: auto; min-height: 240px; }
+    .svg-chart { display: block; width: 100%; height: auto; }
     .chart-grid-line { stroke: var(--border); stroke-width: 1; }
     .chart-line { fill: none; stroke: var(--primary); stroke-width: 3; }
     .chart-dot { fill: var(--accent); }
     .chart-label { fill: var(--muted); font: 12px var(--sans); }
+    .chart-axis-labels { display: flex; justify-content: space-between; gap: 1rem; margin-top: -.5rem; color: var(--muted); font-size: .82rem; }
+    .chart-axis-labels span:last-child { text-align: right; }
+    .roofline-plot { position: relative; height: 170px; margin: 1.2rem 1rem .75rem; border-left: 2px solid var(--control-border); border-bottom: 2px solid var(--control-border); }
 
     .quiz-wrap { max-width: 860px; }
     .question { padding: 1.15rem; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); }
@@ -559,7 +593,7 @@
       align-items: start;
       gap: .6rem;
       padding: .65rem;
-      border: 1px solid var(--border);
+      border: 1px solid var(--control-border);
       border-radius: 10px;
       cursor: pointer;
     }
@@ -569,7 +603,8 @@
     .feedback.good { color: var(--success); }
     .feedback.bad { color: var(--warning); }
 
-    .flashcard { max-width: 800px; min-height: 300px; display: grid; place-items: center; padding: 2rem; text-align: center; cursor: pointer; }
+    .flashcard { max-width: 800px; min-height: 300px; display: grid; place-items: center; padding: 2rem; text-align: center; }
+    .flashcard-inner { max-width: 64ch; }
     .flashcard .answer { color: var(--muted); }
     .flashcard .answer[hidden] { display: none; }
 
@@ -579,7 +614,7 @@
       z-index: 100;
       display: grid;
       place-items: center;
-      padding: 1rem;
+      padding: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
       background: rgba(2, 7, 15, .72);
       backdrop-filter: blur(7px);
     }
@@ -589,7 +624,7 @@
       max-height: min(90vh, calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 1rem));
       overflow: auto;
       padding: clamp(1rem, 3vw, 1.6rem);
-      border: 1px solid var(--border);
+      border: 1px solid var(--control-border);
       border-radius: 20px;
       background: var(--surface);
       box-shadow: var(--shadow);
@@ -598,12 +633,12 @@
 
     .toast {
       position: fixed;
-      right: 1rem;
+      right: max(1rem, env(safe-area-inset-right));
       bottom: calc(1rem + env(safe-area-inset-bottom));
       z-index: 120;
       max-width: 360px;
       padding: .8rem 1rem;
-      border: 1px solid var(--border);
+      border: 1px solid var(--control-border);
       border-radius: 12px;
       background: var(--surface);
       color: var(--text);
@@ -615,15 +650,12 @@
     .toast.show { transform: translateY(0); opacity: 1; }
 
     .mobile-menu, .sidebar-close { display: none; }
+    .nav-scrim { display: none; }
+    .nav-scrim[hidden] { display: none; }
+    body.nav-open { overflow: hidden; }
     .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 
     @media (max-width: 1040px) {
-      .app-shell { grid-template-columns: 84px minmax(0, 1fr); }
-      .sidebar { padding-inline: .7rem; }
-      .brand { justify-content: center; }
-      .brand-copy, .nav-label, .sidebar-progress { display: none; }
-      .nav-button { justify-content: center; padding-inline: .5rem; }
-      .nav-icon { width: auto; }
       .hero { grid-template-columns: 1fr; }
       .detail-layout { grid-template-columns: 1fr; }
       .detail-aside { position: static; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
@@ -632,7 +664,7 @@
       input[type="range"] { min-height: 44px; }
     }
 
-    @media (max-width: 900px) {
+    @media (max-width: 1180px) {
       .app-shell { display: block; }
       .sidebar {
         position: fixed;
@@ -645,14 +677,19 @@
         pointer-events: none;
         transition: transform .25s ease, visibility 0s linear .25s;
         box-shadow: var(--shadow);
+        padding-top: calc(1.35rem + env(safe-area-inset-top));
+        padding-bottom: calc(1.35rem + env(safe-area-inset-bottom));
+        padding-left: max(1rem, env(safe-area-inset-left));
+        padding-right: 1rem;
       }
       .sidebar.is-open { transform: translateX(0); visibility: visible; pointer-events: auto; transition-delay: 0s; }
+      .nav-scrim:not([hidden]) { display: block; position: fixed; inset: 0; z-index: 19; background: rgba(2, 7, 15, .58); }
       .brand { justify-content: flex-start; }
       .brand-copy, .nav-label, .sidebar-progress { display: block; }
       .nav-button { justify-content: flex-start; padding-inline: .8rem; }
       .mobile-menu, .sidebar-close { display: grid; }
       .sidebar-close { margin-left: auto; }
-      .topbar { grid-template-columns: auto minmax(0, 1fr) auto; padding-inline: .75rem; }
+      .topbar { grid-template-columns: auto minmax(0, 1fr) auto; padding-left: max(.75rem, env(safe-area-inset-left)); padding-right: max(.75rem, env(safe-area-inset-right)); }
       .toolbar .hide-mobile { display: none; }
       main { padding-top: 1.35rem; }
       .filters { grid-template-columns: 1fr; }
@@ -670,10 +707,15 @@
       .lab-layout { grid-template-columns: 1fr; }
       .lab-stage { min-height: 280px; }
       .input, .select, .textarea { font-size: 16px; }
+      .search-wrap { position: static; }
+      .search-results { left: max(.75rem, env(safe-area-inset-left)); right: max(.75rem, env(safe-area-inset-right)); top: calc(100% + .35rem); max-height: min(60dvh, 520px); }
     }
 
     @media (max-width: 430px) {
-      .topbar { gap: .45rem; }
+      .topbar { grid-template-columns: auto minmax(0, 1fr) auto; gap: .55rem; }
+      .mobile-menu { grid-column: 1; grid-row: 1; }
+      .toolbar { grid-column: 3; grid-row: 1; }
+      .search-wrap { grid-column: 1 / -1; grid-row: 2; width: 100%; }
       .search-input { padding-left: 2.25rem; }
       .hero-main { padding: 1.15rem; }
       .bar-row { grid-template-columns: 68px 1fr 45px; font-size: .78rem; }
@@ -687,7 +729,8 @@
   <script src="vendor/supabase.js"></script>
 </head>
 <body>
-  <div class="app-shell">
+  <div class="app-shell" id="appShell">
+    <a class="skip-link" href="#mainContent">Zum Lerninhalt springen</a>
     <aside class="sidebar" id="sidebar" aria-label="Hauptnavigation">
       <div class="brand">
         <div class="brand-mark" aria-hidden="true">LM</div>
@@ -700,24 +743,29 @@
         <div class="progress-track" aria-hidden="true"><div class="progress-bar" id="sidebarProgressBar"></div></div>
       </div>
     </aside>
+    <div class="nav-scrim" id="navScrim" hidden aria-hidden="true"></div>
 
     <div class="main-shell">
       <header class="topbar">
         <button class="icon-button mobile-menu" id="menuButton" aria-label="Navigation öffnen" aria-controls="sidebar" aria-expanded="false">☰</button>
         <div class="search-wrap">
-          <span class="search-glyph" aria-hidden="true">⌕</span>
-          <label class="sr-only" for="globalSearch">Lernwerk durchsuchen</label>
-          <input class="search-input" id="globalSearch" type="search" placeholder="Konzepte, Formeln, Symbole, Assignments …" autocomplete="off">
-          <div class="search-results" id="searchResults" hidden></div>
+          <div class="search-field">
+            <span class="search-glyph" aria-hidden="true">⌕</span>
+            <label class="sr-only" for="globalSearch">Lernwerk durchsuchen</label>
+            <input class="search-input" id="globalSearch" type="search" placeholder="Konzepte, Formeln, Symbole, Assignments …" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="searchResults" aria-expanded="false">
+          </div>
+          <div class="search-results" id="searchResults" role="listbox" aria-label="Suchergebnisse" hidden></div>
+          <div class="sr-only" id="searchStatus" role="status" aria-live="polite"></div>
         </div>
         <div class="toolbar">
           <button class="icon-button hide-mobile" id="notesQuickButton" aria-label="Notizen öffnen">✎</button>
           <button class="icon-button account-button" id="accountButton" data-cloud-status="local" aria-label="Konto und Synchronisation öffnen">♙</button>
+          <span class="sr-only" id="cloudStatusMessage" role="status" aria-live="polite"></span>
           <button class="icon-button" id="themeButton" aria-label="Farbschema wechseln">☼</button>
         </div>
       </header>
 
-      <main id="mainContent">
+      <main id="mainContent" tabindex="-1">
         <section class="view" id="view-dashboard" data-view="dashboard"></section>
         <section class="view" id="view-path" data-view="path" hidden></section>
         <section class="view" id="view-concepts" data-view="concepts" hidden></section>
@@ -739,6 +787,7 @@
     </div>
   </div>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <div class="sr-only" id="viewStatus" role="status" aria-live="polite"></div>
 
   <script>
     "use strict";
@@ -1283,6 +1332,10 @@
     let toastTimer;
     let installPrompt = null;
     let localGeneration = 0;
+    let modalInvoker = null;
+    let searchItems = [];
+    let activeSearchIndex = -1;
+    const routeScrollPositions = new Map();
     const cloud = {client:null,session:null,configured:false,status:"local",syncing:false,retryTimer:null};
 
     const esc = value => String(value ?? "").replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -1308,6 +1361,7 @@
       updateProgressUI();
     }
     function toast(message){ const el=document.getElementById("toast"); el.textContent=message; el.classList.add("show"); clearTimeout(toastTimer); toastTimer=setTimeout(()=>el.classList.remove("show"),2600); }
+    function announceViewStatus(message){const el=document.getElementById("viewStatus");if(!el||!message)return;el.textContent="";requestAnimationFrame(()=>{el.textContent=message})}
     function sourceAnchor(id, suffix=""){const s=SOURCES[id];if(!s)return "";const page=suffix.match(/S\.\s*(\d+)/)?.[1]||"";return `<button class="source-link" type="button" data-source-id="${esc(id)}" data-source-page="${page}">↗ ${esc(s.label)}${suffix?" · "+esc(suffix):""}</button>`}
     function getFormulaRef(id){ return FORMULA_REFS[id.replaceAll("-","_")]||""; }
     function levelLabel(level){ return ["Neu","Gesehen","Erklärt","Angewandt","Zeitversetzt sicher"][level]||"Neu"; }
@@ -1317,8 +1371,8 @@
     function updateProgressUI(){ const p=overallProgress(); const label=document.getElementById("sidebarProgressLabel"); const bar=document.getElementById("sidebarProgressBar"); if(label) label.textContent=p+"%"; if(bar) bar.style.width=p+"%"; }
     function toggleBookmark(type,id,focusSelector=""){ const key=type+":"+id; user.bookmarks=user.bookmarks.includes(key)?user.bookmarks.filter(x=>x!==key):[...user.bookmarks,key]; saveUser(true); toast(user.bookmarks.includes(key)?"Gespeichert":"Lesezeichen entfernt"); renderCurrent(); if(focusSelector)document.querySelector(focusSelector)?.focus(); }
     function isBookmarked(type,id){ return user.bookmarks.includes(type+":"+id); }
-    function setConceptLevel(id,level){ user.conceptLevels[id]=Math.max(0,Math.min(4,Number(level))); saveUser(true); renderCurrent(); }
-    function markLabDone(id){ user.labDone[id]=!user.labDone[id]; saveUser(true); toast(user.labDone[id]?"Lab als angewandt markiert":"Lab-Markierung entfernt"); renderCurrent(); }
+    function setConceptLevel(id,level){ const next=Math.max(0,Math.min(4,Number(level))); user.conceptLevels[id]=next; saveUser(true); renderCurrent(); document.querySelector(`[data-level="${next}"]`)?.focus(); }
+    function markLabDone(id){ user.labDone[id]=!user.labDone[id]; saveUser(true); toast(user.labDone[id]?"Lab als angewandt markiert":"Lab-Markierung entfernt"); renderCurrent(); document.getElementById("labDoneButton")?.focus(); }
 
     function stateJson(value){return JSON.stringify(value)}
     function newerDiagnostic(a,b){
@@ -1351,7 +1405,7 @@
       const button=document.getElementById("accountButton");if(!button)return;
       const defaults={local:"Nur lokale Speicherung",signedout:"Anmelden und synchronisieren",syncing:"Synchronisierung läuft",synced:"Mit Supabase synchronisiert",offline:"Offline – Änderungen bleiben lokal",error:"Synchronisierung prüfen"};
       const glyphs={local:"○",signedout:"♙",syncing:"↻",synced:"✓",offline:"↯",error:"!"};
-      button.dataset.cloudStatus=status;button.textContent=glyphs[status]||"♙";button.setAttribute("aria-label",label||defaults[status]||"Konto und Synchronisation");
+      const message=label||defaults[status]||"Konto und Synchronisation";button.dataset.cloudStatus=status;button.textContent=glyphs[status]||"♙";button.setAttribute("aria-label",message);const live=document.getElementById("cloudStatusMessage");if(live&&["synced","offline","error"].includes(status))live.textContent=message;
     }
     function scheduleCloudSync(delay=900){
       if(!cloud.configured||!cloud.session||!activeUserId)return;
@@ -1450,8 +1504,8 @@
         openModal("Konto & Synchronisation","Lokaler Modus",`<div class="callout accent"><strong>Die Lernhilfe funktioniert vollständig lokal.</strong> Für die Cloud-Synchronisation fehlen noch die Supabase-Projektwerte.</div>${installHelpHtml()}`);bindInstallButton();return;
       }
       if(!cloud.session){
-        openModal("Anmelden","Geräteübergreifendes Lernen",`<p class="muted">Melde dich mit dem im Supabase-Dashboard angelegten Konto an. Registrierung ist bewusst deaktiviert.</p><form id="loginForm"><label class="field"><span>E-Mail</span><input class="input" id="loginEmail" type="email" autocomplete="email" required></label><label class="field" style="margin-top:.7rem"><span>Passwort</span><input class="input" id="loginPassword" type="password" autocomplete="current-password" required></label><button class="button primary" id="loginButton" type="submit" style="margin-top:1rem">Anmelden</button></form><div id="loginFeedback" class="muted small" style="margin-top:.7rem"></div><div style="margin-top:1rem">${installHelpHtml()}</div>`);
-        document.getElementById("loginForm").onsubmit=async event=>{event.preventDefault();const button=document.getElementById("loginButton"),feedback=document.getElementById("loginFeedback");button.disabled=true;feedback.textContent="Anmeldung läuft …";const {data,error}=await cloud.client.auth.signInWithPassword({email:document.getElementById("loginEmail").value.trim(),password:document.getElementById("loginPassword").value});if(error){feedback.textContent="Anmeldung fehlgeschlagen. Prüfe E-Mail und Passwort.";button.disabled=false;return}closeModal();await activateSessionUser(data.session);toast("Angemeldet – Lernstand wird synchronisiert")};
+        openModal("Anmelden","Geräteübergreifendes Lernen",`<p class="muted">Melde dich mit dem im Supabase-Dashboard angelegten Konto an. Registrierung ist bewusst deaktiviert.</p><form id="loginForm"><label class="field"><span>E-Mail</span><input class="input" id="loginEmail" type="email" autocomplete="email" required></label><label class="field" style="margin-top:.7rem"><span>Passwort</span><input class="input" id="loginPassword" type="password" autocomplete="current-password" required></label><button class="button primary" id="loginButton" type="submit" style="margin-top:1rem">Anmelden</button></form><div id="loginFeedback" class="muted small" role="status" aria-live="polite" style="margin-top:.7rem"></div><div style="margin-top:1rem">${installHelpHtml()}</div>`);
+        document.getElementById("loginForm").onsubmit=async event=>{event.preventDefault();const button=document.getElementById("loginButton"),feedback=document.getElementById("loginFeedback");button.disabled=true;feedback.setAttribute("role","status");feedback.textContent="Anmeldung läuft …";const {data,error}=await cloud.client.auth.signInWithPassword({email:document.getElementById("loginEmail").value.trim(),password:document.getElementById("loginPassword").value});if(error){feedback.setAttribute("role","alert");feedback.textContent="Anmeldung fehlgeschlagen. Prüfe E-Mail und Passwort.";button.disabled=false;return}closeModal();await activateSessionUser(data.session);toast("Angemeldet – Lernstand wird synchronisiert")};
         bindInstallButton();return;
       }
       const meta=readSyncMeta();
@@ -1479,28 +1533,39 @@
     function registerPwa(){if("serviceWorker" in navigator&&location.protocol.startsWith("http"))navigator.serviceWorker.register("./sw.js").catch(()=>{})}
 
     function initNav(){
-      document.getElementById("navList").innerHTML=NAV_ITEMS.map(([id,icon,label])=>`<button class="nav-button" data-nav="${id}" aria-label="${esc(label)}" aria-current="false"><span class="nav-icon" aria-hidden="true">${icon}</span><span class="nav-label">${label}</span></button>`).join("");
-      document.getElementById("navList").addEventListener("click",e=>{ const b=e.target.closest("[data-nav]"); if(b) navigate(b.dataset.nav); });
+      document.getElementById("navList").innerHTML=NAV_ITEMS.map(([id,icon,label])=>`<a class="nav-button" href="#${id}" data-nav="${id}"><span class="nav-icon" aria-hidden="true">${icon}</span><span class="nav-label">${label}</span></a>`).join("");
+      document.getElementById("navList").addEventListener("click",e=>{const link=e.target.closest("[data-nav]");if(!link||e.button!==0||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;e.preventDefault();navigate(link.dataset.nav)});
     }
-    const mobileNavMedia=window.matchMedia("(max-width: 900px)");
+    const mobileNavMedia=window.matchMedia("(max-width: 1180px)");
+    function focusableWithin(root){return [...root.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),summary,[tabindex]:not([tabindex="-1"])')].filter(el=>!el.hidden&&!el.closest('[hidden]')&&!el.inert)}
+    function trapFocus(event,root){if(event.key!=="Tab")return;const items=focusableWithin(root);if(!items.length){event.preventDefault();root.focus?.();return}const first=items[0],last=items[items.length-1],inside=root.contains(document.activeElement);if(!inside){event.preventDefault();(event.shiftKey?last:first).focus()}else if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus()}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus()}}
     function setMobileNav(open=false,restoreFocus=true){
-      const sidebar=document.getElementById("sidebar"),menu=document.getElementById("menuButton"),mainShell=document.querySelector(".main-shell"),mobile=mobileNavMedia.matches,show=mobile&&open;
-      const shouldRestore=mobile&&restoreFocus&&sidebar.contains(document.activeElement);
-      sidebar.classList.toggle("is-open",show);menu.setAttribute("aria-expanded",String(show));sidebar.inert=mobile&&!show;mainShell.inert=show;
-      if(mobile&&!show)sidebar.setAttribute("aria-hidden","true");else sidebar.removeAttribute("aria-hidden");
+      const sidebar=document.getElementById("sidebar"),menu=document.getElementById("menuButton"),mainShell=document.querySelector(".main-shell"),scrim=document.getElementById("navScrim"),mobile=mobileNavMedia.matches,show=mobile&&open;
+      const shouldRestore=restoreFocus&&sidebar.contains(document.activeElement);
+      sidebar.classList.toggle("is-open",show);menu.setAttribute("aria-expanded",String(show));sidebar.inert=mobile&&!show;mainShell.inert=show;scrim.hidden=!show;document.body.classList.toggle("nav-open",show);
+      if(mobile){sidebar.setAttribute("role","dialog");sidebar.setAttribute("aria-modal","true");if(!show)sidebar.setAttribute("aria-hidden","true");else sidebar.removeAttribute("aria-hidden")}else{sidebar.removeAttribute("role");sidebar.removeAttribute("aria-modal");sidebar.removeAttribute("aria-hidden");sidebar.inert=false;mainShell.inert=false}
       if(show)requestAnimationFrame(()=>document.getElementById("sidebarCloseButton").focus());
-      else if(shouldRestore)menu.focus();
+      else if(shouldRestore)requestAnimationFrame(()=>{const target=mobile?menu:sidebar.querySelector('[aria-current="page"]');target?.focus()});
     }
-    function navigate(view,detail=null){
-      appState.view=view; appState.detail=detail; user.lastView=view; saveUser();
+    function routeHash(view,detail=null){return `#${detail?`${view}/${detail.type}/${detail.id}`:view}`}
+    function routeKey(view=appState.view,detail=appState.detail){return detail?`${view}/${detail.type}/${detail.id}`:view}
+    function routeFromLocation(){const raw=location.hash.slice(1);if(!raw){const saved=NAV_ITEMS.some(x=>x[0]===user.lastView)?user.lastView:"dashboard";return{view:saved,detail:null}}const [view,type,id]=raw.split("/");if(view==="detail"&&type&&id)return{view,detail:{type,id}};if(NAV_ITEMS.some(x=>x[0]===view))return{view,detail:null};return{view:"dashboard",detail:null}}
+    function updateRouteMetadata(){const main=document.getElementById("mainContent"),active=document.querySelector(`.view[data-view="${appState.view}"]`),heading=active?.querySelector("h1");document.querySelectorAll("#activeViewTitle").forEach(title=>title.removeAttribute("id"));if(heading){heading.id="activeViewTitle";main.setAttribute("aria-labelledby",heading.id);document.title=`${heading.textContent.trim()} – CS336 Lernwerk`}else{main.removeAttribute("aria-labelledby");document.title="CS336 Lernwerk – Language Models from Scratch"}}
+    function navigate(view,detail=null,{historyMode="push",focusMain=true,restoreScroll=false}={}){
+      const previousKey=routeKey();if(previousKey!==routeKey(view,detail))routeScrollPositions.set(previousKey,window.scrollY);
+      appState.view=view; appState.detail=detail; if(view!=="detail")user.lastView=view; saveUser();
       document.querySelectorAll(".view").forEach(v=>v.hidden=v.dataset.view!==view);
-      document.querySelectorAll("[data-nav]").forEach(b=>{ const active=b.dataset.nav===view; b.classList.toggle("is-active",active); b.setAttribute("aria-current",active?"page":"false"); });
+      document.querySelectorAll("[data-nav]").forEach(link=>{const active=link.dataset.nav===view;link.classList.toggle("is-active",active);if(active)link.setAttribute("aria-current","page");else link.removeAttribute("aria-current")});
       setMobileNav(false);
-      renderCurrent(); window.scrollTo({top:0,behavior:"smooth"}); location.hash=detail?`${view}/${detail.type}/${detail.id}`:view;
+      renderCurrent();
+      const nextKey=routeKey(view,detail),hash=routeHash(view,detail);if(historyMode==="push"&&location.hash!==hash)history.pushState({route:nextKey,fromRoute:previousKey},"",hash);else if(historyMode==="replace")history.replaceState({route:nextKey,fromRoute:history.state?.fromRoute||null},"",hash);
+      const targetTop=restoreScroll?(routeScrollPositions.get(routeKey(view,detail))||0):0,reduced=window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      requestAnimationFrame(()=>{window.scrollTo({top:targetTop,behavior:restoreScroll||reduced?"auto":"smooth"});if(focusMain)document.getElementById("mainContent").focus({preventScroll:true})});
     }
+    function handleHistoryNavigation(){const route=routeFromLocation();if(routeKey(route.view,route.detail)===routeKey())return;navigate(route.view,route.detail,{historyMode:"none",focusMain:true,restoreScroll:true})}
     function renderCurrent(){
       const renders={dashboard:renderDashboard,path:renderPath,concepts:renderConcepts,labs:renderLabs,formulas:renderFormulas,assignments:renderAssignments,quiz:renderQuiz,glossary:renderGlossary,notes:renderNotes,detail:renderDetail};
-      (renders[appState.view]||renderDashboard)(); updateProgressUI();
+      (renders[appState.view]||renderDashboard)(); updateProgressUI(); updateRouteMetadata();
     }
     function viewHeader(eyebrow,title,lede){ return `<div class="view-header"><p class="eyebrow">${eyebrow}</p><h1>${title}</h1><p class="lede">${lede}</p></div>`; }
     function progressRingText(m){ const p=moduleProgress(m); return `<span class="badge ${p===100?"accent":p>0?"primary":""}">${p}% Kompetenz</span>`; }
@@ -1543,6 +1608,7 @@
       bindOpeners(el); el.querySelectorAll("[data-go]").forEach(b=>b.onclick=()=>navigate(b.dataset.go));
       document.getElementById("continueButton").onclick=()=>navigate("detail",{type:"module",id:m.id});
       ["diagnosticButton","diagnosticInlineButton","diagnosticAgain"].forEach(id=>document.getElementById(id)?.addEventListener("click",openDiagnostic));
+      updateRouteMetadata();
     }
     function diagnosticSummaryHtml(){ const vals=Object.entries(user.diagnostic.scores).sort((a,b)=>a[1]-b[1]); const names={shapes:"Tensorformen",math:"Numerik",grad:"Gradienten",pytorch:"PyTorch",transformer:"Transformer",systems:"Systems",scaling:"Scaling",data:"Daten",eval:"Evaluation",rl:"RL"}; return `<div class="panel"><div class="section-row" style="margin:0 0 1rem"><div><p class="eyebrow">Diagnose</p><h2>Priorität: ${vals.slice(0,3).map(([k])=>names[k]).join(" · ")}</h2><p>Konzentriere dich zuerst auf die niedrigsten Bereiche; bekannte Module kannst du schneller durch Selbstchecks passieren.</p></div><button class="button small" id="diagnosticAgain">Neu prüfen</button></div><div class="stage-metric">${vals.slice(0,6).map(([k,v])=>`<div class="metric"><strong>${v}%</strong><span>${names[k]||k}</span></div>`).join("")}</div></div>`; }
 
@@ -1551,8 +1617,8 @@
     function renderConcepts(){
       const q=norm(appState.conceptQuery); const filtered=CONCEPTS.filter(c=>(appState.conceptFilter==="all"||c.module===appState.conceptFilter)&&(!q||norm([c.title,c.summary,c.mental,c.details,c.pitfalls].flat().join(" ")).includes(q)));
       const groups=MODULES.map(m=>({m,items:filtered.filter(c=>c.module===m.id)})).filter(group=>group.items.length);
-      const el=document.getElementById("view-concepts"); el.innerHTML=viewHeader("Konzepte","Die Schicht unter dem Code","Jede Erklärung startet mit einem mentalen Modell, vertieft die Mechanik und endet mit Abruf- und Transferfragen.")+`<div class="filters"><input class="input" id="conceptSearch" value="${esc(appState.conceptQuery)}" placeholder="Konzepte durchsuchen …" aria-label="Konzepte durchsuchen"><label class="sr-only" for="conceptModuleFilter">Nach Modul filtern</label><select class="select filter-select" id="conceptModuleFilter"><option value="all">Alle Module</option>${MODULES.map(m=>`<option value="${m.id}" ${appState.conceptFilter===m.id?"selected":""}>${esc(m.n+" · "+m.title)}</option>`).join("")}</select></div><p class="muted small">${filtered.length} von ${CONCEPTS.length} Konzepten</p>${groups.length?`<div class="accordion-list">${groups.map(({m,items})=>{const open=q||appState.conceptFilter!=="all"||appState.openConceptModules.has(m.id)?" open":"";return `<details class="group-disclosure" data-concept-module="${m.id}"${open}><summary><span class="accordion-summary-main"><span class="accordion-heading"><span class="module-index">${m.n}</span><span class="accordion-title">${esc(m.title)}</span><span class="badge">${items.length} Konzepte</span></span><span class="accordion-preview">${esc(m.outcome)}</span></span><span class="accordion-chevron" aria-hidden="true">⌄</span></summary><p class="group-description">${esc(m.description)}</p><div class="collection-list">${items.map(c=>conceptCard(c)).join("")}</div></details>`}).join("")}</div>`:`<div class="callout"><strong>Kein Treffer.</strong> Probiere englische Begriffe, Symbole oder die globale Suche.</div>`}`;
-      document.getElementById("conceptSearch").oninput=e=>{const start=e.target.selectionStart,end=e.target.selectionEnd;appState.conceptQuery=e.target.value;renderConcepts();restoreSearchFocus("conceptSearch",start,end)}; document.getElementById("conceptModuleFilter").onchange=e=>{appState.conceptFilter=e.target.value;renderConcepts()}; bindDisclosureState(el,"[data-concept-module]",appState.openConceptModules,"conceptModule");bindOpeners(el);
+      const el=document.getElementById("view-concepts"); el.innerHTML=viewHeader("Konzepte","Die Schicht unter dem Code","Jede Erklärung startet mit einem mentalen Modell, vertieft die Mechanik und endet mit Abruf- und Transferfragen.")+`<div class="filters"><input class="input" id="conceptSearch" value="${esc(appState.conceptQuery)}" placeholder="Konzepte durchsuchen …" aria-label="Konzepte durchsuchen"><label class="sr-only" for="conceptModuleFilter">Nach Modul filtern</label><select class="select filter-select" id="conceptModuleFilter"><option value="all">Alle Module</option>${MODULES.map(m=>`<option value="${m.id}" ${appState.conceptFilter===m.id?"selected":""}>${esc(m.n+" · "+m.title)}</option>`).join("")}</select></div><p class="muted small filter-status">${filtered.length} von ${CONCEPTS.length} Konzepten</p>${groups.length?`<div class="accordion-list">${groups.map(({m,items})=>{const open=q||appState.conceptFilter!=="all"||appState.openConceptModules.has(m.id)?" open":"";return `<details class="group-disclosure" data-concept-module="${m.id}"${open}><summary><span class="accordion-summary-main"><span class="accordion-heading"><span class="module-index">${m.n}</span><span class="accordion-title">${esc(m.title)}</span><span class="badge">${items.length} Konzepte</span></span><span class="accordion-preview">${esc(m.outcome)}</span></span><span class="accordion-chevron" aria-hidden="true">⌄</span></summary><p class="group-description">${esc(m.description)}</p><div class="collection-list">${items.map(c=>conceptCard(c)).join("")}</div></details>`}).join("")}</div>`:`<div class="callout"><strong>Kein Treffer.</strong> Probiere englische Begriffe, Symbole oder die globale Suche.</div>`}`;
+      document.getElementById("conceptSearch").oninput=e=>{const start=e.target.selectionStart,end=e.target.selectionEnd;appState.conceptQuery=e.target.value;renderConcepts();restoreSearchFocus("conceptSearch",start,end);announceViewStatus(document.querySelector("#view-concepts .filter-status")?.textContent||"")}; document.getElementById("conceptModuleFilter").onchange=e=>{appState.conceptFilter=e.target.value;renderConcepts();document.getElementById("conceptModuleFilter")?.focus();announceViewStatus(document.querySelector("#view-concepts .filter-status")?.textContent||"")}; bindDisclosureState(el,"[data-concept-module]",appState.openConceptModules,"conceptModule");bindOpeners(el);updateRouteMetadata();
     }
 
     function renderLabs(){ const el=document.getElementById("view-labs"); el.innerHTML=viewHeader("Interaktive Lernlabore","Erst vorhersagen, dann verändern","Die Labs sind keine Animation zum Anschauen. Formuliere zuerst deine Erwartung, ändere genau einen Parameter und erkläre das Resultat.")+`<div class="callout accent"><strong>Lernschleife:</strong> Vorhersagen → Parameter ändern → Ergebnis beobachten → mit Formel erklären → auf einen neuen Fall übertragen.</div><div class="collection-list" style="margin-top:1rem">${LABS.map(labCard).join("")}</div>`; bindOpeners(el); }
@@ -1561,40 +1627,39 @@
       const cats=["all",...new Set(FORMULAS.map(f=>f.cat))]; const q=norm(appState.formulaQuery); const el=document.getElementById("view-formulas");
       const filteredF=FORMULAS.filter(f=>(appState.formulaFilter==="all"||f.cat===appState.formulaFilter)&&(!q||norm(Object.values(f).flat(3).join(" ")).includes(q)));
       const filteredS=SYMBOLS.filter(s=>!q||(q.length<=2?norm(s.symbol).includes(q):norm(Object.values(s).join(" ")).includes(q)));
-      el.innerHTML=viewHeader("Tafelwerk","Formeln & Symbole mit Kontext","Nicht nur kopieren: lies jede Formel, prüfe Dimensionen, verstehe ihre Einsatzgrenze und teste dich selbst.")+`<div class="filter-row" style="justify-content:flex-start;margin-bottom:1rem"><button class="seg-button button ${appState.formulaMode==="formulas"?"primary":""}" data-formula-mode="formulas" aria-pressed="${appState.formulaMode==="formulas"}">Σ Formeln</button><button class="seg-button button ${appState.formulaMode==="symbols"?"primary":""}" data-formula-mode="symbols" aria-pressed="${appState.formulaMode==="symbols"}">α Symbole</button></div><div class="filters"><input class="input" id="formulaSearch" value="${esc(appState.formulaQuery)}" placeholder="z. B. d_model, ∇, Perplexity, 6ND …" aria-label="Formeln und Symbole durchsuchen">${appState.formulaMode==="formulas"?`<label class="sr-only" for="formulaCategoryFilter">Nach Kategorie filtern</label><select class="select filter-select" id="formulaCategoryFilter">${cats.map(cat=>`<option value="${esc(cat)}" ${appState.formulaFilter===cat?"selected":""}>${cat==="all"?"Alle Kategorien":esc(cat)}</option>`).join("")}</select>`:`<span class="muted small">${filteredS.length} Symbole</span>`}</div>${appState.formulaMode==="formulas"?`<p class="small muted">${filteredF.length} Formeln · Die vollständige Formel bleibt schon im geschlossenen Zustand sichtbar.</p><div class="accordion-list">${filteredF.map(formulaAccordion).join("")}</div>`:`<p class="small muted">Ein Symbol kann je nach Kapitel etwas anderes bedeuten. Deshalb bleibt sein Kontext sichtbar.</p><div class="accordion-list">${filteredS.map(symbolAccordion).join("")}</div>`}`;
-      el.querySelectorAll("[data-formula-mode]").forEach(b=>b.onclick=()=>{appState.formulaMode=b.dataset.formulaMode;renderFormulas()}); document.getElementById("formulaCategoryFilter")?.addEventListener("change",e=>{appState.formulaFilter=e.target.value;renderFormulas()});
-      document.getElementById("formulaSearch").oninput=e=>{const start=e.target.selectionStart,end=e.target.selectionEnd;appState.formulaQuery=e.target.value;renderFormulas();restoreSearchFocus("formulaSearch",start,end)}; bindDisclosureState(el,"[data-formula-disclosure]",appState.openFormulaIds,"formulaDisclosure");bindDisclosureState(el,"[data-symbol-disclosure]",appState.openSymbolIds,"symbolDisclosure");bindOpeners(el);
+      const resultCount=appState.formulaMode==="formulas"?filteredF.length:filteredS.length;
+      el.innerHTML=viewHeader("Tafelwerk","Formeln & Symbole mit Kontext","Nicht nur kopieren: lies jede Formel, prüfe Dimensionen, verstehe ihre Einsatzgrenze und teste dich selbst.")+`<div class="filter-row" style="justify-content:flex-start;margin-bottom:1rem"><button class="seg-button button ${appState.formulaMode==="formulas"?"primary":""}" data-formula-mode="formulas" aria-pressed="${appState.formulaMode==="formulas"}">Σ Formeln</button><button class="seg-button button ${appState.formulaMode==="symbols"?"primary":""}" data-formula-mode="symbols" aria-pressed="${appState.formulaMode==="symbols"}">α Symbole</button></div><div class="filters"><input class="input" id="formulaSearch" value="${esc(appState.formulaQuery)}" placeholder="z. B. d_model, ∇, Perplexity, 6ND …" aria-label="Formeln und Symbole durchsuchen">${appState.formulaMode==="formulas"?`<label class="sr-only" for="formulaCategoryFilter">Nach Kategorie filtern</label><select class="select filter-select" id="formulaCategoryFilter">${cats.map(cat=>`<option value="${esc(cat)}" ${appState.formulaFilter===cat?"selected":""}>${cat==="all"?"Alle Kategorien":esc(cat)}</option>`).join("")}</select>`:""}</div><p class="small muted filter-status">${resultCount} ${appState.formulaMode==="formulas"?"Formeln":"Symbole"}${appState.formulaMode==="formulas"?" · Die vollständige Formel bleibt schon im geschlossenen Zustand sichtbar.":" · Ein Symbol kann je nach Kapitel etwas anderes bedeuten."}</p>${resultCount?(appState.formulaMode==="formulas"?`<div class="accordion-list">${filteredF.map(formulaAccordion).join("")}</div>`:`<div class="accordion-list">${filteredS.map(symbolAccordion).join("")}</div>`):`<div class="callout"><strong>Kein Treffer.</strong> Prüfe Schreibweise oder entferne einen Filter.</div>`}`;
+      el.querySelectorAll("[data-formula-mode]").forEach(b=>b.onclick=()=>{const mode=b.dataset.formulaMode;appState.formulaMode=mode;renderFormulas();document.querySelector(`[data-formula-mode="${mode}"]`)?.focus();announceViewStatus(document.querySelector("#view-formulas .filter-status")?.textContent||"")}); document.getElementById("formulaCategoryFilter")?.addEventListener("change",e=>{appState.formulaFilter=e.target.value;renderFormulas();document.getElementById("formulaCategoryFilter")?.focus();announceViewStatus(document.querySelector("#view-formulas .filter-status")?.textContent||"")});
+      document.getElementById("formulaSearch").oninput=e=>{const start=e.target.selectionStart,end=e.target.selectionEnd;appState.formulaQuery=e.target.value;renderFormulas();restoreSearchFocus("formulaSearch",start,end);announceViewStatus(document.querySelector("#view-formulas .filter-status")?.textContent||"")}; bindDisclosureState(el,"[data-formula-disclosure]",appState.openFormulaIds,"formulaDisclosure");bindDisclosureState(el,"[data-symbol-disclosure]",appState.openSymbolIds,"symbolDisclosure");bindOpeners(el);updateRouteMetadata();
     }
 
     function renderAssignments(){ const el=document.getElementById("view-assignments"); el.innerHTML=viewHeader("Assignment Coach","Selbst lösen, gezielt Unterstützung holen","Die KI-Regeln des Kurses erlauben konzeptuelle Hilfe, nicht die Implementierung. Deshalb entsperrt eine eigene Hypothese nur allgemeine, gestufte Denkhinweise.")+`<div class="callout warning"><strong>Lernmodus – keine Abgabelösungen.</strong> Der Coach liefert Voraussetzungen, Invarianten, Tests und Reflexionsfragen. Code und konkrete Deliverables bleiben deine Arbeit.</div><div class="collection-list" style="margin-top:1rem">${ASSIGNMENTS.map(assignmentCard).join("")}</div>`; bindOpeners(el); }
 
     function renderQuiz(){ const el=document.getElementById("view-quiz"); el.innerHTML=viewHeader("Abruftraining","Kannst du es ohne Vorlage erklären?","Beantworte erst aus dem Gedächtnis. Feedback erklärt den Grund, nicht nur richtig oder falsch.")+`<div class="quiz-wrap"><div class="panel" style="margin-bottom:1rem"><h2>12 Kernfragen</h2><p class="muted">Die Fragen decken A1 bis A5 ab. Dein Resultat verändert nicht automatisch den Kompetenzstatus – entscheide danach bewusst.</p><button class="button" id="flashcardButton">Stattdessen Karteikarten</button></div>${QUIZ.map((q,i)=>quizQuestionHtml(q,i,"quiz")).join("")}<button class="button primary" id="checkQuiz" style="margin-top:1rem">Antworten prüfen</button><div id="quizResult" aria-live="polite"></div></div>`; document.getElementById("checkQuiz").onclick=()=>gradeQuestions(QUIZ,"quiz",document.getElementById("quizResult")); document.getElementById("flashcardButton").onclick=openFlashcards; }
-    function quizQuestionHtml(q,i,prefix){ return `<fieldset class="question"><legend><strong>${i+1}. ${esc(q.q)}</strong></legend><div class="option-list">${q.opts.map((o,j)=>`<label class="option"><input type="radio" name="${prefix}-${i}" value="${j}"><span>${esc(o)}</span></label>`).join("")}</div><div class="feedback" id="${prefix}-feedback-${i}" hidden></div></fieldset>`; }
+    function quizQuestionHtml(q,i,prefix){ return `<fieldset class="question"><legend><strong>${i+1}. ${esc(q.q)}</strong></legend><div class="option-list">${q.opts.map((o,j)=>`<label class="option"><input type="radio" name="${prefix}-${i}" value="${j}" ${prefix==="diag"&&j===0?"required":""}><span>${esc(o)}</span></label>`).join("")}</div><div class="feedback" id="${prefix}-feedback-${i}" hidden></div></fieldset>`; }
     function gradeQuestions(items,prefix,result){ let score=0; items.forEach((q,i)=>{const chosen=document.querySelector(`input[name="${prefix}-${i}"]:checked`);const good=chosen&&Number(chosen.value)===q.a;score+=good?1:0;const fb=document.getElementById(`${prefix}-feedback-${i}`);fb.hidden=false;fb.className="feedback "+(good?"good":"bad");fb.textContent=(good?"Richtig. ":"Noch nicht. ")+q.why;}); result.innerHTML=`<div class="callout ${score/items.length>=.75?"accent":"warning"}" style="margin-top:1rem"><strong>${score}/${items.length}</strong> richtig. ${score/items.length>=.75?"Erkläre jetzt drei Antworten laut ohne auf die Optionen zu schauen.":"Öffne die betroffenen Konzepte und beantworte die Frage später erneut."}</div>`; }
 
-    function renderGlossary(){ const q=norm(appState.glossaryQuery); const list=GLOSSARY.filter(g=>!q||norm(g.term+" "+g.def+" "+g.cat).includes(q)).sort((a,b)=>a.term.localeCompare(b.term,"de")); const el=document.getElementById("view-glossary"); el.innerHTML=viewHeader("Glossar","Abkürzungen und Fachbegriffe","Deutsch erklärt, englisch suchbar und nach Kurskontext gekennzeichnet.")+`<div class="filters"><input class="input" id="glossarySearch" value="${esc(appState.glossaryQuery)}" placeholder="Begriff oder Abkürzung …" aria-label="Glossar durchsuchen"><div class="muted small">${list.length} Begriffe</div></div><div class="accordion-list">${list.map(glossaryAccordion).join("")}</div>`; document.getElementById("glossarySearch").oninput=e=>{const start=e.target.selectionStart,end=e.target.selectionEnd;appState.glossaryQuery=e.target.value;renderGlossary();restoreSearchFocus("glossarySearch",start,end)}; bindDisclosureState(el,"[data-glossary-disclosure]",appState.openGlossaryIds,"glossaryDisclosure"); }
-    function renderNotes(){ const el=document.getElementById("view-notes"); const bookmarkedConcepts=user.bookmarks.filter(x=>x.startsWith("concept:")).map(x=>byId(CONCEPTS,x.split(":")[1])).filter(Boolean); const bookmarkedFormulas=user.bookmarks.filter(x=>x.startsWith("formula:")).map(x=>byId(FORMULAS,x.split(":")[1])).filter(Boolean); el.innerHTML=viewHeader("Dein Arbeitsgedächtnis","Notizen & Lesezeichen","Schreibe Fragen, Erklärversuche und Fehlannahmen auf. Änderungen bleiben offline verfügbar und werden nach dem Login zwischen deinen Geräten synchronisiert.")+`<div class="detail-layout"><div class="panel"><label class="field" for="notesArea"><span>Freie Notizen</span><textarea class="textarea" id="notesArea" style="min-height:420px" placeholder="Was kann ich noch nicht erklären? Welche Hypothese teste ich als Nächstes?">${esc(user.notes)}</textarea></label><div class="card-actions" style="margin-top:.7rem"><button class="button primary" id="saveNotes">Notizen speichern</button><button class="button" id="exportProgress">Fortschritt exportieren</button><label class="button ghost" for="importProgress" style="cursor:pointer">Importieren</label><input class="sr-only" id="importProgress" type="file" accept="application/json"></div></div><aside class="detail-aside"><div class="panel"><h3>Gespeicherte Konzepte</h3>${bookmarkedConcepts.length?bookmarkedConcepts.map(c=>`<button class="button ghost small" data-open-concept="${c.id}">${esc(c.title)}</button>`).join(" "):`<p class="muted small">Noch keine.</p>`}</div><div class="panel"><h3>Gespeicherte Formeln</h3>${bookmarkedFormulas.length?bookmarkedFormulas.map(f=>`<button class="button ghost small" data-open-formula="${f.id}">${esc(f.title)}</button>`).join(" "):`<p class="muted small">Noch keine.</p>`}</div><div class="panel"><h3>Reflexionsprompt</h3><p class="muted">„Ich dachte ___, beobachtete ___; deshalb ändere ich meine Erklärung zu ___.“</p></div></aside></div>`; const notesArea=document.getElementById("notesArea");let notesTimer;const persistNotes=()=>{clearTimeout(notesTimer);user.notes=notesArea.value;saveUser(true)};notesArea.oninput=()=>{clearTimeout(notesTimer);notesTimer=setTimeout(persistNotes,450)};notesArea.onblur=persistNotes;document.getElementById("saveNotes").onclick=()=>{persistNotes();toast("Notizen gespeichert")}; document.getElementById("exportProgress").onclick=exportProgress; document.getElementById("importProgress").onchange=importProgress; bindOpeners(el); }
+    function renderGlossary(){ const q=norm(appState.glossaryQuery); const list=GLOSSARY.filter(g=>!q||norm(g.term+" "+g.def+" "+g.cat).includes(q)).sort((a,b)=>a.term.localeCompare(b.term,"de")); const el=document.getElementById("view-glossary"); el.innerHTML=viewHeader("Glossar","Abkürzungen und Fachbegriffe","Deutsch erklärt, englisch suchbar und nach Kurskontext gekennzeichnet.")+`<div class="filters"><input class="input" id="glossarySearch" value="${esc(appState.glossaryQuery)}" placeholder="Begriff oder Abkürzung …" aria-label="Glossar durchsuchen"><div class="muted small filter-status">${list.length} Begriffe</div></div>${list.length?`<div class="accordion-list">${list.map(glossaryAccordion).join("")}</div>`:`<div class="callout"><strong>Kein Treffer.</strong> Probiere den englischen Begriff oder eine Abkürzung.</div>`}`; document.getElementById("glossarySearch").oninput=e=>{const start=e.target.selectionStart,end=e.target.selectionEnd;appState.glossaryQuery=e.target.value;renderGlossary();restoreSearchFocus("glossarySearch",start,end);announceViewStatus(document.querySelector("#view-glossary .filter-status")?.textContent||"")}; bindDisclosureState(el,"[data-glossary-disclosure]",appState.openGlossaryIds,"glossaryDisclosure");updateRouteMetadata(); }
+    function renderNotes(){ const el=document.getElementById("view-notes"); const bookmarkedConcepts=user.bookmarks.filter(x=>x.startsWith("concept:")).map(x=>byId(CONCEPTS,x.split(":")[1])).filter(Boolean); const bookmarkedFormulas=user.bookmarks.filter(x=>x.startsWith("formula:")).map(x=>byId(FORMULAS,x.split(":")[1])).filter(Boolean); el.innerHTML=viewHeader("Dein Arbeitsgedächtnis","Notizen & Lesezeichen","Schreibe Fragen, Erklärversuche und Fehlannahmen auf. Änderungen bleiben offline verfügbar und werden nach dem Login zwischen deinen Geräten synchronisiert.")+`<div class="detail-layout"><div class="panel"><label class="field" for="notesArea"><span>Freie Notizen</span><textarea class="textarea" id="notesArea" style="min-height:420px" placeholder="Was kann ich noch nicht erklären? Welche Hypothese teste ich als Nächstes?">${esc(user.notes)}</textarea></label><div class="card-actions" style="margin-top:.7rem"><button class="button primary" id="saveNotes">Notizen speichern</button><button class="button" id="exportProgress">Fortschritt exportieren</button><button class="button ghost" id="importProgressButton" type="button">Fortschritt importieren</button><input id="importProgress" type="file" accept="application/json" hidden></div></div><aside class="detail-aside"><div class="panel"><h3>Gespeicherte Konzepte</h3>${bookmarkedConcepts.length?bookmarkedConcepts.map(c=>`<button class="button ghost small" data-open-concept="${c.id}">${esc(c.title)}</button>`).join(" "):`<p class="muted small">Noch keine.</p>`}</div><div class="panel"><h3>Gespeicherte Formeln</h3>${bookmarkedFormulas.length?bookmarkedFormulas.map(f=>`<button class="button ghost small" data-open-formula="${f.id}">${esc(f.title)}</button>`).join(" "):`<p class="muted small">Noch keine.</p>`}</div><div class="panel"><h3>Reflexionsprompt</h3><p class="muted">„Ich dachte ___, beobachtete ___; deshalb ändere ich meine Erklärung zu ___.“</p></div></aside></div>`; const notesArea=document.getElementById("notesArea");let notesTimer;const persistNotes=()=>{clearTimeout(notesTimer);user.notes=notesArea.value;saveUser(true)};notesArea.oninput=()=>{clearTimeout(notesTimer);notesTimer=setTimeout(persistNotes,450)};notesArea.onblur=persistNotes;document.getElementById("saveNotes").onclick=()=>{persistNotes();toast("Notizen gespeichert")}; document.getElementById("exportProgress").onclick=exportProgress; document.getElementById("importProgressButton").onclick=()=>document.getElementById("importProgress").click(); document.getElementById("importProgress").onchange=importProgress; bindOpeners(el); }
 
     function renderDetail(){
-      const el=document.getElementById("view-detail"), d=appState.detail; if(!d){navigate("dashboard");return;}
-      if(d.type==="module") renderModuleDetail(el,byId(MODULES,d.id));
-      if(d.type==="concept") renderConceptDetail(el,byId(CONCEPTS,d.id));
-      if(d.type==="formula") renderFormulaDetail(el,byId(FORMULAS,d.id));
-      if(d.type==="assignment") renderAssignmentDetail(el,byId(ASSIGNMENTS,d.id));
-      if(d.type==="lab") renderLabDetail(el,byId(LABS,d.id));
+      const el=document.getElementById("view-detail"),d=appState.detail;if(!d){navigate("dashboard",null,{historyMode:"replace"});return}
+      const lookups={module:[MODULES,renderModuleDetail,"path"],concept:[CONCEPTS,renderConceptDetail,"concepts"],formula:[FORMULAS,renderFormulaDetail,"formulas"],assignment:[ASSIGNMENTS,renderAssignmentDetail,"assignments"],lab:[LABS,renderLabDetail,"labs"]},entry=lookups[d.type],item=entry&&byId(entry[0],d.id);
+      if(item){entry[1](el,item);return}
+      el.innerHTML=`${backButton(entry?.[2]||"dashboard","Zurück zur Übersicht")}<div class="view-header" style="margin-top:1rem"><p class="eyebrow">Nicht gefunden</p><h1>Dieser Lerninhalt existiert nicht.</h1><p class="lede">Der Link ist möglicherweise veraltet. Nutze die Navigation oder kehre zur Übersicht zurück.</p></div>`;bindBack(el);
     }
     function backButton(view,label){ return `<button class="button ghost small" data-back="${view}">← ${label}</button>`; }
-    function bindBack(el){ el.querySelectorAll("[data-back]").forEach(b=>b.onclick=()=>navigate(b.dataset.back)); }
+    function bindBack(el){ el.querySelectorAll("[data-back]").forEach(button=>button.onclick=()=>{const target=button.dataset.back;if(history.state?.fromRoute===target)history.back();else navigate(target,null,{historyMode:"replace",restoreScroll:true})}); }
 
-    function renderModuleDetail(el,m){ if(!m)return; const concepts=m.concepts.map(id=>byId(CONCEPTS,id)).filter(Boolean), labs=m.labs.map(id=>byId(LABS,id)).filter(Boolean); el.innerHTML=`${backButton("path","Lernpfad")}<div class="view-header" style="margin-top:1rem"><p class="eyebrow">Modul ${m.n} · ${esc(m.stage)}</p><h1>${esc(m.title)}</h1><p class="lede">${esc(m.description)}</p></div><div class="detail-layout"><div class="detail-body"><section class="panel detail-section"><h2>Was du danach können sollst</h2><div class="callout accent">${esc(m.outcome)}</div></section><section class="detail-section"><div class="section-row"><div><h2>Konzepte</h2><p>Nutze die Stufen bewusst: gesehen ist noch nicht beherrscht.</p></div></div><div class="collection-list">${concepts.map(c=>conceptCard(c)).join("")}</div></section>${labs.length?`<section class="detail-section"><div class="section-row"><div><h2>Passende Labs</h2><p>Vorhersage zuerst, Erklärung zuletzt.</p></div></div><div class="collection-list">${labs.map(labCard).join("")}</div></section>`:""}</div><aside class="detail-aside"><div class="panel"><h3>Readiness</h3><ul class="check-list">${m.prereqs.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></div><div class="panel"><h3>Quellen</h3><div style="display:grid;gap:.5rem">${m.sources.map(id=>sourceAnchor(id)).join("")}</div></div><div class="panel"><h3>Fortschritt</h3><strong style="font-size:1.6rem">${moduleProgress(m)}%</strong><div class="progress-track"><div class="progress-bar" style="width:${moduleProgress(m)}%"></div></div></div></aside></div>`; bindBack(el);bindOpeners(el); }
+    function renderModuleDetail(el,m){ if(!m)return; const concepts=m.concepts.map(id=>byId(CONCEPTS,id)).filter(Boolean), labs=m.labs.map(id=>byId(LABS,id)).filter(Boolean); el.innerHTML=`${backButton("path","Lernpfad")}<div class="view-header" style="margin-top:1rem"><p class="eyebrow">Modul ${m.n} · ${esc(m.stage)}</p><h1>${esc(m.title)}</h1><p class="lede">${esc(m.description)}</p></div><div class="detail-layout"><div class="detail-body"><section class="reading-section detail-section"><h2>Was du danach können sollst</h2><div class="callout accent">${esc(m.outcome)}</div></section><section class="detail-section"><div class="section-row"><div><h2>Konzepte</h2><p>Nutze die Stufen bewusst: gesehen ist noch nicht beherrscht.</p></div></div><div class="collection-list">${concepts.map(c=>conceptCard(c)).join("")}</div></section>${labs.length?`<section class="detail-section"><div class="section-row"><div><h2>Passende Labs</h2><p>Vorhersage zuerst, Erklärung zuletzt.</p></div></div><div class="collection-list">${labs.map(labCard).join("")}</div></section>`:""}</div><aside class="detail-aside"><div class="panel"><h3>Readiness</h3><ul class="check-list">${m.prereqs.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></div><div class="panel"><h3>Quellen</h3><div style="display:grid;gap:.5rem">${m.sources.map(id=>sourceAnchor(id)).join("")}</div></div><div class="panel"><h3>Fortschritt</h3><strong style="font-size:1.6rem">${moduleProgress(m)}%</strong><div class="progress-track"><div class="progress-bar" style="width:${moduleProgress(m)}%"></div></div></div></aside></div>`; bindBack(el);bindOpeners(el); }
 
-    function renderConceptDetail(el,c){ if(!c)return; const m=byId(MODULES,c.module), level=conceptLevel(c.id); el.innerHTML=`${backButton("concepts","Konzepte")}<div class="view-header" style="margin-top:1rem"><p class="eyebrow">${esc(m?.n||"")} · ${esc(m?.title||c.module)} · ${esc(c.level)}</p><h1>${esc(c.title)}</h1><p class="lede">${esc(c.summary)}</p></div><div class="detail-layout"><div class="detail-body"><section class="panel detail-section"><h2>Mentales Modell</h2><div class="callout accent">${esc(c.mental)}</div></section><section class="panel detail-section"><h2>Mechanik</h2>${c.details.map(p=>`<p>${p}</p>`).join("")}</section><section class="panel detail-section"><h2>Typische Fehlannahmen</h2><ul class="check-list">${c.pitfalls.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></section><section class="panel detail-section"><h2>Aktiver Selbstcheck</h2><p class="muted">Antworte laut oder schriftlich, bevor du weiterklickst.</p><ol>${c.checks.map(x=>`<li>${esc(x)}</li>`).join("")}</ol><label class="field"><span>Deine Erklärung in eigenen Worten</span><textarea class="textarea" id="conceptReflection" placeholder="Ohne Formel abzulesen: Ich erkläre es so …"></textarea></label><button class="button" id="appendReflection" style="margin-top:.6rem">Zu Notizen hinzufügen</button></section>${c.formulas.length?`<section class="detail-section"><h2>Verknüpfte Formeln</h2><div class="accordion-list">${c.formulas.map(id=>byId(FORMULAS,id)).filter(Boolean).map(formulaAccordion).join("")}</div></section>`:""}</div><aside class="detail-aside"><div class="panel"><h3>Kompetenzstufe</h3><p class="muted small">Wähle nur, was du belegen kannst.</p><div style="display:grid;gap:.4rem">${[0,1,2,3,4].map(i=>`<button class="button small ${level===i?"primary":"ghost"}" data-level="${i}">${i} · ${levelLabel(i)}</button>`).join("")}</div></div><div class="panel"><h3>Quellen</h3><div style="display:grid;gap:.5rem">${c.sources.map(id=>sourceAnchor(id)).join("")}</div></div><div class="panel"><button class="button ${isBookmarked("concept",c.id)?"primary":""}" id="bookmarkConcept">${isBookmarked("concept",c.id)?"★ Gespeichert":"☆ Speichern"}</button></div></aside></div>`; bindBack(el);bindDisclosureState(el,"[data-formula-disclosure]",appState.openFormulaIds,"formulaDisclosure");bindOpeners(el); el.querySelectorAll("[data-level]").forEach(b=>b.onclick=()=>setConceptLevel(c.id,b.dataset.level)); document.getElementById("bookmarkConcept").onclick=()=>toggleBookmark("concept",c.id,"#bookmarkConcept"); document.getElementById("appendReflection").onclick=()=>{const text=document.getElementById("conceptReflection").value.trim();if(!text){toast("Schreibe zuerst deinen Erklärversuch.");return;}user.notes+=`${user.notes?"\n\n":""}## ${c.title}\n${text}`;saveUser(true);toast("Erklärversuch zu Notizen hinzugefügt")}; }
+    function renderConceptDetail(el,c){ if(!c)return; const m=byId(MODULES,c.module), level=conceptLevel(c.id); el.innerHTML=`${backButton("concepts","Konzepte")}<div class="view-header" style="margin-top:1rem"><p class="eyebrow">${esc(m?.n||"")} · ${esc(m?.title||c.module)} · ${esc(c.level)}</p><h1>${esc(c.title)}</h1><p class="lede">${esc(c.summary)}</p></div><div class="detail-layout"><div class="detail-body"><section class="reading-section detail-section"><h2>Mentales Modell</h2><div class="callout accent">${esc(c.mental)}</div></section><section class="reading-section detail-section"><h2>Mechanik</h2>${c.details.map(p=>`<p>${p}</p>`).join("")}</section><section class="reading-section detail-section"><h2>Typische Fehlannahmen</h2><ul class="check-list">${c.pitfalls.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></section><section class="reading-section detail-section"><h2>Aktiver Selbstcheck</h2><p class="muted">Antworte laut oder schriftlich, bevor du weiterklickst.</p><ol>${c.checks.map(x=>`<li>${esc(x)}</li>`).join("")}</ol><label class="field"><span>Deine Erklärung in eigenen Worten</span><textarea class="textarea" id="conceptReflection" placeholder="Ohne Formel abzulesen: Ich erkläre es so …"></textarea></label><button class="button" id="appendReflection" style="margin-top:.6rem">Zu Notizen hinzufügen</button></section>${c.formulas.length?`<section class="detail-section"><h2>Verknüpfte Formeln</h2><div class="accordion-list">${c.formulas.map(id=>byId(FORMULAS,id)).filter(Boolean).map(formulaAccordion).join("")}</div></section>`:""}</div><aside class="detail-aside"><div class="panel"><h3>Kompetenzstufe</h3><p class="muted small">Wähle nur, was du belegen kannst.</p><div style="display:grid;gap:.4rem">${[0,1,2,3,4].map(i=>`<button class="button small ${level===i?"primary":"ghost"}" data-level="${i}" aria-pressed="${level===i}">${i} · ${levelLabel(i)}</button>`).join("")}</div></div><div class="panel"><h3>Quellen</h3><div style="display:grid;gap:.5rem">${c.sources.map(id=>sourceAnchor(id)).join("")}</div></div><div class="panel"><button class="button ${isBookmarked("concept",c.id)?"primary":""}" id="bookmarkConcept">${isBookmarked("concept",c.id)?"★ Gespeichert":"☆ Speichern"}</button></div></aside></div>`; bindBack(el);bindDisclosureState(el,"[data-formula-disclosure]",appState.openFormulaIds,"formulaDisclosure");bindOpeners(el); el.querySelectorAll("[data-level]").forEach(b=>b.onclick=()=>setConceptLevel(c.id,b.dataset.level)); document.getElementById("bookmarkConcept").onclick=()=>toggleBookmark("concept",c.id,"#bookmarkConcept"); document.getElementById("appendReflection").onclick=()=>{const text=document.getElementById("conceptReflection").value.trim();if(!text){toast("Schreibe zuerst deinen Erklärversuch.");return;}user.notes+=`${user.notes?"\n\n":""}## ${c.title}\n${text}`;saveUser(true);toast("Erklärversuch zu Notizen hinzugefügt")}; }
 
-    function renderFormulaDetail(el,f){ if(!f)return; const ref=getFormulaRef(f.id); el.innerHTML=`${backButton("formulas","Tafelwerk")}<div class="view-header" style="margin-top:1rem"><p class="eyebrow">${esc(f.cat)} · Formelkarte</p><h1>${esc(f.title)}</h1><p class="lede">${formulaText(f.purpose)}</p></div><div class="detail-layout"><div class="detail-body"><section class="panel detail-section"><h2>Formel</h2><div class="formula-display" role="math" aria-label="${formulaText(f.read)}" style="font-size:clamp(1rem,3vw,1.35rem)">${formulaMarkup(f)}</div><p style="margin-top:1rem"><strong>So liest du sie:</strong> ${formulaText(f.read)}</p><div class="card-actions"><button class="button" id="copyFormula">LaTeX kopieren</button><button class="button ${isBookmarked("formula",f.id)?"primary":""}" id="bookmarkFormula">${isBookmarked("formula",f.id)?"★ Gespeichert":"☆ Speichern"}</button></div></section><section class="panel detail-section"><h2>Variablen im Kontext</h2><dl class="formula-vars" style="font-size:.95rem">${f.vars.map(([s,d])=>`<dt>${formulaText(s)}</dt><dd>${formulaText(d)}</dd>`).join("")}</dl></section><section class="panel detail-section"><h2>Dimensions- und Plausibilitätscheck</h2><p>${formulaText(f.dims)}</p><div class="callout accent"><strong>Intuition:</strong> ${formulaText(f.intuition)}</div></section><section class="panel detail-section"><h2>Kleines Beispiel</h2><p>${formulaText(f.example)}</p></section><section class="panel detail-section"><h2>Typischer Fehler</h2><div class="callout warning">${formulaText(f.pitfall)}</div></section><section class="panel detail-section"><h2>Abrufcheck</h2><p>${formulaText(f.check)}</p><details><summary>Prüfstrategie anzeigen</summary><p class="muted">Setze einfache Grenzwerte oder Formen ein. Die Antwort soll aus Bedeutung und Dimension folgen, nicht aus Auswendiglernen.</p></details></section></div><aside class="detail-aside"><div class="panel"><h3>Quelle</h3>${ref?`<p class="small">${esc(ref)}</p>`:""}<div style="display:grid;gap:.45rem">${f.sources.map(id=>sourceAnchor(id,ref&&id===f.sources[0]?ref.split("·")[0].trim():"")).join("")}</div></div><div class="panel"><h3>LaTeX</h3><code style="display:block;overflow-wrap:anywhere">${esc(f.latex)}</code></div><div class="panel"><h3>Einsatzgrenze</h3><p class="small muted">Formeln gelten unter den angegebenen Shapes und Annahmen. Bei Framework-APIs zusätzlich Achsen-, Masken- und Reduktionskonvention prüfen.</p></div></aside></div>`; bindBack(el); document.getElementById("copyFormula").onclick=()=>copyText(f.latex); document.getElementById("bookmarkFormula").onclick=()=>toggleBookmark("formula",f.id,"#bookmarkFormula"); }
+    function renderFormulaDetail(el,f){ if(!f)return; const ref=getFormulaRef(f.id); el.innerHTML=`${backButton("formulas","Tafelwerk")}<div class="view-header" style="margin-top:1rem"><p class="eyebrow">${esc(f.cat)} · Formelkarte</p><h1>${esc(f.title)}</h1><p class="lede">${formulaText(f.purpose)}</p></div><div class="detail-layout"><div class="detail-body"><section class="reading-section detail-section"><h2>Formel</h2><div class="formula-display" role="math" aria-label="${formulaText(f.read)}" style="font-size:clamp(1rem,3vw,1.35rem)">${formulaMarkup(f)}</div><p style="margin-top:1rem"><strong>So liest du sie:</strong> ${formulaText(f.read)}</p><div class="card-actions"><button class="button" id="copyFormula">LaTeX kopieren</button><button class="button ${isBookmarked("formula",f.id)?"primary":""}" id="bookmarkFormula">${isBookmarked("formula",f.id)?"★ Gespeichert":"☆ Speichern"}</button></div></section><section class="reading-section detail-section"><h2>Variablen im Kontext</h2><dl class="formula-vars" style="font-size:.95rem">${f.vars.map(([s,d])=>`<dt>${formulaText(s)}</dt><dd>${formulaText(d)}</dd>`).join("")}</dl></section><section class="reading-section detail-section"><h2>Dimensions- und Plausibilitätscheck</h2><p>${formulaText(f.dims)}</p><div class="callout accent"><strong>Intuition:</strong> ${formulaText(f.intuition)}</div></section><section class="reading-section detail-section"><h2>Kleines Beispiel</h2><p>${formulaText(f.example)}</p></section><section class="reading-section detail-section"><h2>Typischer Fehler</h2><div class="callout warning">${formulaText(f.pitfall)}</div></section><section class="reading-section detail-section"><h2>Abrufcheck</h2><p>${formulaText(f.check)}</p><details><summary>Prüfstrategie anzeigen</summary><p class="muted">Setze einfache Grenzwerte oder Formen ein. Die Antwort soll aus Bedeutung und Dimension folgen, nicht aus Auswendiglernen.</p></details></section></div><aside class="detail-aside"><div class="panel"><h3>Quelle</h3>${ref?`<p class="small">${esc(ref)}</p>`:""}<div style="display:grid;gap:.45rem">${f.sources.map(id=>sourceAnchor(id,ref&&id===f.sources[0]?ref.split("·")[0].trim():"")).join("")}</div></div><div class="panel"><h3>LaTeX</h3><code style="display:block;overflow-wrap:anywhere">${esc(f.latex)}</code></div><div class="panel"><h3>Einsatzgrenze</h3><p class="small muted">Formeln gelten unter den angegebenen Shapes und Annahmen. Bei Framework-APIs zusätzlich Achsen-, Masken- und Reduktionskonvention prüfen.</p></div></aside></div>`; bindBack(el); document.getElementById("copyFormula").onclick=()=>copyText(f.latex); document.getElementById("bookmarkFormula").onclick=()=>toggleBookmark("formula",f.id,"#bookmarkFormula"); }
 
-    function renderAssignmentDetail(el,a){ if(!a)return; const existing=user.hypotheses[a.id]||""; el.innerHTML=`${backButton("assignments","Assignments")}<div class="view-header" style="margin-top:1rem"><p class="eyebrow">${a.label} · Lernmodus – keine Abgabelösungen</p><h1>${esc(a.title)}</h1><p class="lede">${esc(a.goal)}</p></div><div class="callout warning" style="margin-bottom:1rem"><strong>KI-Richtlinie:</strong> Erst eigener Versuch, dann gestufte Konzept- und Testhinweise. Der Coach erzeugt weder Code noch abgabefertige Antworten.</div><div class="detail-layout"><div class="detail-body"><section class="panel detail-section"><h2>Mentale Modelle</h2><ul class="check-list">${a.models.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></section><section class="panel detail-section"><h2>Meilensteine</h2><ol>${a.milestones.map(x=>`<li>${esc(x)}</li>`).join("")}</ol></section><section class="panel detail-section"><h2>Readiness-Selbstcheck</h2><ol>${a.checks.map(x=>`<li>${esc(x)}</li>`).join("")}</ol></section><section class="panel detail-section"><h2>Deine Hypothese vor einem Hinweis</h2><label class="field"><span>Was erwartest du, was beobachtest du, und welche Invariante könnte verletzt sein?</span><textarea class="textarea" id="hypothesisText" placeholder="Mindestens 20 Zeichen. Beispielstruktur: Ich erwarte …, beobachte …, mein kleinster trennender Test ist …">${esc(existing)}</textarea></label><button class="button" id="saveHypothesis" style="margin-top:.6rem">Hypothese speichern</button><div id="hintArea" style="margin-top:1rem"><div class="callout accent">Hinweise werden nach einer eigenen, gespeicherten Hypothese entsperrt.</div></div><div class="card-actions" style="margin-top:.8rem">${a.hints.map((_,i)=>`<button class="button small" data-hint="${i}" ${existing.trim().length<20?"disabled":""}>Hinweis ${i+1}</button>`).join("")}</div></section><section class="panel detail-section"><h2>Typische Fehlannahmen</h2><ul class="check-list">${a.pitfalls.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></section><section class="panel detail-section"><h2>Definition of Done</h2><ul class="check-list">${a.done.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></section></div><aside class="detail-aside"><div class="panel"><h3>Voraussetzungen</h3><ul class="check-list">${a.prereqs.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></div><div class="panel"><h3>Verknüpfte Konzepte</h3>${a.concepts.map(id=>{const c=byId(CONCEPTS,id);return c?`<button class="button ghost small" data-open-concept="${id}">${esc(c.title)}</button>`:""}).join(" ")}</div><div class="panel"><h3>Originalquellen</h3><div style="display:grid;gap:.5rem">${a.sources.map(id=>sourceAnchor(id)).join("")}</div></div></aside></div>`; bindBack(el);bindOpeners(el);
-      document.getElementById("saveHypothesis").onclick=()=>{const text=document.getElementById("hypothesisText").value.trim();if(text.length<20){toast("Formuliere eine konkretere Hypothese (mindestens 20 Zeichen).");return;}user.hypotheses[a.id]=text;saveUser(true);toast("Hypothese gespeichert – Hinweise freigeschaltet");renderAssignmentDetail(el,a)};
-      el.querySelectorAll("[data-hint]").forEach(b=>b.onclick=()=>{const i=Number(b.dataset.hint);document.getElementById("hintArea").innerHTML=`<div class="callout accent"><strong>Hinweis ${i+1}:</strong> ${esc(a.hints[i])}</div>`});
+    function renderAssignmentDetail(el,a){ if(!a)return; const existing=user.hypotheses[a.id]||""; el.innerHTML=`${backButton("assignments","Assignments")}<div class="view-header" style="margin-top:1rem"><p class="eyebrow">${a.label} · Lernmodus – keine Abgabelösungen</p><h1>${esc(a.title)}</h1><p class="lede">${esc(a.goal)}</p></div><div class="callout warning" style="margin-bottom:1rem"><strong>KI-Richtlinie:</strong> Erst eigener Versuch, dann gestufte Konzept- und Testhinweise. Der Coach erzeugt weder Code noch abgabefertige Antworten.</div><div class="detail-layout"><div class="detail-body"><section class="reading-section detail-section"><h2>Mentale Modelle</h2><ul class="check-list">${a.models.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></section><section class="reading-section detail-section"><h2>Meilensteine</h2><ol>${a.milestones.map(x=>`<li>${esc(x)}</li>`).join("")}</ol></section><section class="reading-section detail-section"><h2>Readiness-Selbstcheck</h2><ol>${a.checks.map(x=>`<li>${esc(x)}</li>`).join("")}</ol></section><section class="reading-section detail-section"><h2>Deine Hypothese vor einem Hinweis</h2><label class="field"><span>Was erwartest du, was beobachtest du, und welche Invariante könnte verletzt sein?</span><textarea class="textarea" id="hypothesisText" placeholder="Mindestens 20 Zeichen. Beispielstruktur: Ich erwarte …, beobachte …, mein kleinster trennender Test ist …">${esc(existing)}</textarea></label><button class="button" id="saveHypothesis" style="margin-top:.6rem">Hypothese speichern</button><div id="hintArea" role="status" aria-live="polite" style="margin-top:1rem"><div class="callout accent">Hinweise werden nach einer eigenen, gespeicherten Hypothese entsperrt.</div></div><div class="card-actions" style="margin-top:.8rem">${a.hints.map((_,i)=>`<button class="button small" data-hint="${i}" ${existing.trim().length<20?"disabled":""}>Hinweis ${i+1}</button>`).join("")}</div></section><section class="reading-section detail-section"><h2>Typische Fehlannahmen</h2><ul class="check-list">${a.pitfalls.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></section><section class="reading-section detail-section"><h2>Definition of Done</h2><ul class="check-list">${a.done.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></section></div><aside class="detail-aside"><div class="panel"><h3>Voraussetzungen</h3><ul class="check-list">${a.prereqs.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></div><div class="panel"><h3>Verknüpfte Konzepte</h3>${a.concepts.map(id=>{const c=byId(CONCEPTS,id);return c?`<button class="button ghost small" data-open-concept="${id}">${esc(c.title)}</button>`:""}).join(" ")}</div><div class="panel"><h3>Originalquellen</h3><div style="display:grid;gap:.5rem">${a.sources.map(id=>sourceAnchor(id)).join("")}</div></div></aside></div>`; bindBack(el);bindOpeners(el);
+      document.getElementById("saveHypothesis").onclick=()=>{const text=document.getElementById("hypothesisText").value.trim();if(text.length<20){toast("Formuliere eine konkretere Hypothese (mindestens 20 Zeichen).");return;}user.hypotheses[a.id]=text;saveUser(true);toast("Hypothese gespeichert – Hinweise freigeschaltet");renderAssignmentDetail(el,a);el.querySelector("[data-hint]")?.focus()};
+      el.querySelectorAll("[data-hint]").forEach(b=>b.onclick=()=>{const i=Number(b.dataset.hint);document.getElementById("hintArea").innerHTML=`<div class="callout accent"><strong>Hinweis ${i+1}:</strong> ${esc(a.hints[i])}</div>`});updateRouteMetadata();
     }
 
     function copyText(text){ if(navigator.clipboard?.writeText){navigator.clipboard.writeText(text).then(()=>toast("LaTeX kopiert")).catch(()=>fallbackCopy(text));}else fallbackCopy(text); }
@@ -1604,17 +1669,17 @@
     function renderLabDetail(el,lab){ if(!lab)return; const mod=byId(MODULES,lab.module); el.innerHTML=`${backButton("labs","Labs")}<div class="view-header" style="margin-top:1rem"><p class="eyebrow">Interaktives Lab · ${esc(lab.time)}</p><h1>${esc(lab.title)}</h1><p class="lede">${esc(lab.desc)}</p></div><div class="callout accent" style="margin-bottom:1rem"><strong>Arbeitsweise:</strong> Notiere eine Vorhersage. Ändere genau einen Regler. Beschreibe Beobachtung und Ursache mit einer verknüpften Formel.</div><div id="labMount">${labMarkup(lab.id)}</div><div class="panel" style="margin-top:1rem"><h3>Transfer</h3><p id="labTransfer">${esc(labTransferQuestion(lab.id))}</p><button class="button ${user.labDone[lab.id]?"primary":""}" id="labDoneButton">${user.labDone[lab.id]?"✓ Als angewandt markiert":"Als angewandt markieren"}</button></div><div class="panel" style="margin-top:1rem"><h3>Quellen</h3><div class="meta-row">${(mod?.sources||[]).map(id=>sourceAnchor(id)).join("")}</div></div>`; bindBack(el); document.getElementById("labDoneButton").onclick=()=>markLabDone(lab.id); initLab(lab.id); }
     function labTransferQuestion(id){ return ({shapes:"Welche Shapes ändern sich, wenn nur die Sequenzlänge verdoppelt wird – und welche Parameterzahlen bleiben gleich?",bpe:"Wie beeinflusst ein größeres Vokabular Sequenzlänge, Embeddingkosten und seltene Sprachen?",attention:"Konstruiere einen Scorevektor, bei dem Temperatur fast keine Wirkung hat. Warum?",optimizer:"Welche Größe muss beim Resume zusammen mit dem Optimizer gespeichert werden, damit die Lernrate fortgesetzt wird?",resources:"Welche Annahme dieser Näherung bricht bei Mixture of Experts oder sehr langen Kontexten?",roofline:"Welche konkrete Codeänderung kann einen memory-bound Kernel nach rechts verschieben?",parallelism:"Welche Strategie würdest du innerhalb eines Nodes und welche über Nodes legen – warum?",scaling:"Wie würdest du prüfen, ob das angezeigte Optimum nur ein Randminimum ist?","data-pipeline":"Welche verworfenen Beispiele würdest du manuell auditieren, um Filterbias zu erkennen?",evaluation:"Welche Systemkomponente außer den Modellgewichten kann einen Benchmarkscore verändern?",grpo:"Wie ändert Standardabweichungsnormalisierung die Gewichtung leichter und schwerer Promptgruppen?"})[id]||"Erkläre das Ergebnis ohne auf die Oberfläche zu schauen."; }
     function labMarkup(id){
-      if(id==="shapes") return `<div class="lab-layout"><div class="panel lab-controls"><h2>Eingaben</h2><label class="field">Batch B <input id="shapeB" type="range" min="1" max="8" value="2"><output id="shapeBOut">2</output></label><label class="field">Tokens T <input id="shapeT" type="range" min="2" max="32" value="8"><output id="shapeTOut">8</output></label><label class="field">Modelldimension D <select class="select" id="shapeD"><option>64</option><option>128</option><option selected>256</option><option>512</option></select></label><label class="field">Köpfe H <select class="select" id="shapeH"><option>1</option><option>2</option><option selected>4</option><option>8</option></select></label><p class="lab-note">Vorhersage: Welche Achse wird durch H aufgeteilt?</p></div><div class="lab-stage" id="shapeStage"></div></div>`;
-      if(id==="bpe") return `<div class="lab-layout"><div class="panel lab-controls"><h2>Mini-Korpus</h2><label class="field">Wörter mit Leerzeichen <textarea class="textarea" id="bpeText">low low low lower newest widest</textarea></label><div class="card-actions"><button class="button" id="bpeReset">Zurücksetzen</button><button class="button primary" id="bpeStep">Häufigstes Paar mergen</button></div><p class="lab-note">Ties werden hier lexikographisch gelöst, damit das Resultat deterministisch bleibt.</p></div><div class="lab-stage" id="bpeStage"></div></div>`;
-      if(id==="attention") return `<div class="lab-layout"><div class="panel lab-controls"><h2>Kontrollen</h2><label class="field">Queryposition <select class="select" id="attnQuery"><option value="0">0 · Der</option><option value="1">1 · Hund</option><option value="2" selected>2 · jagt</option><option value="3">3 · ihn</option></select></label><label class="field">Temperatur <input id="attnTemp" type="range" min="0.35" max="2.5" step="0.05" value="1"><output id="attnTempOut">1.00</output></label><label class="option"><input id="attnMask" type="checkbox" checked><span>Kausale Maske aktiv</span></label><p class="lab-note">Die Scores sind didaktische, feste QKᵀ/√d-Werte. Beobachte nur Softmax und Maske.</p></div><div class="lab-stage" id="attnStage"></div></div>`;
-      if(id==="optimizer") return `<div class="lab-layout"><div class="panel lab-controls"><h2>Schedule & Update</h2><label class="field">Aktueller Step <input id="optStep" type="range" min="0" max="100" value="20"><output id="optStepOut">20</output></label><label class="field">Warmup-Steps <input id="optWarmup" type="range" min="1" max="40" value="10"><output id="optWarmupOut">10</output></label><label class="field">Max-Lernrate η <input id="optLr" type="range" min="0.0001" max="0.01" step="0.0001" value="0.003"><output id="optLrOut">0.0030</output></label><label class="field">Gradient g <input id="optGrad" type="range" min="-2" max="2" step="0.05" value="0.6"><output id="optGradOut">0.60</output></label><label class="field">Weight Decay λ <input id="optWd" type="range" min="0" max="0.2" step="0.01" value="0.1"><output id="optWdOut">0.10</output></label></div><div class="lab-stage" id="optStage"></div></div>`;
-      if(id==="resources") return `<div class="lab-layout"><div class="panel lab-controls"><h2>Modellannahmen</h2><label class="field">Layer L <input id="resL" type="range" min="2" max="80" value="24"><output id="resLOut">24</output></label><label class="field">Breite D <select class="select" id="resD"><option>512</option><option>1024</option><option selected>2048</option><option>4096</option><option>8192</option></select></label><label class="field">Vokabular V <select class="select" id="resV"><option>32000</option><option selected>50000</option><option>100000</option></select></label><label class="field">Sequenz T <select class="select" id="resT"><option>512</option><option selected>2048</option><option>8192</option><option>32768</option></select></label><label class="field">Trainingstokens <select class="select" id="resTokens"><option value="1e9">1B</option><option value="1e11" selected>100B</option><option value="1e12">1T</option></select></label></div><div class="lab-stage" id="resStage"></div></div>`;
-      if(id==="roofline") return `<div class="lab-layout"><div class="panel lab-controls"><h2>Hardware & Kernel</h2><label class="field">Arithmetic Intensity <input id="roofAI" type="range" min="0.25" max="500" step="0.25" value="20"><output id="roofAIOut">20 FLOP/Byte</output></label><label class="field">HBM-Bandbreite <input id="roofBW" type="range" min="0.5" max="5" step="0.1" value="2"><output id="roofBWOut">2.0 TB/s</output></label><label class="field">Compute Peak <input id="roofPeak" type="range" min="20" max="2000" step="10" value="500"><output id="roofPeakOut">500 TFLOP/s</output></label><p class="lab-note">Ridge Point = Peak/Bandbreite. Links davon dominiert HBM-Traffic.</p></div><div class="lab-stage" id="roofStage"></div></div>`;
-      if(id==="parallelism") return `<div class="lab-layout"><div class="panel lab-controls"><h2>Strategie</h2><label class="field">Parallelisierungsart <select class="select" id="parMode"><option value="ddp">DDP</option><option value="zero2">ZeRO-2</option><option value="fsdp">FSDP / ZeRO-3</option><option value="tp">Tensor Parallel</option><option value="pp">Pipeline Parallel</option></select></label><label class="field">World Size <select class="select" id="parWorld"><option>2</option><option selected>4</option><option>8</option></select></label><p class="lab-note">Frage zuerst: Wem gehört Parameter, Gradient und Optimizer-State zu jedem Zeitpunkt?</p></div><div class="lab-stage" id="parStage"></div></div>`;
-      if(id==="scaling") return `<div class="lab-layout"><div class="panel lab-controls"><h2>Compute-Budget</h2><label class="field">GPU-Stunden <input id="scaleHours" type="range" min="10" max="10000" step="10" value="1000"><output id="scaleHoursOut">1000 h</output></label><label class="field">Effektive PFLOP/s pro GPU <input id="scalePflops" type="range" min="0.05" max="1.5" step="0.05" value="0.4"><output id="scalePflopsOut">0.40</output></label><label class="field">Token/Parameter-Verhältnis r=D/N <input id="scaleRatio" type="range" min="5" max="100" value="20"><output id="scaleRatioOut">20</output></label><p class="lab-note">Das Optimum ist schematisch. In A3 muss r aus mehreren eingeklammerten IsoFLOPs-Profilen geschätzt werden.</p></div><div class="lab-stage" id="scaleStage"></div></div>`;
-      if(id==="data-pipeline") return `<div class="lab-layout"><div class="panel lab-controls"><h2>Filterstufen</h2><label class="option"><input type="checkbox" id="dataLang" checked><span>Englisch-Sprachfilter</span></label><label class="option"><input type="checkbox" id="dataPII" checked><span>PII maskieren</span></label><label class="option"><input type="checkbox" id="dataQuality" checked><span>Qualitätsschwelle</span></label><label class="option"><input type="checkbox" id="dataDedup" checked><span>Near-Dedup</span></label><label class="field">Qualitätsschwelle <input id="dataThreshold" type="range" min="0" max="1" step="0.05" value="0.55"><output id="dataThresholdOut">0.55</output></label><p class="lab-note">Audit immer sowohl verworfene als auch behaltene Beispiele.</p></div><div class="lab-stage" id="dataStage"></div></div>`;
-      if(id==="evaluation") return `<div class="lab-layout"><div class="panel lab-controls"><h2>Behauptung</h2><label class="field">Was möchtest du belegen? <select class="select" id="evalClaim"><option value="likelihood">Das Modell sagt Domänentext gut voraus</option><option value="knowledge">Es beantwortet Wissensfragen</option><option value="instruction">Es folgt Instruktionen</option><option value="safety">Es verweigert schädliche Anfragen angemessen</option><option value="systems">Es ist kosteneffizient im Einsatz</option></select></label><label class="field">Gewählte Metrik <select class="select" id="evalMetric"><option value="ppl">Perplexity</option><option value="mmlu">MMLU-Accuracy</option><option value="judge">Pairwise Judge Win Rate</option><option value="safety">Safety-Test Recall + False Positives</option><option value="latency">Latenz, Durchsatz und Kosten</option></select></label><button class="button primary" id="evalCheck">Paarung prüfen</button></div><div class="lab-stage" id="evalStage"></div></div>`;
-      if(id==="grpo") return `<div class="lab-layout"><div class="panel lab-controls"><h2>Rewards einer Promptgruppe</h2>${[0,1,2,3].map((_,i)=>`<label class="field">R${i+1} <input class="grpoReward" data-i="${i}" type="range" min="0" max="1" step="0.05" value="${[0,0.3,0.8,1][i]}"><output id="grpoOut${i}">${[0,0.3,0.8,1][i].toFixed(2)}</output></label>`).join("")}<label class="option"><input id="grpoStd" type="checkbox" checked><span>Durch Gruppen-Std normalisieren</span></label><p class="lab-note">Mean-Centering vergleicht innerhalb des Prompts; Std-Normalisierung ändert zusätzlich die Gruppengewichtung.</p></div><div class="lab-stage" id="grpoStage"></div></div>`;
+      if(id==="shapes") return `<div class="lab-layout"><div class="panel lab-controls"><h2>Eingaben</h2><label class="field">Batch B <input id="shapeB" type="range" min="1" max="8" value="2"><output id="shapeBOut">2</output></label><label class="field">Tokens T <input id="shapeT" type="range" min="2" max="32" value="8"><output id="shapeTOut">8</output></label><label class="field">Modelldimension D <select class="select" id="shapeD"><option>64</option><option>128</option><option selected>256</option><option>512</option></select></label><label class="field">Köpfe H <select class="select" id="shapeH"><option>1</option><option>2</option><option selected>4</option><option>8</option></select></label><p class="lab-note">Vorhersage: Welche Achse wird durch H aufgeteilt?</p></div><div class="lab-stage" role="region" aria-label="Interaktives Ergebnis" id="shapeStage"></div></div>`;
+      if(id==="bpe") return `<div class="lab-layout"><div class="panel lab-controls"><h2>Mini-Korpus</h2><label class="field">Wörter mit Leerzeichen <textarea class="textarea" id="bpeText">low low low lower newest widest</textarea></label><div class="card-actions"><button class="button" id="bpeReset">Zurücksetzen</button><button class="button primary" id="bpeStep">Häufigstes Paar mergen</button></div><p class="lab-note">Ties werden hier lexikographisch gelöst, damit das Resultat deterministisch bleibt.</p></div><div class="lab-stage" role="region" aria-label="Interaktives Ergebnis" aria-live="polite" id="bpeStage"></div></div>`;
+      if(id==="attention") return `<div class="lab-layout"><div class="panel lab-controls"><h2>Kontrollen</h2><label class="field">Queryposition <select class="select" id="attnQuery"><option value="0">0 · Der</option><option value="1">1 · Hund</option><option value="2" selected>2 · jagt</option><option value="3">3 · ihn</option></select></label><label class="field">Temperatur <input id="attnTemp" type="range" min="0.35" max="2.5" step="0.05" value="1"><output id="attnTempOut">1.00</output></label><label class="option"><input id="attnMask" type="checkbox" checked><span>Kausale Maske aktiv</span></label><p class="lab-note">Die Scores sind didaktische, feste QKᵀ/√d-Werte. Beobachte nur Softmax und Maske.</p></div><div class="lab-stage" role="region" aria-label="Interaktives Ergebnis" id="attnStage"></div></div>`;
+      if(id==="optimizer") return `<div class="lab-layout"><div class="panel lab-controls"><h2>Schedule & Update</h2><label class="field">Aktueller Step <input id="optStep" type="range" min="0" max="100" value="20"><output id="optStepOut">20</output></label><label class="field">Warmup-Steps <input id="optWarmup" type="range" min="1" max="40" value="10"><output id="optWarmupOut">10</output></label><label class="field">Max-Lernrate η <input id="optLr" type="range" min="0.0001" max="0.01" step="0.0001" value="0.003"><output id="optLrOut">0.0030</output></label><label class="field">Gradient g <input id="optGrad" type="range" min="-2" max="2" step="0.05" value="0.6"><output id="optGradOut">0.60</output></label><label class="field">Weight Decay λ <input id="optWd" type="range" min="0" max="0.2" step="0.01" value="0.1"><output id="optWdOut">0.10</output></label></div><div class="lab-stage" role="region" aria-label="Interaktives Ergebnis" id="optStage"></div></div>`;
+      if(id==="resources") return `<div class="lab-layout"><div class="panel lab-controls"><h2>Modellannahmen</h2><label class="field">Layer L <input id="resL" type="range" min="2" max="80" value="24"><output id="resLOut">24</output></label><label class="field">Breite D <select class="select" id="resD"><option>512</option><option>1024</option><option selected>2048</option><option>4096</option><option>8192</option></select></label><label class="field">Vokabular V <select class="select" id="resV"><option>32000</option><option selected>50000</option><option>100000</option></select></label><label class="field">Sequenz T <select class="select" id="resT"><option>512</option><option selected>2048</option><option>8192</option><option>32768</option></select></label><label class="field">Trainingstokens <select class="select" id="resTokens"><option value="1e9">1B</option><option value="1e11" selected>100B</option><option value="1e12">1T</option></select></label></div><div class="lab-stage" role="region" aria-label="Interaktives Ergebnis" id="resStage"></div></div>`;
+      if(id==="roofline") return `<div class="lab-layout"><div class="panel lab-controls"><h2>Hardware & Kernel</h2><label class="field">Arithmetic Intensity <input id="roofAI" type="range" min="0.25" max="500" step="0.25" value="20"><output id="roofAIOut">20 FLOP/Byte</output></label><label class="field">HBM-Bandbreite <input id="roofBW" type="range" min="0.5" max="5" step="0.1" value="2"><output id="roofBWOut">2.0 TB/s</output></label><label class="field">Compute Peak <input id="roofPeak" type="range" min="20" max="2000" step="10" value="500"><output id="roofPeakOut">500 TFLOP/s</output></label><p class="lab-note">Ridge Point = Peak/Bandbreite. Links davon dominiert HBM-Traffic.</p></div><div class="lab-stage" role="region" aria-label="Interaktives Ergebnis" id="roofStage"></div></div>`;
+      if(id==="parallelism") return `<div class="lab-layout"><div class="panel lab-controls"><h2>Strategie</h2><label class="field">Parallelisierungsart <select class="select" id="parMode"><option value="ddp">DDP</option><option value="zero2">ZeRO-2</option><option value="fsdp">FSDP / ZeRO-3</option><option value="tp">Tensor Parallel</option><option value="pp">Pipeline Parallel</option></select></label><label class="field">World Size <select class="select" id="parWorld"><option>2</option><option selected>4</option><option>8</option></select></label><p class="lab-note">Frage zuerst: Wem gehört Parameter, Gradient und Optimizer-State zu jedem Zeitpunkt?</p></div><div class="lab-stage" role="region" aria-label="Interaktives Ergebnis" id="parStage"></div></div>`;
+      if(id==="scaling") return `<div class="lab-layout"><div class="panel lab-controls"><h2>Compute-Budget</h2><label class="field">GPU-Stunden <input id="scaleHours" type="range" min="10" max="10000" step="10" value="1000"><output id="scaleHoursOut">1000 h</output></label><label class="field">Effektive PFLOP/s pro GPU <input id="scalePflops" type="range" min="0.05" max="1.5" step="0.05" value="0.4"><output id="scalePflopsOut">0.40</output></label><label class="field">Token/Parameter-Verhältnis r=D/N <input id="scaleRatio" type="range" min="5" max="100" value="20"><output id="scaleRatioOut">20</output></label><p class="lab-note">Das Optimum ist schematisch. In A3 muss r aus mehreren eingeklammerten IsoFLOPs-Profilen geschätzt werden.</p></div><div class="lab-stage" role="region" aria-label="Interaktives Ergebnis" id="scaleStage"></div></div>`;
+      if(id==="data-pipeline") return `<div class="lab-layout"><div class="panel lab-controls"><h2>Filterstufen</h2><label class="option"><input type="checkbox" id="dataLang" checked><span>Englisch-Sprachfilter</span></label><label class="option"><input type="checkbox" id="dataPII" checked><span>PII maskieren</span></label><label class="option"><input type="checkbox" id="dataQuality" checked><span>Qualitätsschwelle</span></label><label class="option"><input type="checkbox" id="dataDedup" checked><span>Near-Dedup</span></label><label class="field">Qualitätsschwelle <input id="dataThreshold" type="range" min="0" max="1" step="0.05" value="0.55"><output id="dataThresholdOut">0.55</output></label><p class="lab-note">Audit immer sowohl verworfene als auch behaltene Beispiele.</p></div><div class="lab-stage" role="region" aria-label="Interaktives Ergebnis" id="dataStage"></div></div>`;
+      if(id==="evaluation") return `<div class="lab-layout"><div class="panel lab-controls"><h2>Behauptung</h2><label class="field">Was möchtest du belegen? <select class="select" id="evalClaim"><option value="likelihood">Das Modell sagt Domänentext gut voraus</option><option value="knowledge">Es beantwortet Wissensfragen</option><option value="instruction">Es folgt Instruktionen</option><option value="safety">Es verweigert schädliche Anfragen angemessen</option><option value="systems">Es ist kosteneffizient im Einsatz</option></select></label><label class="field">Gewählte Metrik <select class="select" id="evalMetric"><option value="ppl">Perplexity</option><option value="mmlu">MMLU-Accuracy</option><option value="judge">Pairwise Judge Win Rate</option><option value="safety">Safety-Test Recall + False Positives</option><option value="latency">Latenz, Durchsatz und Kosten</option></select></label><button class="button primary" id="evalCheck">Paarung prüfen</button></div><div class="lab-stage" role="region" aria-label="Interaktives Ergebnis" aria-live="polite" id="evalStage"></div></div>`;
+      if(id==="grpo") return `<div class="lab-layout"><div class="panel lab-controls"><h2>Rewards einer Promptgruppe</h2>${[0,1,2,3].map((_,i)=>`<label class="field">R${i+1} <input class="grpoReward" data-i="${i}" type="range" min="0" max="1" step="0.05" value="${[0,0.3,0.8,1][i]}"><output id="grpoOut${i}">${[0,0.3,0.8,1][i].toFixed(2)}</output></label>`).join("")}<label class="option"><input id="grpoStd" type="checkbox" checked><span>Durch Gruppen-Std normalisieren</span></label><p class="lab-note">Mean-Centering vergleicht innerhalb des Prompts; Std-Normalisierung ändert zusätzlich die Gruppengewichtung.</p></div><div class="lab-stage" role="region" aria-label="Interaktives Ergebnis" id="grpoStage"></div></div>`;
       return `<div class="panel">Lab folgt.</div>`;
     }
 
@@ -1640,20 +1705,26 @@
     function renderBpe(){const pairs=bpePairs().slice(0,8);document.getElementById("bpeStage").innerHTML=`<h2>Merge ${bpeLabState.merges.length}</h2><div class="token-row">${bpeLabState.words.map(w=>`<span class="token">${w.map(esc).join(" · ")}</span>`).join("")}</div><h3>Häufigste Nachbarpaare</h3><div class="bar-list">${pairs.map(([k,n])=>`<div class="bar-row"><span class="mono">${esc(k.replace("¦"," + "))}</span><div class="bar-track"><div class="bar-fill" style="width:${n/(pairs[0]?.[1]||1)*100}%"></div></div><strong>${n}</strong></div>`).join("")}</div><p class="lab-note">Merge-Regeln: ${bpeLabState.merges.length?bpeLabState.merges.map(([a,b,n])=>`${esc(a)}+${esc(b)} (${n})`).join(" → "):"noch keine"}</p>`;}
 
     function softmax(values){const finite=values.filter(Number.isFinite),m=Math.max(...finite),e=values.map(v=>Number.isFinite(v)?Math.exp(v-m):0),s=e.reduce((a,b)=>a+b,0);return e.map(x=>x/s)}
-    function updateAttention(){const tokens=["Der","Hund","jagt","ihn"],base=[[2.2,.8,.2,.1],[.4,2.4,.8,.5],[.2,1.9,2.1,1.4],[.1,1.2,.8,2.3]],q=+document.getElementById("attnQuery").value,temp=+document.getElementById("attnTemp").value,mask=document.getElementById("attnMask").checked;document.getElementById("attnTempOut").value=temp.toFixed(2);const matrix=base.map((row,i)=>row.map((v,j)=>(mask&&j>i)?-Infinity:v/temp));const probs=softmax(matrix[q]);const cells=[`<div></div>`,...tokens.map(t=>`<div class="matrix-cell"><strong>${t}</strong></div>`)];matrix.forEach((row,i)=>{cells.push(`<div class="matrix-cell"><strong>${tokens[i]}</strong></div>`);row.forEach(v=>{const heat=Number.isFinite(v)?Math.max(8,Math.min(75,(v+1)*22)):0;cells.push(`<div class="matrix-cell" style="--heat:${heat}%">${Number.isFinite(v)?v.toFixed(2):"−∞"}</div>`)})});document.getElementById("attnStage").innerHTML=`<h2>Scorematrix QKᵀ/√d ${mask?"+ Maske":""}</h2><div class="matrix" style="grid-template-columns:repeat(5,1fr)">${cells.join("")}</div><h3>Softmax-Gewichte für Query „${tokens[q]}“</h3><div class="bar-list">${tokens.map((t,i)=>`<div class="bar-row"><span>${t}</span><div class="bar-track"><div class="bar-fill" style="width:${probs[i]*100}%"></div></div><strong>${(probs[i]*100).toFixed(1)}%</strong></div>`).join("")}</div><p class="lab-note">Summe: ${probs.reduce((a,b)=>a+b,0).toFixed(4)}. Niedrigere Temperatur schärft nur Unterschiede zwischen erlaubten Scores.</p>`;}
+    function updateAttention(){
+      const tokens=["Der","Hund","jagt","ihn"],base=[[2.2,.8,.2,.1],[.4,2.4,.8,.5],[.2,1.9,2.1,1.4],[.1,1.2,.8,2.3]],q=+document.getElementById("attnQuery").value,temp=+document.getElementById("attnTemp").value,mask=document.getElementById("attnMask").checked;
+      document.getElementById("attnTempOut").value=temp.toFixed(2);
+      const matrix=base.map((row,i)=>row.map((value,j)=>(mask&&j>i)?-Infinity:value/temp)),probs=softmax(matrix[q]);
+      const rows=matrix.map((row,i)=>`<tr><th scope="row">${tokens[i]}</th>${row.map(value=>{const heat=Number.isFinite(value)?Math.max(8,Math.min(75,(value+1)*22)):0;return `<td style="--heat:${heat}%">${Number.isFinite(value)?value.toFixed(2):"−∞"}</td>`}).join("")}</tr>`).join("");
+      document.getElementById("attnStage").innerHTML=`<h2>Scorematrix QKᵀ/√d ${mask?"+ Maske":""}</h2><table class="matrix-table"><caption class="sr-only">Attention-Scores: Zeilen sind Queries, Spalten sind Keys.</caption><thead><tr><th scope="col">Query / Key</th>${tokens.map(token=>`<th scope="col">${token}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table><h3>Softmax-Gewichte für Query „${tokens[q]}“</h3><div class="bar-list">${tokens.map((token,i)=>`<div class="bar-row"><span>${token}</span><div class="bar-track" role="progressbar" aria-label="Gewicht für ${token}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${(probs[i]*100).toFixed(1)}"><div class="bar-fill" style="width:${probs[i]*100}%"></div></div><strong>${(probs[i]*100).toFixed(1)}%</strong></div>`).join("")}</div><p class="lab-note">Summe: ${probs.reduce((a,b)=>a+b,0).toFixed(4)}. Niedrigere Temperatur schärft nur Unterschiede zwischen erlaubten Scores.</p>`;
+    }
 
     function schedule(step,warm,max,min=.1){if(step<warm)return max*step/warm;const p=(step-warm)/(100-warm);return min*max+.5*(max-min*max)*(1+Math.cos(Math.PI*p))}
-    function updateOptimizer(){const step=+document.getElementById("optStep").value,warm=Math.min(+document.getElementById("optWarmup").value,99),max=+document.getElementById("optLr").value,g=+document.getElementById("optGrad").value,wd=+document.getElementById("optWd").value,lr=schedule(step,warm,max),theta=1,newTheta=(1-lr*wd)*theta-lr*g/(Math.abs(g)+1e-8);[["optStepOut",step],["optWarmupOut",warm],["optLrOut",max.toFixed(4)],["optGradOut",g.toFixed(2)],["optWdOut",wd.toFixed(2)]].forEach(([id,v])=>document.getElementById(id).value=v);const pts=[];for(let t=0;t<=100;t+=2){const y=schedule(t,warm,max),x=35+t*5.2,py=210-y/max*170;pts.push(`${x},${py}`)}document.getElementById("optStage").innerHTML=`<h2>Lernratenverlauf</h2><svg class="svg-chart" viewBox="0 0 590 250" role="img" aria-label="Warmup und Cosine Lernratenkurve"><line class="chart-grid-line" x1="35" x2="555" y1="210" y2="210"/><line class="chart-grid-line" x1="35" x2="35" y1="35" y2="210"/><polyline class="chart-line" points="${pts.join(" ")}"/><circle class="chart-dot" cx="${35+step*5.2}" cy="${210-lr/max*170}" r="6"/><text class="chart-label" x="35" y="232">0</text><text class="chart-label" x="530" y="232">100 Steps</text><text class="chart-label" x="42" y="48">η max</text></svg><div class="stage-metric"><div class="metric"><strong>${lr.toExponential(2)}</strong><span>η am Step ${step}</span></div><div class="metric"><strong>${newTheta.toFixed(6)}</strong><span>θ neu aus θ=1, vereinfachtem erstem AdamW-Step</span></div></div><p class="lab-note">Beim ersten Moment-korrigierten Schritt ist m̂≈g und √v̂≈|g|. Das zeigt die adaptive Skalierung, ersetzt aber keinen vollständigen Mehrschritt-Simulator.</p>`;}
+    function updateOptimizer(){const step=+document.getElementById("optStep").value,warm=Math.min(+document.getElementById("optWarmup").value,99),max=+document.getElementById("optLr").value,g=+document.getElementById("optGrad").value,wd=+document.getElementById("optWd").value,lr=schedule(step,warm,max),theta=1,newTheta=(1-lr*wd)*theta-lr*g/(Math.abs(g)+1e-8);[["optStepOut",step],["optWarmupOut",warm],["optLrOut",max.toFixed(4)],["optGradOut",g.toFixed(2)],["optWdOut",wd.toFixed(2)]].forEach(([id,v])=>document.getElementById(id).value=v);const pts=[];for(let t=0;t<=100;t+=2){const y=schedule(t,warm,max),x=35+t*5.2,py=210-y/max*170;pts.push(`${x},${py}`)}document.getElementById("optStage").innerHTML=`<h2>Lernratenverlauf</h2><svg class="svg-chart" viewBox="0 0 590 225" role="img" aria-label="Lernrate über 100 Schritte: Warmup bis zur maximalen Lernrate, danach Cosine-Abfall. Aktueller Schritt ${step}, Lernrate ${lr.toExponential(2)}."><line class="chart-grid-line" x1="35" x2="555" y1="210" y2="210"/><line class="chart-grid-line" x1="35" x2="35" y1="35" y2="210"/><polyline class="chart-line" points="${pts.join(" ")}"/><circle class="chart-dot" cx="${35+step*5.2}" cy="${210-lr/max*170}" r="6"/></svg><div class="chart-axis-labels"><span>0 Schritte · Lernrate 0</span><span>100 Schritte · Lernrate η</span></div><div class="stage-metric"><div class="metric"><strong>${lr.toExponential(2)}</strong><span>η am Step ${step}</span></div><div class="metric"><strong>${newTheta.toFixed(6)}</strong><span>θ neu aus θ=1, vereinfachtem erstem AdamW-Step</span></div></div><p class="lab-note">Beim ersten Moment-korrigierten Schritt ist m̂≈g und √v̂≈|g|. Das zeigt die adaptive Skalierung, ersetzt aber keinen vollständigen Mehrschritt-Simulator.</p>`;}
 
     function fmtNum(n){if(n>=1e12)return(n/1e12).toFixed(2)+"T";if(n>=1e9)return(n/1e9).toFixed(2)+"B";if(n>=1e6)return(n/1e6).toFixed(2)+"M";return Math.round(n).toLocaleString("de-DE")}
     function fmtBytes(n){const units=["B","KiB","MiB","GiB","TiB"];let i=0;while(n>=1024&&i<4){n/=1024;i++}return n.toFixed(n<10?2:1)+" "+units[i]}
     function updateResources(){const L=+document.getElementById("resL").value,D=+document.getElementById("resD").value,V=+document.getElementById("resV").value,T=+document.getElementById("resT").value,tokens=+document.getElementById("resTokens").value,N=12*L*D*D+V*D,state=N*16,attnElems=L*T*T,flops=6*N*tokens,time=flops/(4e14);document.getElementById("resLOut").value=L;document.getElementById("resStage").innerHTML=`<h2>Napkin Math</h2><div class="stage-metric"><div class="metric"><strong>${fmtNum(N)}</strong><span>Parameter ≈12LD²+VD</span></div><div class="metric"><strong>${fmtBytes(state)}</strong><span>AdamW-State bei 16 Byte/Parameter</span></div><div class="metric"><strong>${fmtNum(attnElems)}</strong><span>T²-Scoreelemente über alle Layer, B=H=1</span></div><div class="metric"><strong>${(time/3600).toFixed(1)} h</strong><span>bei effektiv 400 TFLOP/s</span></div></div><div class="callout warning"><strong>Näherung:</strong> Aktivierungen, GQA/SwiGLU-Details, Embedding-Tying, Kommunikation und Attention-Zusatz-FLOPs sind setupabhängig. Nutze die Rechnung zum Plausibilisieren, nicht als Speicherzusage.</div>`;}
 
-    function updateRoofline(){const ai=+document.getElementById("roofAI").value,bw=+document.getElementById("roofBW").value,peak=+document.getElementById("roofPeak").value,mem=bw*ai,perf=Math.min(peak,mem),ridge=peak/bw,bound=mem<peak?"Memory-bound":"Compute-bound";document.getElementById("roofAIOut").value=ai.toFixed(2)+" FLOP/Byte";document.getElementById("roofBWOut").value=bw.toFixed(1)+" TB/s";document.getElementById("roofPeakOut").value=peak+" TFLOP/s";const x=Math.max(10,Math.min(95,Math.log10(ai/.25)/Math.log10(500/.25)*100));document.getElementById("roofStage").innerHTML=`<h2>${bound}</h2><div class="stage-metric"><div class="metric"><strong>${perf.toFixed(1)} TFLOP/s</strong><span>Roofline-Dach</span></div><div class="metric"><strong>${ridge.toFixed(1)} FLOP/Byte</strong><span>Ridge Point</span></div></div><div style="position:relative;height:170px;border-left:2px solid var(--border);border-bottom:2px solid var(--border);margin:1.2rem 1rem"><div style="position:absolute;left:0;bottom:0;width:${Math.min(100,ridge/500*100)}%;height:70%;border-top:3px solid var(--primary);transform:skewY(-32deg);transform-origin:left bottom"></div><div style="position:absolute;right:0;top:30%;width:${Math.max(0,100-Math.min(100,ridge/500*100))}%;border-top:3px solid var(--primary)"></div><div style="position:absolute;left:${x}%;bottom:${Math.min(88,perf/peak*70)}%;width:12px;height:12px;border-radius:50%;background:var(--accent)"></div><span class="small muted" style="position:absolute;bottom:-1.8rem;right:0">AI →</span></div><p class="lab-note">BW·AI = ${mem.toFixed(1)} TFLOP/s; Peak = ${peak} TFLOP/s. Das kleinere Dach begrenzt.</p>`;}
+    function updateRoofline(){const ai=+document.getElementById("roofAI").value,bw=+document.getElementById("roofBW").value,peak=+document.getElementById("roofPeak").value,mem=bw*ai,perf=Math.min(peak,mem),ridge=peak/bw,bound=mem<peak?"Memory-bound":"Compute-bound";document.getElementById("roofAIOut").value=ai.toFixed(2)+" FLOP/Byte";document.getElementById("roofBWOut").value=bw.toFixed(1)+" TB/s";document.getElementById("roofPeakOut").value=peak+" TFLOP/s";const x=Math.max(10,Math.min(95,Math.log10(ai/.25)/Math.log10(500/.25)*100));document.getElementById("roofStage").innerHTML=`<h2>${bound}</h2><div class="stage-metric"><div class="metric"><strong>${perf.toFixed(1)} TFLOP/s</strong><span>Roofline-Dach</span></div><div class="metric"><strong>${ridge.toFixed(1)} FLOP/Byte</strong><span>Ridge Point</span></div></div><div class="roofline-plot" role="img" aria-label="Roofline-Diagramm: ${bound} bei ${ai.toFixed(2)} FLOP pro Byte, erreichbare Leistung ${perf.toFixed(1)} TFLOP pro Sekunde und Ridge Point ${ridge.toFixed(1)} FLOP pro Byte."><div aria-hidden="true" style="position:absolute;left:0;bottom:0;width:${Math.min(100,ridge/500*100)}%;height:70%;border-top:3px solid var(--primary);transform:skewY(-32deg);transform-origin:left bottom"></div><div aria-hidden="true" style="position:absolute;right:0;top:30%;width:${Math.max(0,100-Math.min(100,ridge/500*100))}%;border-top:3px solid var(--primary)"></div><div aria-hidden="true" style="position:absolute;left:${x}%;bottom:${Math.min(88,perf/peak*70)}%;width:12px;height:12px;border-radius:50%;background:var(--accent)"></div></div><div class="chart-axis-labels"><span>Niedrige Arithmetic Intensity</span><span>Hohe Arithmetic Intensity</span></div><p class="lab-note">BW·AI = ${mem.toFixed(1)} TFLOP/s; Peak = ${peak} TFLOP/s. Das kleinere Dach begrenzt.</p>`;}
 
     function updateParallelism(){const mode=document.getElementById("parMode").value,W=+document.getElementById("parWorld").value;const data={ddp:{title:"DDP",param:"voll repliziert",grad:"voll, danach All-Reduce",opt:"voll repliziert",comm:"Gradient All-Reduce",note:"Teilt den Batch; einfache Rechenparallelität, aber State wächst nicht mit W."},zero2:{title:"ZeRO-2",param:"voll repliziert",grad:`1/${W} geshardet`,opt:`1/${W} geshardet`,comm:"Reduce-Scatter + All-Gather",note:"Spart Gradient und Optimizer State; Parameter bleiben repliziert."},fsdp:{title:"FSDP / ZeRO-3",param:`1/${W} idle; all-gather für Compute`,grad:`1/${W}`,opt:`1/${W}`,comm:"Layerweise All-Gather + Reduce-Scatter",note:"Maximaler State-Speichervorteil, mehr Lifecycle- und Peak-Komplexität."},tp:{title:"Tensor Parallel",param:`Operatorachsen 1/${W}`,grad:`Operatorachsen 1/${W}`,opt:`1/${W}`,comm:"All-Reduce / All-Gather im Layer",note:"Teilt Breite; schnelle Interconnects innerhalb eines Nodes bevorzugt."},pp:{title:"Pipeline Parallel",param:`Layergruppen 1/${W}`,grad:`Layergruppen 1/${W}`,opt:`1/${W}`,comm:"Aktivierungen zwischen Stages",note:"Teilt Tiefe; Microbatches amortisieren Pipeline-Bubbles."}}[mode];document.getElementById("parStage").innerHTML=`<h2>${data.title}: Ownership Map</h2><div class="gpu-grid">${Array.from({length:W},(_,i)=>`<div class="gpu"><strong>Rank ${i}</strong><span class="small">P: ${data.param}<br>G: ${data.grad}<br>O: ${data.opt}</span></div>`).join("")}</div><div class="stage-metric"><div class="metric"><strong>${data.comm}</strong><span>dominantes Kommunikationsmuster</span></div></div><div class="callout">${data.note}</div>`;}
 
-    function updateScaling(){const h=+document.getElementById("scaleHours").value,pf=+document.getElementById("scalePflops").value,r=+document.getElementById("scaleRatio").value,C=h*3600*pf*1e15,N=Math.sqrt(C/(6*r)),D=r*N;document.getElementById("scaleHoursOut").value=h+" h";document.getElementById("scalePflopsOut").value=pf.toFixed(2);document.getElementById("scaleRatioOut").value=r;const factors=[.2,.35,.5,.7,1,1.4,2,3,5],vals=factors.map(f=>{const n=N*f,d=C/(6*n),loss=1.7+.18/Math.pow(n/N,.35)+.16/Math.pow(d/D,.28);return{f,n,d,loss}}),min=Math.min(...vals.map(x=>x.loss)),max=Math.max(...vals.map(x=>x.loss)),pts=vals.map((x,i)=>`${40+i*62},${200-(x.loss-min)/(max-min)*145}`).join(" ");document.getElementById("scaleStage").innerHTML=`<h2>Schematisches Compute-Optimum</h2><div class="stage-metric"><div class="metric"><strong>${fmtNum(N)}</strong><span>N bei gewähltem r</span></div><div class="metric"><strong>${fmtNum(D)}</strong><span>D Tokens</span></div><div class="metric"><strong>${C.toExponential(2)}</strong><span>C FLOPs</span></div></div><svg class="svg-chart" viewBox="0 0 590 245" role="img" aria-label="U-förmiges schematisches IsoFLOPs Lossprofil"><line class="chart-grid-line" x1="40" x2="540" y1="205" y2="205"/><polyline class="chart-line" points="${pts}"/>${vals.map((x,i)=>`<circle class="chart-dot" cx="${40+i*62}" cy="${200-(x.loss-min)/(max-min)*145}" r="5"/>`).join("")}<text class="chart-label" x="40" y="230">kleines N / viele Tokens</text><text class="chart-label" x="390" y="230">großes N / wenige Tokens</text></svg><p class="lab-note">Die Losskurve ist absichtlich illustrativ, nicht aus echten Runs gefittet. A3 verlangt Messpunkte beidseits jedes Minimums.</p>`;}
+    function updateScaling(){const h=+document.getElementById("scaleHours").value,pf=+document.getElementById("scalePflops").value,r=+document.getElementById("scaleRatio").value,C=h*3600*pf*1e15,N=Math.sqrt(C/(6*r)),D=r*N;document.getElementById("scaleHoursOut").value=h+" h";document.getElementById("scalePflopsOut").value=pf.toFixed(2);document.getElementById("scaleRatioOut").value=r;const factors=[.2,.35,.5,.7,1,1.4,2,3,5],vals=factors.map(f=>{const n=N*f,d=C/(6*n),loss=1.7+.18/Math.pow(n/N,.35)+.16/Math.pow(d/D,.28);return{f,n,d,loss}}),min=Math.min(...vals.map(x=>x.loss)),max=Math.max(...vals.map(x=>x.loss)),pts=vals.map((x,i)=>`${40+i*62},${200-(x.loss-min)/(max-min)*145}`).join(" ");document.getElementById("scaleStage").innerHTML=`<h2>Schematisches Compute-Optimum</h2><div class="stage-metric"><div class="metric"><strong>${fmtNum(N)}</strong><span>N bei gewähltem r</span></div><div class="metric"><strong>${fmtNum(D)}</strong><span>D Tokens</span></div><div class="metric"><strong>${C.toExponential(2)}</strong><span>C FLOPs</span></div></div><svg class="svg-chart" viewBox="0 0 590 215" role="img" aria-label="U-förmiges schematisches IsoFLOPs-Lossprofil: links kleine Modelle mit vielen Tokens, rechts große Modelle mit wenigen Tokens."><line class="chart-grid-line" x1="40" x2="540" y1="205" y2="205"/><polyline class="chart-line" points="${pts}"/>${vals.map((x,i)=>`<circle class="chart-dot" cx="${40+i*62}" cy="${200-(x.loss-min)/(max-min)*145}" r="5"/>`).join("")}</svg><div class="chart-axis-labels"><span>Kleines N · viele Tokens</span><span>Großes N · wenige Tokens</span></div><p class="lab-note">Die Losskurve ist absichtlich illustrativ, nicht aus echten Runs gefittet. A3 verlangt Messpunkte beidseits jedes Minimums.</p>`;}
 
     const dataDocs=[{name:"Tutorial mit Code",lang:"en",pii:false,q:.9,dup:"a"},{name:"Kopiertes Tutorial",lang:"en",pii:false,q:.86,dup:"a"},{name:"Forum mit E-Mail",lang:"en",pii:true,q:.64,dup:"b"},{name:"Deutscher Fachartikel",lang:"de",pii:false,q:.93,dup:"c"},{name:"SEO-Wortsalat",lang:"en",pii:false,q:.22,dup:"d"},{name:"Counter-Speech-Zitat",lang:"en",pii:false,q:.58,dup:"e"}];
     function updateDataPipeline(){const lang=document.getElementById("dataLang").checked,pii=document.getElementById("dataPII").checked,quality=document.getElementById("dataQuality").checked,dedup=document.getElementById("dataDedup").checked,th=+document.getElementById("dataThreshold").value;document.getElementById("dataThresholdOut").value=th.toFixed(2);const seen=new Set(),rows=dataDocs.map(d=>{const reasons=[];if(lang&&d.lang!=="en")reasons.push("Sprache");if(quality&&d.q<th)reasons.push("Qualität");if(dedup&&seen.has(d.dup))reasons.push("Near-Dup");seen.add(d.dup);const keep=!reasons.length;return{...d,reasons,keep,masked:pii&&d.pii}}),kept=rows.filter(x=>x.keep).length;document.getElementById("dataStage").innerHTML=`<h2>${kept}/${rows.length} Dokumente behalten</h2><div style="display:grid;gap:.5rem">${rows.map(d=>`<div class="metric" style="border-left:4px solid ${d.keep?"var(--success)":"var(--danger)"}"><strong style="font-size:1rem">${d.keep?"✓":"×"} ${esc(d.name)}</strong><span>lang=${d.lang} · quality=${d.q.toFixed(2)} · ${d.masked?"PII maskiert":d.pii?"PII sichtbar":"keine PII"} ${d.reasons.length?"· verworfen: "+d.reasons.join(", "):""}</span></div>`).join("")}</div><p class="lab-note">Beobachte den möglichen False Positive „Deutscher Fachartikel“ und den kontextabhängigen Grenzfall „Counter-Speech-Zitat“.</p>`;}
@@ -1662,13 +1733,13 @@
 
     function updateGrpo(){const rewards=[...document.querySelectorAll(".grpoReward")].map((x,i)=>{const v=+x.value;document.getElementById("grpoOut"+i).value=v.toFixed(2);return v}),mean=rewards.reduce((a,b)=>a+b,0)/rewards.length,variance=rewards.reduce((s,x)=>s+(x-mean)**2,0)/rewards.length,std=Math.sqrt(variance),normStd=document.getElementById("grpoStd").checked,adv=rewards.map(r=>(r-mean)/(normStd?std+1e-8:1));document.getElementById("grpoStage").innerHTML=`<h2>Gruppenrelatives Lernsignal</h2><div class="stage-metric"><div class="metric"><strong>${mean.toFixed(3)}</strong><span>Gruppenmittel μ</span></div><div class="metric"><strong>${std.toFixed(3)}</strong><span>Gruppen-Std σ</span></div></div><div class="bar-list">${adv.map((a,i)=>`<div class="bar-row"><span>Antwort ${i+1}</span><div class="bar-track"><div class="bar-fill" style="width:${Math.min(100,Math.abs(a)/(Math.max(...adv.map(Math.abs),1e-8))*100)}%;background:${a>=0?"var(--success)":"var(--danger)"}"></div></div><strong>${a.toFixed(2)}</strong></div>`).join("")}</div><div class="callout ${std<1e-7?"warning":"accent"}" style="margin-top:1rem">${std<1e-7?"Alle Rewards sind gleich: Nach Zentrierung gibt es kein relatives Lernsignal.":`Positive Advantages erhöhen im idealisierten Gradient-Ascent die Logwahrscheinlichkeit; negative senken sie. ${normStd?"Durch σ teilen macht die Skala gruppenabhängig.":"Ohne σ bleibt die Rewardskala erhalten."}`}</div>`;}
 
-    function openModal(title,eyebrow,body){document.getElementById("modalTitle").textContent=title;document.getElementById("modalEyebrow").textContent=eyebrow;document.getElementById("modalBody").innerHTML=body;document.getElementById("modalBackdrop").hidden=false;document.body.style.overflow="hidden";document.getElementById("modalClose").focus()}
-    function closeModal(){document.getElementById("modalBackdrop").hidden=true;document.body.style.overflow=""}
-    function openDiagnostic(){openModal("Grundlagen-Diagnose","12 Minuten · ohne Hilfsmittel",`<p class="muted">Beantworte aus deinem aktuellen Verständnis. Das Ergebnis priorisiert den Lernpfad, benotet dich aber nicht.</p><form id="diagnosticForm">${DIAGNOSTIC.map((q,i)=>quizQuestionHtml(q,i,"diag")).join("")}<button class="button primary" type="submit" style="margin-top:1rem">Auswerten</button></form><div id="diagnosticResult"></div>`);document.getElementById("diagnosticForm").onsubmit=e=>{e.preventDefault();const groups={};DIAGNOSTIC.forEach((q,i)=>{groups[q.area]||={n:0,ok:0};groups[q.area].n++;const chosen=document.querySelector(`input[name="diag-${i}"]:checked`);if(chosen&&+chosen.value===q.a)groups[q.area].ok++});if(document.querySelectorAll('#diagnosticForm input[type="radio"]:checked').length<DIAGNOSTIC.length){toast("Bitte beantworte alle Fragen.");return;}const scores=Object.fromEntries(Object.entries(groups).map(([k,v])=>[k,Math.round(v.ok/v.n*100)]));user.diagnostic={scores,at:new Date().toISOString()};saveUser(true);document.getElementById("diagnosticResult").innerHTML=`<div class="callout accent" style="margin-top:1rem"><strong>Gespeichert.</strong> Niedrigste Bereiche: ${Object.entries(scores).sort((a,b)=>a[1]-b[1]).slice(0,3).map(([k,v])=>`${k} ${v}%`).join(" · ")}. Schließe den Dialog für deinen aktualisierten Fokus.</div>`;renderDashboard()}; }
+    function openModal(title,eyebrow,body){const backdrop=document.getElementById("modalBackdrop"),opening=backdrop.hidden;if(opening)modalInvoker=document.activeElement;document.getElementById("modalTitle").textContent=title;document.getElementById("modalEyebrow").textContent=eyebrow;document.getElementById("modalBody").innerHTML=body;backdrop.hidden=false;document.getElementById("appShell").inert=true;document.body.style.overflow="hidden";if(opening)requestAnimationFrame(()=>document.getElementById("modalClose").focus())}
+    function closeModal(){const backdrop=document.getElementById("modalBackdrop");if(backdrop.hidden)return;backdrop.hidden=true;document.getElementById("appShell").inert=false;document.body.style.overflow="";const target=modalInvoker?.isConnected&&!modalInvoker.closest("[inert]")?modalInvoker:document.getElementById("mainContent");modalInvoker=null;requestAnimationFrame(()=>target.focus())}
+    function openDiagnostic(){openModal("Grundlagen-Diagnose","12 Minuten · ohne Hilfsmittel",`<p class="muted">Beantworte aus deinem aktuellen Verständnis. Das Ergebnis priorisiert den Lernpfad, benotet dich aber nicht.</p><form id="diagnosticForm">${DIAGNOSTIC.map((q,i)=>quizQuestionHtml(q,i,"diag")).join("")}<button class="button primary" type="submit" style="margin-top:1rem">Auswerten</button></form><div id="diagnosticResult" role="status" aria-live="polite"></div>`);document.getElementById("diagnosticForm").onsubmit=e=>{e.preventDefault();const groups={};DIAGNOSTIC.forEach((q,i)=>{groups[q.area]||={n:0,ok:0};groups[q.area].n++;const chosen=document.querySelector(`input[name="diag-${i}"]:checked`);if(chosen&&+chosen.value===q.a)groups[q.area].ok++});if(document.querySelectorAll('#diagnosticForm input[type="radio"]:checked').length<DIAGNOSTIC.length){toast("Bitte beantworte alle Fragen.");return;}const scores=Object.fromEntries(Object.entries(groups).map(([k,v])=>[k,Math.round(v.ok/v.n*100)]));user.diagnostic={scores,at:new Date().toISOString()};saveUser(true);document.getElementById("diagnosticResult").innerHTML=`<div class="callout accent" style="margin-top:1rem"><strong>Gespeichert.</strong> Niedrigste Bereiche: ${Object.entries(scores).sort((a,b)=>a[1]-b[1]).slice(0,3).map(([k,v])=>`${k} ${v}%`).join(" · ")}. Schließe den Dialog für deinen aktualisierten Fokus.</div>`;renderDashboard()}; }
 
     let flashIndex=0;
     function openFlashcards(){flashIndex=0;renderFlashcardModal()}
-    function renderFlashcardModal(){const cards=[...QUIZ.map(q=>({front:q.q,back:q.opts[q.a]+" — "+q.why})),...FORMULAS.slice(0,15).map(f=>({front:`Erkläre ${f.title} ohne Vorlage.`,back:`${strip(f.expr)} — ${f.intuition}`}))];const card=cards[flashIndex%cards.length];openModal("Karteikarten","Aktives Abrufen",`<button class="panel flashcard" id="flashReveal"><div><p class="eyebrow">Karte ${flashIndex+1} / ${cards.length}</p><h2>${esc(card.front)}</h2><p class="answer" id="flashAnswer" hidden>${formulaText(card.back)}</p><p class="muted small" id="flashPrompt">Klicken zum Aufdecken</p></div></button><div class="card-actions" style="justify-content:center;margin-top:1rem"><button class="button" id="flashPrev">Zurück</button><button class="button primary" id="flashNext">Nächste</button></div>`);document.getElementById("flashReveal").onclick=()=>{document.getElementById("flashAnswer").hidden=false;document.getElementById("flashPrompt").hidden=true};document.getElementById("flashPrev").onclick=()=>{flashIndex=Math.max(0,flashIndex-1);renderFlashcardModal()};document.getElementById("flashNext").onclick=()=>{flashIndex=(flashIndex+1)%cards.length;renderFlashcardModal()};}
+    function renderFlashcardModal(){const cards=[...QUIZ.map(q=>({front:q.q,back:q.opts[q.a]+" — "+q.why})),...FORMULAS.slice(0,15).map(f=>({front:`Erkläre ${f.title} ohne Vorlage.`,back:`${strip(f.expr)} — ${f.intuition}`}))],card=cards[flashIndex%cards.length];openModal("Karteikarten","Aktives Abrufen",`<article class="panel flashcard" aria-labelledby="flashQuestion"><div class="flashcard-inner"><p class="eyebrow">Karte ${flashIndex+1} / ${cards.length}</p><h3 id="flashQuestion">${esc(card.front)}</h3><p class="answer" id="flashAnswer" hidden>${formulaText(card.back)}</p><button class="button" id="flashReveal" aria-controls="flashAnswer" aria-expanded="false">Antwort anzeigen</button></div></article><div class="card-actions" style="justify-content:center;margin-top:1rem"><button class="button" id="flashPrev" ${flashIndex===0?"disabled":""}>Zurück</button><button class="button primary" id="flashNext">Nächste Karte</button></div>`);document.getElementById("flashReveal").onclick=event=>{document.getElementById("flashAnswer").hidden=false;event.currentTarget.setAttribute("aria-expanded","true");event.currentTarget.textContent="Antwort sichtbar";event.currentTarget.disabled=true};document.getElementById("flashPrev").onclick=()=>{flashIndex=Math.max(0,flashIndex-1);renderFlashcardModal()};document.getElementById("flashNext").onclick=()=>{flashIndex=(flashIndex+1)%cards.length;renderFlashcardModal()};requestAnimationFrame(()=>document.getElementById("flashReveal")?.focus())}
 
     function exportProgress(){const blob=new Blob([JSON.stringify({version:1,exportedAt:new Date().toISOString(),data:user},null,2)],{type:"application/json"}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="cs336-lernfortschritt.json";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast("Fortschritt exportiert")}
     function importProgress(e){const file=e.target.files?.[0];if(!file)return;const reader=new FileReader();reader.onload=()=>{try{const parsed=JSON.parse(reader.result);user=normalizeUser(parsed.data||parsed);saveUser(true);applyTheme();renderCurrent();toast("Fortschritt importiert")}catch{toast("Ungültige Fortschrittsdatei")}};reader.readAsText(file)}
@@ -1684,30 +1755,35 @@
     ];}
     const SEARCH_INDEX=buildSearchIndex();
     function searchAll(query){const q=norm(query);if(q.length<2)return[];return SEARCH_INDEX.map(item=>{const title=norm(item.title),text=norm(item.text);let score=0;if(title===q)score=100;if(title.startsWith(q))score=Math.max(score,70);if(title.includes(q))score=Math.max(score,50);if(text.includes(q))score=Math.max(score,20);return{...item,score}}).filter(x=>x.score>0).sort((a,b)=>b.score-a.score||a.title.localeCompare(b.title)).slice(0,14)}
-    function renderSearchResults(){const input=document.getElementById("globalSearch"),box=document.getElementById("searchResults"),items=searchAll(input.value);if(input.value.trim().length<2){box.hidden=true;return}box.hidden=false;box.innerHTML=items.length?items.map((x,i)=>`<button class="search-result" data-search-i="${i}"><span class="result-type">${x.type}</span><span class="result-copy"><strong>${esc(x.title)}</strong><small>${formulaText(x.desc)}</small></span></button>`).join(""):`<div style="padding:1rem"><strong>Kein Treffer</strong><p class="muted small">Probiere englische Begriffe, Unicode-Symbole oder Codebezeichner wie d_model.</p></div>`;box.querySelectorAll("[data-search-i]").forEach(b=>b.onclick=()=>openSearchItem(items[+b.dataset.searchI]));}
-    function openSearchItem(item){document.getElementById("searchResults").hidden=true;document.getElementById("globalSearch").value="";if(["module","concept","formula","assignment","lab"].includes(item.kind)){navigate("detail",{type:item.kind,id:item.id});return}if(item.kind==="symbol"){appState.formulaMode="symbols";appState.formulaQuery=item.title.split(" · ")[0];navigate("formulas");return}if(item.kind==="glossary"){appState.glossaryQuery=item.title;navigate("glossary")}}
+    function setSearchOpen(open){const input=document.getElementById("globalSearch"),box=document.getElementById("searchResults");box.hidden=!open;input.setAttribute("aria-expanded",String(open));if(!open){activeSearchIndex=-1;input.removeAttribute("aria-activedescendant");box.querySelectorAll('[role="option"]').forEach(option=>{option.classList.remove("is-active");option.setAttribute("aria-selected","false")})}}
+    function setActiveSearchResult(index){if(!searchItems.length)return;activeSearchIndex=(index+searchItems.length)%searchItems.length;const input=document.getElementById("globalSearch"),options=[...document.querySelectorAll("#searchResults [role=option]")];options.forEach((option,i)=>{const active=i===activeSearchIndex;option.classList.toggle("is-active",active);option.setAttribute("aria-selected",String(active))});const active=options[activeSearchIndex];if(active){input.setAttribute("aria-activedescendant",active.id);active.scrollIntoView({block:"nearest"})}}
+    function renderSearchResults(){const input=document.getElementById("globalSearch"),box=document.getElementById("searchResults"),status=document.getElementById("searchStatus");searchItems=searchAll(input.value);activeSearchIndex=-1;input.removeAttribute("aria-activedescendant");if(input.value.trim().length<2){box.innerHTML="";status.textContent="";setSearchOpen(false);return}box.innerHTML=searchItems.length?searchItems.map((item,i)=>`<div class="search-result" id="search-option-${i}" role="option" aria-selected="false" data-search-i="${i}"><span class="result-type">${item.type}</span><span class="result-copy"><strong>${esc(item.title)}</strong><small>${formulaText(item.desc)}</small></span></div>`).join(""):`<div class="search-empty" role="option" aria-disabled="true" aria-selected="false"><strong>Kein Treffer</strong><p class="muted small">Probiere englische Begriffe, Unicode-Symbole oder Codebezeichner wie d_model.</p></div>`;status.textContent=searchItems.length?`${searchItems.length} Suchergebnisse verfügbar. Mit Pfeiltasten auswählen.`:"Keine Suchergebnisse.";setSearchOpen(true);box.querySelectorAll("[data-search-i]").forEach(option=>{option.addEventListener("mousedown",event=>event.preventDefault());option.onclick=()=>openSearchItem(searchItems[+option.dataset.searchI])})}
+    function handleSearchKeydown(event){const box=document.getElementById("searchResults");if(event.key==="ArrowDown"||event.key==="ArrowUp"){event.preventDefault();if(box.hidden)renderSearchResults();if(searchItems.length){const direction=event.key==="ArrowDown"?1:-1,next=activeSearchIndex<0?(direction>0?0:searchItems.length-1):activeSearchIndex+direction;setActiveSearchResult(next)}return}if(event.key==="Enter"&&!box.hidden&&searchItems.length){event.preventDefault();openSearchItem(searchItems[activeSearchIndex>=0?activeSearchIndex:0]);return}if(event.key==="Escape"&&!box.hidden){event.preventDefault();setSearchOpen(false)}}
+    function openSearchItem(item){setSearchOpen(false);document.getElementById("globalSearch").value="";document.getElementById("searchStatus").textContent="";if(["module","concept","formula","assignment","lab"].includes(item.kind)){navigate("detail",{type:item.kind,id:item.id});return}if(item.kind==="symbol"){appState.formulaMode="symbols";appState.formulaQuery=item.title.split(" · ")[0];navigate("formulas");return}if(item.kind==="glossary"){appState.glossaryQuery=item.title;navigate("glossary")}}
 
     function applyTheme(){document.documentElement.dataset.theme=user.theme;document.querySelector('meta[name="theme-color"]').content=user.theme==="dark"?"#09111f":"#f5f7fb";document.getElementById("themeButton").textContent=user.theme==="dark"?"☼":"☾";document.getElementById("themeButton").setAttribute("aria-label",user.theme==="dark"?"Helles Farbschema":"Dunkles Farbschema")}
-    function parseHash(){const h=location.hash.slice(1);if(!h)return;const [view,type,id]=h.split("/");if(view==="detail"&&type&&id){appState.view="detail";appState.detail={type,id}}else if(NAV_ITEMS.some(x=>x[0]===view))appState.view=view;}
+    function parseHash(){const route=routeFromLocation();appState.view=route.view;appState.detail=route.detail}
     function init(){
       parseHash();initNav();applyTheme();
-      document.querySelectorAll(".view").forEach(v=>v.hidden=v.dataset.view!==appState.view);document.querySelectorAll("[data-nav]").forEach(b=>{const active=b.dataset.nav===appState.view;b.classList.toggle("is-active",active);b.setAttribute("aria-current",active?"page":"false")});
-      setMobileNav(false,false);const syncMobileNav=()=>setMobileNav(false,false);if(mobileNavMedia.addEventListener)mobileNavMedia.addEventListener("change",syncMobileNav);else mobileNavMedia.addListener(syncMobileNav);
+      const syncMobileNav=()=>setMobileNav(false,true);if(mobileNavMedia.addEventListener)mobileNavMedia.addEventListener("change",syncMobileNav);else mobileNavMedia.addListener(syncMobileNav);
       document.getElementById("themeButton").onclick=()=>{user.theme=user.theme==="dark"?"light":"dark";saveUser();applyTheme()};
       document.getElementById("notesQuickButton").onclick=()=>navigate("notes");
       document.getElementById("accountButton").onclick=openAccount;
       document.getElementById("menuButton").onclick=()=>setMobileNav(!document.getElementById("sidebar").classList.contains("is-open"));
       document.getElementById("sidebarCloseButton").onclick=()=>setMobileNav(false);
+      document.getElementById("navScrim").onclick=()=>setMobileNav(false);
       document.getElementById("modalClose").onclick=closeModal;document.getElementById("modalBackdrop").addEventListener("click",e=>{if(e.target.id==="modalBackdrop")closeModal()});
-      document.addEventListener("keydown",e=>{if(e.key==="Escape"){closeModal();setMobileNav(false);document.getElementById("searchResults").hidden=true}});
-      document.getElementById("globalSearch").addEventListener("input",renderSearchResults);document.getElementById("globalSearch").addEventListener("keydown",e=>{if(e.key==="Enter"){const first=searchAll(e.target.value)[0];if(first)openSearchItem(first)}});
+      document.addEventListener("keydown",e=>{const backdrop=document.getElementById("modalBackdrop"),sidebar=document.getElementById("sidebar");if(!backdrop.hidden){if(e.key==="Escape"){e.preventDefault();closeModal()}else trapFocus(e,backdrop.querySelector(".modal"));return}if(sidebar.classList.contains("is-open")){if(e.key==="Escape"){e.preventDefault();setMobileNav(false)}else trapFocus(e,sidebar);return}if(e.key==="Escape")setSearchOpen(false)});
+      document.getElementById("globalSearch").addEventListener("input",renderSearchResults);document.getElementById("globalSearch").addEventListener("keydown",handleSearchKeydown);document.getElementById("globalSearch").addEventListener("blur",()=>requestAnimationFrame(()=>setSearchOpen(false)));
       document.addEventListener("click",e=>{const source=e.target.closest("[data-source-id]");if(source){e.preventDefault();void openSource(source.dataset.sourceId,source.dataset.sourcePage||"")}});
-      document.addEventListener("click",e=>{if(!e.target.closest(".search-wrap"))document.getElementById("searchResults").hidden=true});
+      document.addEventListener("click",e=>{if(!e.target.closest(".search-wrap"))setSearchOpen(false)});
+      document.querySelector(".skip-link").addEventListener("click",e=>{e.preventDefault();document.getElementById("mainContent").focus()});
+      window.addEventListener("popstate",handleHistoryNavigation);window.addEventListener("hashchange",handleHistoryNavigation);
       window.addEventListener("online",()=>{setCloudStatus(cloud.session?"syncing":cloud.configured?"signedout":"local");scheduleCloudSync(100)});
       window.addEventListener("offline",()=>setCloudStatus("offline"));
       document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden"){const notes=document.getElementById("notesArea");if(notes&&user.notes!==notes.value){user.notes=notes.value;saveUser(true)}}else void refreshCloudState()});
       window.addEventListener("beforeinstallprompt",event=>{event.preventDefault();installPrompt=event});
-      renderCurrent();registerPwa();void initCloud();
+      navigate(appState.view,appState.detail,{historyMode:"replace",focusMain:false});registerPwa();void initCloud();
     }
     init();
   </script>

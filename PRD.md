@@ -54,6 +54,8 @@ Eine offline-first, interaktive deutschsprachige Lernhilfe, die einen Lernenden 
 - Angemeldete Benutzer koennen ausschliesslich ihren eigenen Lernstand lesen und schreiben.
 - PDFs werden nicht mit GitHub Pages veroeffentlicht, sondern nur fuer aktive Mitglieder ueber zeitlich begrenzte URLs aus dem privaten Supabase-Bucket geoeffnet.
 - Die App ist auf iPhone und iPad ohne horizontales Ueberlaufen bedienbar, respektiert Safe Areas und bietet Touch-Ziele von mindestens 44 Pixeln fuer zentrale Bedienelemente.
+- Zentrale Interaktionen entsprechen WCAG 2.2 AA: sichtbare Fokusindikatoren und Kontrollkontraste, Skip-Link, semantische Navigation, dynamische Seitentitel sowie bedienbare Dialog-, Drawer- und Combobox-Muster.
+- Browser-Zurueck/-Vorwaerts und iOS-Swipe-Navigation stellen Ansicht und vorherige Scrollposition wieder her; interne Zurueck-Aktionen erzeugen keine Navigationsschleifen.
 - JavaScript laeuft ohne Konsolenfehler; zentrale Flows sind per Browser-Test verifiziert.
 
 ## Umsetzungsstatus
@@ -63,6 +65,7 @@ Eine offline-first, interaktive deutschsprachige Lernhilfe, die einen Lernenden 
 - Statische JavaScript-Pruefung, Desktop- und Mobilansicht sowie die zentralen Interaktionspfade wurden erfolgreich verifiziert; die Browserkonsole blieb ohne Fehler oder Warnungen.
 - Version 2 ist unter `https://marvinhooo.github.io/learning-by-doing/` veroeffentlicht: `index.html` ist der Einstieg, Supabase-Schema und private Storage-Regeln, Offline-/Konfliktsynchronisation, PWA-Dateien, mobile Safe-Area-Anpassungen sowie das GitHub-Actions-Deployment sind enthalten.
 - Version 3 ist unter derselben Produktions-URL veroeffentlicht und verdichtet die Oberflaeche: Referenzsammlungen sind kompakte Listen mit nativen Akkordeons, Formeln umbrechen vollstaendig, Dashboard und Lernpfad zeigen Informationen ohne redundante Karten, und die Navigation arbeitet im iPad-Hochformat als zugaengliches Offcanvas-Menue.
+- Version 4 setzt den aktuellen UX- und Accessibility-Audit um: WCAG-2.2-konforme Kontraste und Fokusfuehrung, vollstaendige Tastaturbedienung fuer Dialoge, mobile Navigation und globale Suche, robuste Browser-History, dynamische Seitentitel, ruhigere Leseseiten sowie besser lesbare mobile Diagramme. Die technische Umsetzung und statischen Pruefungen sind abgeschlossen; die Produktionspruefung folgt direkt nach dem Deployment.
 
 ## Offener Rest
 
