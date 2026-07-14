@@ -72,3 +72,10 @@ Iteration Counter: 0
 - Service-Worker-Cleanup auf eigene `cs336-shell-*`-Caches begrenzt, damit andere GitHub-Pages-Projekte auf demselben Origin unberuehrt bleiben.
 - Verifiziert: Inline-JavaScript, Service Worker, Build- und Upload-Skripte parsen; `git diff --check` ist sauber; der reproduzierbare Site-Build enthaelt weder PDFs noch Notebooks.
 - Der Iteration Counter blieb unveraendert, da der Run manuell/interaktiv gestartet wurde.
+
+## 2026-07-15 - Glossar-Akkordeons mit echtem Zusatznutzen (manueller Run)
+
+- Geschlossene Glossareintraege zeigen nur noch Begriff und Kategorie, damit die Liste schnell scanbar bleibt.
+- Beim Oeffnen erscheint die jeweilige kurze Definition unter der eindeutigen Kennzeichnung `Kurz erklaert`.
+- Verifiziert: Alle 54 Glossarbegriffe besitzen Begriff, Kategorie und Definition; Inline-JavaScript, `git diff --check` und der reproduzierbare Site-Build sind sauber.
+- Der Iteration Counter blieb unveraendert, da der Run manuell/interaktiv gestartet wurde.

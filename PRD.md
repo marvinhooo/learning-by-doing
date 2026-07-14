@@ -47,7 +47,7 @@ Eine offline-first, interaktive deutschsprachige Lernhilfe, die einen Lernenden 
 - Mindestens zehn interaktive Lernexperimente reagieren korrekt auf Eingaben.
 - Formeln und Symbole sind such- und filterbar und erklaeren Notation sowie Dimensionen.
 - Formeln bleiben bereits im geschlossenen Akkordeon vollstaendig sichtbar, brechen ohne internes horizontales Scrollen um und lassen sich fuer Kontext, Variablen und Selbstcheck aufklappen.
-- Formeln, Symbole, Glossar, Konzepte, Labs, Assignments und Lernpfad verwenden kompakte Listen beziehungsweise native Akkordeons statt schwer scannbarer Kachelraster.
+- Formeln, Symbole, Glossar, Konzepte, Labs, Assignments und Lernpfad verwenden kompakte Listen beziehungsweise native Akkordeons statt schwer scannbarer Kachelraster; im Glossar erscheint die Kurzbeschreibung erst beim Oeffnen eines Begriffs.
 - Assignment-Bereiche verlinken auf die lokalen PDFs und bleiben innerhalb der KI-Richtlinie.
 - Fortschritt, Notizen und Lesezeichen ueberleben ein Neuladen via `localStorage`.
 - Ohne Netz bleiben Lerninhalte und lokale Aenderungen nutzbar; nach Wiederverbindung werden ausstehende Aenderungen synchronisiert.
