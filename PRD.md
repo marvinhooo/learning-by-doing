@@ -62,7 +62,7 @@ Eine offline-first, interaktive deutschsprachige Lernhilfe, die einen Lernenden 
 - Enthalten sind 12 Lernmodule, 52 Konzepte, 52 Formeln, 47 kontextspezifische Symboleintraege, 54 Glossarbegriffe, 11 interaktive Labs, 12 Diagnosefragen, 12 Quizfragen sowie Coaches fuer A1 bis A5.
 - Statische JavaScript-Pruefung, Desktop- und Mobilansicht sowie die zentralen Interaktionspfade wurden erfolgreich verifiziert; die Browserkonsole blieb ohne Fehler oder Warnungen.
 - Version 2 ist unter `https://marvinhooo.github.io/learning-by-doing/` veroeffentlicht: `index.html` ist der Einstieg, Supabase-Schema und private Storage-Regeln, Offline-/Konfliktsynchronisation, PWA-Dateien, mobile Safe-Area-Anpassungen sowie das GitHub-Actions-Deployment sind enthalten.
-- Version 3 verdichtet die Oberflaeche: Referenzsammlungen sind kompakte Listen mit nativen Akkordeons, Formeln umbrechen vollstaendig, Dashboard und Lernpfad zeigen Informationen ohne redundante Karten, und die Navigation arbeitet im iPad-Hochformat als zugaengliches Offcanvas-Menue.
+- Version 3 ist unter derselben Produktions-URL veroeffentlicht und verdichtet die Oberflaeche: Referenzsammlungen sind kompakte Listen mit nativen Akkordeons, Formeln umbrechen vollstaendig, Dashboard und Lernpfad zeigen Informationen ohne redundante Karten, und die Navigation arbeitet im iPad-Hochformat als zugaengliches Offcanvas-Menue.
 
 ## Offener Rest
 
