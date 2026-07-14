@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="CS336 Lernwerk">
+  <defs>
+    <linearGradient id="g" x1="96" y1="80" x2="416" y2="432" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#74a7ff"/>
+      <stop offset="1" stop-color="#59d8c5"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="#09111f"/>
+  <rect x="88" y="88" width="336" height="336" rx="78" fill="url(#g)"/>
+  <path d="M154 172h47v126h77v42H154V172Zm145 0h57v168h-45V232l-32 71h-31l-32-71v-60h20l28 65 35-65Z" fill="#07111f"/>
+</svg>

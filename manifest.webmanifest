@@ -1,0 +1,43 @@
+{
+  "id": "./",
+  "name": "CS336 Lernwerk",
+  "short_name": "CS336",
+  "description": "Interaktive Lernhilfe für Language Models from Scratch",
+  "lang": "de",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#09111f",
+  "theme_color": "#09111f",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Formeln & Symbole",
+      "short_name": "Formeln",
+      "url": "./#formulas"
+    },
+    {
+      "name": "Interaktive Labs",
+      "short_name": "Labs",
+      "url": "./#labs"
+    }
+  ]
+}
