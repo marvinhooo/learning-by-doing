@@ -46,6 +46,8 @@ Eine offline-first, interaktive deutschsprachige Lernhilfe, die einen Lernenden 
 - Diagnose erzeugt nachvollziehbare Lernempfehlungen.
 - Mindestens zehn interaktive Lernexperimente reagieren korrekt auf Eingaben.
 - Formeln und Symbole sind such- und filterbar und erklaeren Notation sowie Dimensionen.
+- Formeln bleiben bereits im geschlossenen Akkordeon vollstaendig sichtbar, brechen ohne internes horizontales Scrollen um und lassen sich fuer Kontext, Variablen und Selbstcheck aufklappen.
+- Formeln, Symbole, Glossar, Konzepte, Labs, Assignments und Lernpfad verwenden kompakte Listen beziehungsweise native Akkordeons statt schwer scannbarer Kachelraster.
 - Assignment-Bereiche verlinken auf die lokalen PDFs und bleiben innerhalb der KI-Richtlinie.
 - Fortschritt, Notizen und Lesezeichen ueberleben ein Neuladen via `localStorage`.
 - Ohne Netz bleiben Lerninhalte und lokale Aenderungen nutzbar; nach Wiederverbindung werden ausstehende Aenderungen synchronisiert.
@@ -57,9 +59,10 @@ Eine offline-first, interaktive deutschsprachige Lernhilfe, die einen Lernenden 
 ## Umsetzungsstatus
 
 - Version 1 ist am 2026-07-14 als `cs336-lernwerk.html` abgeschlossen.
-- Enthalten sind 12 Lernmodule, 43 Konzepte, 52 Formelkarten, 47 kontextspezifische Symboleintraege, 54 Glossarbegriffe, 11 interaktive Labs, 12 Diagnosefragen, 12 Quizfragen sowie Coaches fuer A1 bis A5.
+- Enthalten sind 12 Lernmodule, 52 Konzepte, 52 Formeln, 47 kontextspezifische Symboleintraege, 54 Glossarbegriffe, 11 interaktive Labs, 12 Diagnosefragen, 12 Quizfragen sowie Coaches fuer A1 bis A5.
 - Statische JavaScript-Pruefung, Desktop- und Mobilansicht sowie die zentralen Interaktionspfade wurden erfolgreich verifiziert; die Browserkonsole blieb ohne Fehler oder Warnungen.
 - Version 2 ist unter `https://marvinhooo.github.io/learning-by-doing/` veroeffentlicht: `index.html` ist der Einstieg, Supabase-Schema und private Storage-Regeln, Offline-/Konfliktsynchronisation, PWA-Dateien, mobile Safe-Area-Anpassungen sowie das GitHub-Actions-Deployment sind enthalten.
+- Version 3 verdichtet die Oberflaeche: Referenzsammlungen sind kompakte Listen mit nativen Akkordeons, Formeln umbrechen vollstaendig, Dashboard und Lernpfad zeigen Informationen ohne redundante Karten, und die Navigation arbeitet im iPad-Hochformat als zugaengliches Offcanvas-Menue.
 
 ## Offener Rest
 

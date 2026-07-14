@@ -6,6 +6,8 @@
 - Sie folgt der Assignment-KI-Richtlinie: Konzepterklaerungen und gestufte Hinweise sind erlaubt; Assignment-Implementierungen und abgabefertige Antworten sind ausgeschlossen.
 - Der Lernfluss priorisiert Diagnose, aktives Abrufen, interaktive Experimente und Selbstpruefung.
 - Symbole und Formeln erhalten einen eigenstaendigen, durchsuchbaren Tafelwerk-Bereich mit Dimensionen, Intuition, Fehlerbildern und Quellen.
+- Wiederholte Referenzsammlungen werden dauerhaft als kompakte Listen mit nativen Akkordeons dargestellt; Karten bleiben auf klar begrenzte Arbeits- und Fokusflaechen beschraenkt. Formeln sind schon geschlossen vollstaendig sichtbar und umbrechen ohne internes horizontales Scrollen.
+- Im iPad-Hochformat nutzt die Hauptnavigation ein Offcanvas-Menue mit Fokusmanagement; zentrale Touch-Ziele bleiben auf iPhone und iPad mindestens 44 Pixel gross.
 - Browser-Fortschritt, Notizen und Lesezeichen werden sofort benutzerspezifisch lokal gespeichert und nach Login optional ueber Supabase synchronisiert; Darstellungsmodus und zuletzt geoeffnete Ansicht bleiben geraetespezifisch.
 - Fuer Cloud-Funktionen wird derselbe Supabase-Account beziehungsweise dieselbe Organisation wie beim Immo-Checker genutzt, aber dauerhaft ein separates Projekt `CS336-Lernwerk`.
 - Die Anmeldung nutzt E-Mail und Passwort ohne oeffentliche Registrierung; aktive Benutzer werden per Membership-Tabelle freigeschaltet.

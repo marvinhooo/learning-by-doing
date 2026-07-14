@@ -46,3 +46,14 @@ Iteration Counter: 0
 - Der produktive Build enthaelt die konfigurierte Supabase Project URL und ausschliesslich den oeffentlichen Publishable Key.
 - Offen bleibt der authentifizierte Ende-zu-Ende-Test mit dem echten Benutzer; Passwort oder Secret Key werden dafuer nicht an Codex uebermittelt.
 - Der Iteration Counter blieb unveraendert, da der Run manuell/interaktiv gestartet wurde.
+
+## 2026-07-14 - UX-Verdichtung mit Akkordeons (manueller Run)
+
+- Status: abgeschlossen und fuer die Produktivsetzung vorbereitet.
+- Formeln, Symbole und Glossar von Kachelrastern auf kompakte native Akkordeons umgestellt; mehrere Eintraege koennen gleichzeitig offen bleiben und ihr Zustand ueberlebt Filter- und Lesezeichen-Renderings.
+- Formeln bleiben geschlossen vollstaendig sichtbar, brechen auf schmalen Displays um und zeigen aufgeklappt Zweck, Lesart, Dimensionen, Intuition, Beispiel, Fehlerbild, Selbstcheck, Variablen und Quellen.
+- Dashboard, Lernpfad, Konzepte, Labs und Assignments in scanbare Listen beziehungsweise Timeline-Akkordeons verdichtet; redundante Karten und tote Chevron-Aktionsflaechen entfernt.
+- Mobile Navigation bis 900 Pixel als Offcanvas-Menue mit `inert`, `aria-hidden`, Escape-Schliessen, Fokusuebergabe und Fokuswiederherstellung umgesetzt.
+- Verifiziert: Inline-JavaScript und Hilfsskripte parsen, `git diff --check` ist sauber, Formel-Entities werden korrekt angezeigt, Lesezeichen behalten Fokus und Offen-Zustand, und die Ansichten laufen bei 390 x 844, 768 x 1024 sowie 1280 x 720 Pixeln ohne horizontales Ueberlaufen. Zentrale Touch-Ziele sind mindestens 44 Pixel hoch.
+- Zwei unabhaengige Read-only-Code-Reviews fanden nach den Korrekturen keine verbleibenden High- oder Medium-Blocker.
+- Der Iteration Counter blieb unveraendert, da der Run manuell/interaktiv gestartet wurde.
