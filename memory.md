@@ -10,5 +10,6 @@
 - Fuer Cloud-Funktionen wird derselbe Supabase-Account beziehungsweise dieselbe Organisation wie beim Immo-Checker genutzt, aber dauerhaft ein separates Projekt `CS336-Lernwerk`.
 - Die Anmeldung nutzt E-Mail und Passwort ohne oeffentliche Registrierung; aktive Benutzer werden per Membership-Tabelle freigeschaltet.
 - Kurs-PDFs bleiben aus GitHub ausgeschlossen und liegen in einem privaten, nur lesbaren Supabase-Bucket; der administrative Secret Key beziehungsweise alte Service-Role-Key darf nie im Browser oder Repository stehen.
+- Beim direkten Storage-Upload wird ein neuer `sb_secret_...`-Key nur als `apikey` gesendet; lediglich der alte JWT-basierte `service_role`-Key darf zusaetzlich als Bearer-Token verwendet werden.
 - GitHub Pages liefert nur statische Dateien und einen Publishable Key aus; Row Level Security (RLS; zeilenbasierte Zugriffskontrolle) schützt Lernstand und PDFs.
 - `index.html` ist ab Version 2 der kanonische Einstieg; `cs336-lernwerk.html` bleibt als Weiterleitung erhalten. Der Quellenbestand umfasst 15 Lecture-PDFs und die sechs Assignment-PDFs zu A1 bis A5 inklusive A5-Supplement.

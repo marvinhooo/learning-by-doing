@@ -29,14 +29,15 @@ for (const source of sources) await collectPdfFiles(source, files);
 for (const file of files) {
   const relative = path.relative(root, file).split(path.sep).join("/");
   const encodedPath = relative.split("/").map(encodeURIComponent).join("/");
+  const headers = {
+    apikey: adminKey,
+    "content-type": "application/pdf",
+    "x-upsert": "true"
+  };
+  if (!adminKey.startsWith("sb_secret_")) headers.authorization = `Bearer ${adminKey}`;
   const response = await fetch(`${supabaseUrl}/storage/v1/object/${bucket}/${encodedPath}`, {
     method: "POST",
-    headers: {
-      apikey: adminKey,
-      authorization: `Bearer ${adminKey}`,
-      "content-type": "application/pdf",
-      "x-upsert": "true"
-    },
+    headers,
     body: await readFile(file)
   });
   if (!response.ok) throw new Error(`Upload failed for ${relative}: ${response.status} ${await response.text()}`);

@@ -28,3 +28,10 @@ Iteration Counter: 0
 - Verifiziert: HTML-JavaScript, Service Worker und Manifest parsen; lokaler Modus, Login-Oberflaeche, Quellenbuttons und Notiz-Autosave wurden ohne Browser-Konsolenfehler geprueft. Der Build enthaelt weder PDFs noch Service-Role-Key.
 - Offen: Supabase-Projekt, Auth-Benutzer, GitHub-Repository und Repository-Variablen extern anlegen; danach PDF-Upload, Live-Login, RLS- und Geraete-Ende-zu-Ende-Test.
 - Der Iteration Counter blieb unveraendert, da der Run manuell/interaktiv gestartet wurde.
+
+## 2026-07-14 - Secret-Key-Kompatibilitaet beim PDF-Upload (manueller Run)
+
+- Root Cause: Der neue opaque Supabase-Secret-Key `sb_secret_...` wurde zusaetzlich als Bearer-JWT gesendet; Storage antwortete deshalb mit `Invalid Compact JWS`.
+- Fix: Neue Secret Keys werden nur noch im `apikey`-Header gesendet; nur der alte JWT-basierte `service_role`-Key erhaelt weiterhin einen `Authorization: Bearer`-Header.
+- Der Upload bleibt durch `x-upsert` wiederholbar und ueberschreibt gleichnamige Dateien kontrolliert.
+- Der Iteration Counter blieb unveraendert, da der Run manuell/interaktiv gestartet wurde.
