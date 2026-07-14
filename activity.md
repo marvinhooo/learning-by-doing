@@ -75,7 +75,19 @@ Iteration Counter: 0
 
 ## 2026-07-15 - Glossar-Akkordeons mit echtem Zusatznutzen (manueller Run)
 
-- Geschlossene Glossareintraege zeigen nur noch Begriff und Kategorie, damit die Liste schnell scanbar bleibt.
-- Beim Oeffnen erscheint die jeweilige kurze Definition unter der eindeutigen Kennzeichnung `Kurz erklaert`.
-- Verifiziert: Alle 54 Glossarbegriffe besitzen Begriff, Kategorie und Definition; Inline-JavaScript, `git diff --check` und der reproduzierbare Site-Build sind sauber.
+- Geschlossene Glossareintraege zeigen Begriff, Kategorie und vollstaendige Kurzdefinition; beim Oeffnen erscheint eine deutlich ausfuehrlichere, beginner-freundliche Erklaerung.
+- Das Glossar umfasst nun 55 Eintraege einschliesslich `Linear Layer / Projection`, das den in LLM-Texten gebraeuchlichen Begriff Projection als gelernte lineare Abbildung erklaert.
+- Verifiziert: Alle Glossarbegriffe besitzen Kurz- und Langdefinition; Inline-JavaScript, `git diff --check` und der reproduzierbare Site-Build sind sauber.
+- Der Iteration Counter blieb unveraendert, da der Run manuell/interaktiv gestartet wurde.
+
+## 2026-07-15 - Beginner-first Erklaerungen und aufklappbare Lernantworten (manueller Run)
+
+- Status: Umsetzung und Verifikation abgeschlossen.
+- Alle 52 Konzeptseiten auf weniger vorausgesetztes Vorwissen umgeschrieben und vertieft: jeweils mentales Modell, drei schrittweise Erklaerabschnitte, typische Fehlannahmen sowie zwei begruendete Selbstcheck-Antworten; insgesamt 156 Vertiefungsabschnitte und 104 Musterloesungen.
+- Standardbegriffe wie `Linear Layer`, `Attention Head`, `Forward Pass` und `Backward Pass` repo-weit beibehalten beziehungsweise vereinheitlicht; missverstaendliche Woertlich-Uebersetzungen entfernt. `Projection` bleibt nur im erklaerenden Glossareintrag erhalten.
+- Fuer alle 52 Formel-Abrufchecks, 20 Readiness-Fragen der Assignments und 11 Lab-Transferfragen standardmaessig geschlossene Antworten beziehungsweise Loesungsideen ergaenzt. Assignment-Antworten bleiben konzeptuell und enthalten keinen Abgabecode.
+- Jede Konzeptseite endet mit einer klaren Weiter-Aktion; nach dem letzten der 52 Konzepte fuehrt sie zur Konzeptuebersicht. Vertiefte Texte und Antworten sind in lokaler und globaler Suche enthalten.
+- Quellenabgleich gegen die jeweils verknuepften Lecture- und Assignment-PDFs durchgefuehrt; Formelantworten und Lab-Loesungsideen wurden zusaetzlich unabhaengig fachlich geprueft.
+- Verifiziert: JavaScript-Parsing und Dateninvarianten, 52/52 Konzepte und Formeln, 55/55 Glossareintraege, 20/20 Assignment-Antworten und 11/11 Lab-Antworten, `git diff --check`, Hilfsskripte sowie reproduzierbarer `_site`-Build ohne PDFs, Notebooks oder Temporaerdateien.
+- Browserpruefung ohne Konsolenfehler: Selbstcheck-, Formel-, Assignment-, Lab- und Glossar-Akkordeons sowie erste und letzte Konzeptnavigation funktionieren. Bei 390 x 844, 768 x 1024 und 1280 x 800 Pixeln trat kein horizontales Ueberlaufen auf; zentrale Touch-Ziele blieben mindestens 44 Pixel hoch.
 - Der Iteration Counter blieb unveraendert, da der Run manuell/interaktiv gestartet wurde.

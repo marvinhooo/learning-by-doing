@@ -15,6 +15,8 @@ Eine offline-first, interaktive deutschsprachige Lernhilfe, die einen Lernenden 
 - Aktives Abrufen, Herleiten und Experimentieren vor passivem Lesen.
 - Gestufte Hinweise statt abgabefertiger Assignment-Loesungen.
 - Abkuerzungen werden bei erster Verwendung erklaert.
+- Erklaerungen setzen weniger Vorwissen voraus als der Kurs: neue Begriffe beginnen mit Alltagssprache oder einem konkreten Bild und fuehren erst danach die formale Kursnotation ein.
+- Etablierte englische Fachbegriffe wie `Linear Layer`, `Forward Pass` oder `Attention Head` bleiben erhalten und werden bei der ersten Verwendung knapp auf Deutsch erklaert; ungewoehnliche Woertlich-Uebersetzungen werden vermieden.
 - Jede groessere Aussage ist zu Lecture oder Assignment rueckverfolgbar.
 - Fortschritt und eigene Notizen werden zuerst lokal im Browser gespeichert und nach einer Anmeldung optional ueber Supabase synchronisiert.
 
@@ -47,7 +49,12 @@ Eine offline-first, interaktive deutschsprachige Lernhilfe, die einen Lernenden 
 - Mindestens zehn interaktive Lernexperimente reagieren korrekt auf Eingaben.
 - Formeln und Symbole sind such- und filterbar und erklaeren Notation sowie Dimensionen.
 - Formeln bleiben bereits im geschlossenen Akkordeon vollstaendig sichtbar, brechen ohne internes horizontales Scrollen um und lassen sich fuer Kontext, Variablen und Selbstcheck aufklappen.
-- Formeln, Symbole, Glossar, Konzepte, Labs, Assignments und Lernpfad verwenden kompakte Listen beziehungsweise native Akkordeons statt schwer scannbarer Kachelraster; im Glossar erscheint die Kurzbeschreibung erst beim Oeffnen eines Begriffs.
+- Formeln, Symbole, Glossar, Konzepte, Labs, Assignments und Lernpfad verwenden kompakte Listen beziehungsweise native Akkordeons statt schwer scannbarer Kachelraster.
+- Jeder Glossarbegriff zeigt geschlossen Begriff, Kategorie und eine vollstaendige Kurzdefinition; geoeffnet erscheint zusaetzlich eine deutlich ausfuehrlichere, beginner-freundliche Erklaerung.
+- Alle 52 Konzeptseiten erklaeren Zweck, Mechanik, Begriffe und mindestens ein konkretes Beispiel beziehungsweise eine wichtige Konsequenz, ohne unerlaeutertes Kursvorwissen vorauszusetzen.
+- Jeder Konzept-Selbstcheck besitzt fuer jede Frage eine standardmaessig geschlossene, aufklappbare Musterloesung; Formel-, Lab- und Assignment-Selbstchecks bieten ebenfalls eine fachliche Antwort beziehungsweise einen loesungsorientierten Lernhinweis innerhalb der Assignment-KI-Richtlinie.
+- Jede Konzeptseite endet mit einer klar beschrifteten Navigation zum naechsten Konzept; nach dem letzten Konzept fuehrt die Aktion zur Konzeptuebersicht.
+- Glossar-Vertiefungen und vertiefte Konzepterklaerungen sind ueber lokale und globale Suche auffindbar.
 - Assignment-Bereiche verlinken auf die lokalen PDFs und bleiben innerhalb der KI-Richtlinie.
 - Fortschritt, Notizen und Lesezeichen ueberleben ein Neuladen via `localStorage`.
 - Ohne Netz bleiben Lerninhalte und lokale Aenderungen nutzbar; nach Wiederverbindung werden ausstehende Aenderungen synchronisiert.
@@ -66,6 +73,7 @@ Eine offline-first, interaktive deutschsprachige Lernhilfe, die einen Lernenden 
 - Version 2 ist unter `https://marvinhooo.github.io/learning-by-doing/` veroeffentlicht: `index.html` ist der Einstieg, Supabase-Schema und private Storage-Regeln, Offline-/Konfliktsynchronisation, PWA-Dateien, mobile Safe-Area-Anpassungen sowie das GitHub-Actions-Deployment sind enthalten.
 - Version 3 ist unter derselben Produktions-URL veroeffentlicht und verdichtet die Oberflaeche: Referenzsammlungen sind kompakte Listen mit nativen Akkordeons, Formeln umbrechen vollstaendig, Dashboard und Lernpfad zeigen Informationen ohne redundante Karten, und die Navigation arbeitet im iPad-Hochformat als zugaengliches Offcanvas-Menue.
 - Version 4 setzt den aktuellen UX- und Accessibility-Audit um: WCAG-2.2-konforme Kontraste und Fokusfuehrung, vollstaendige Tastaturbedienung fuer Dialoge, mobile Navigation und globale Suche, robuste Browser-History, dynamische Seitentitel, ruhigere Leseseiten sowie besser lesbare mobile Diagramme. Die technische Umsetzung und statischen Pruefungen sind abgeschlossen; die Produktionspruefung folgt direkt nach dem Deployment.
+- Version 5 vertieft alle 52 Konzeptseiten fuer Lernende mit weniger Vorwissen: 156 schrittweise Erklaerabschnitte, 104 aufklappbare Konzeptloesungen, 52 Formelantworten, 20 konzeptuelle Assignment-Antworten und 11 Lab-Loesungsideen. Das Glossar umfasst 55 Begriffe mit sichtbarer Kurzdefinition und separater Vertiefung; jede Konzeptseite endet mit einer Weiter- beziehungsweise Abschlussnavigation. Standardbegriffe wie `Linear Layer`, `Attention Head`, `Forward Pass` und `Backward Pass` bleiben auf Englisch und werden im Kontext erklaert.
 
 ## Offener Rest
 

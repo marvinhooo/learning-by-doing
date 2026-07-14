@@ -5,6 +5,9 @@
 - Die CS336-Lernhilfe ist deutschsprachig und offline-first; sie bleibt lokal ohne Build-Schritt nutzbar und kann als PWA ueber GitHub Pages bereitgestellt werden.
 - Sie folgt der Assignment-KI-Richtlinie: Konzepterklaerungen und gestufte Hinweise sind erlaubt; Assignment-Implementierungen und abgabefertige Antworten sind ausgeschlossen.
 - Der Lernfluss priorisiert Diagnose, aktives Abrufen, interaktive Experimente und Selbstpruefung.
+- Erklaerungen sind dauerhaft beginner-first: Sie beginnen mit einem konkreten mentalen Modell, erklaeren neue Begriffe und Shapes in Alltagssprache und fuehren erst danach die formale Kursnotation ein. Etablierte Fachbegriffe wie `Linear Layer`, `Attention Head`, `Forward Pass` und `Backward Pass` bleiben auf Englisch.
+- Lernfragen in Konzepten, Formeln, Labs und Assignments besitzen standardmaessig geschlossene, aufklappbare Antworten; der eigene Erklaerversuch bleibt der erste Schritt. Assignment-Antworten bleiben konzeptuell und enthalten weder Implementierung noch Abgabecode.
+- Jede Konzeptdetailseite endet mit einer Weiter-Navigation zum naechsten Konzept; nach dem letzten Konzept fuehrt sie zur Konzeptuebersicht.
 - Symbole und Formeln erhalten einen eigenstaendigen, durchsuchbaren Tafelwerk-Bereich mit Dimensionen, Intuition, Fehlerbildern und Quellen.
 - Wiederholte Referenzsammlungen werden dauerhaft als kompakte Listen mit nativen Akkordeons dargestellt; Karten bleiben auf klar begrenzte Arbeits- und Fokusflaechen beschraenkt. Formeln sind schon geschlossen vollstaendig sichtbar und umbrechen ohne internes horizontales Scrollen.
 - Im iPad-Hochformat nutzt die Hauptnavigation ein Offcanvas-Menue mit Fokusmanagement; zentrale Touch-Ziele bleiben auf iPhone und iPad mindestens 44 Pixel gross.
