@@ -83,7 +83,7 @@ const requiredFields = {
   concepts:["title","level","summary","mental","details","pitfalls","checks","answers"],
   formulas:["cat","title","read","purpose","dims","vars","intuition","pitfall","example","check","answer"],
   assignments:["title","stage","goal","prereqs","models","milestones","checks","hints","pitfalls","done","checkAnswers"],
-  labs:["title","desc","transferAnswer"], diagnostic:["q","opts","why"], quiz:["q","opts","why"],
+  labs:["title","desc","mental","formula","symbols","observe","misconception","transferQuestion","transferAnswer"], diagnostic:["q","opts","why"], quiz:["q","opts","why"],
   glossary:["def","cat","detail"], symbols:["meaning","context","dimension"]
 };
 for (const [kind, fields] of Object.entries(requiredFields)) {
@@ -93,6 +93,8 @@ for (const [kind, fields] of Object.entries(requiredFields)) {
     for (const field of fields) {
       if (!Object.hasOwn(translated, field)) throw new Error(`${kind}.${id}.${field}: missing translation`);
       const original = sourceItems[id][field];
+      if (typeof translated[field] === "string" && !translated[field].trim()) throw new Error(`${kind}.${id}.${field}: translation is empty`);
+      if (Array.isArray(translated[field]) && translated[field].length === 0) throw new Error(`${kind}.${id}.${field}: translation array is empty`);
       if (Array.isArray(original) && translated[field].length !== original.length) throw new Error(`${kind}.${id}.${field}: array length changed`);
     }
   }

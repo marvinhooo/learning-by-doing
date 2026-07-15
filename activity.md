@@ -114,3 +114,14 @@ Iteration Counter: 0
 - Verifiziert: Inline-JavaScript, Locale-Paritaet mit 469 Oberflaechentexten, reproduzierbarer Site-Build und Service-Worker-Cache `cs336-shell-v6`. Browsertests fuer beide Sprachen, Legacy-Route, Suche, Modulgrenzen, Kursabschluss und History liefen ohne Konsolenfehler.
 - Bei 320 x 700, 390 x 844 und 768 x 1024 Pixeln trat kein horizontales Ueberlaufen auf; Menue- und Sprachbutton blieben 44 x 44 Pixel gross.
 - Der Iteration Counter blieb unveraendert, da der Run manuell/interaktiv gestartet wurde.
+
+## 2026-07-15 - Beginner-first Labs und erklaerender Shape Ledger (manueller Run)
+
+- Status: Umsetzung und lokale Verifikation abgeschlossen.
+- Alle elf Labs um einen bereits geschlossen sichtbaren Formel-Refresher erweitert. Jedes Lab nennt Mental Model, Kernformel oder Entscheidungsregel, verwendete Symbole, konkrete Beobachtungsaufgabe und typische Fehlannahme; alle Felder sind ID-basiert auf Englisch und Deutsch gepflegt und werden vom Locale-Paritaetscheck erzwungen.
+- Tensor Shape Tracer von vier unbeschrifteten Ergebniswerten zu einer sechsstufigen Rechenkette umgebaut: Token-IDs, Embedding-Lookup und `X`, drei Linear Layers fuer `Q/K/V`, Head-Aufteilung mit `d_head=D/H`, rohe `QK^T`-Compatibility-Scores, Maske und Softmax sowie Value-Mischung, Head-Concat und `W_O`. Jede Shape benennt alle Achsen; auch das Sofortergebnis zeigt `[B,H,T,d_head]` beziehungsweise `[B,H,T_query,T_key]`. Regleraenderungen erklaeren die betroffene Achse und ihre Invarianten.
+- BPE als Unicode-Zeichen-Toy-Modell gegenueber echtem Byte-level BPE abgegrenzt; Attention zeigt Score-, Masken-, Temperatur-, Softmax- und Value-Schritt; Optimizer, Ressourcen, Roofline, Scaling, Datenpipeline und GRPO zeigen Formeln mit aktuell eingesetzten Werten.
+- Roofline-Plot auf eine konsistente logarithmische Arithmetic-Intensity-Achse korrigiert. DDP unterscheidet nun Speicher pro Rank und replizierten Clusterzustand; Scaling bezeichnet den berechneten Punkt korrekt als compute-kompatible Aufteilung statt als gemessenes Optimum; `D_model` und `D_tokens` sind getrennt.
+- Verifiziert: Inline-JavaScript, Locale-Paritaet mit 594 Oberflaechentexten, `git diff --check` und reproduzierbarer Site-Build. Alle elf Labs wurden auf 390 Pixel Breite ohne horizontales Ueberlaufen gerendert; ab 760 Pixel bleiben Regler und Ergebnis auf dem iPad zweispaltig. Shape-Regler, BPE-Merge, Attention-Maske, Roofline-Klassifikation und GRPO-Nullsignal reagierten korrekt. Formel-Akkordeon und Sprachwechsel behalten Regler- und Offen-Zustand; dynamische Attention-, Parallelism- und Datenpipeline-Ausgaben wurden in beiden Sprachen geprueft.
+- Service-Worker-Cache auf `cs336-shell-v7` und die Sprachdatei auf eine versionierte URL angehoben, damit bestehende Installationen die neuen englischen Labtexte ohne Zwischenzustand laden.
+- Der Iteration Counter blieb unveraendert, da der Run manuell/interaktiv gestartet wurde.
