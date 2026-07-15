@@ -102,3 +102,15 @@ Iteration Counter: 0
 - Verifiziert: Locale-Paritaet, JavaScript-Syntax, reproduzierbarer `_site`-Build ohne PDFs oder Notebooks und bytegleiche Quell-/Build-Dateien. Browserpruefungen deckten Diagnose, Account-Dialog, dynamisches BPE-Lab, Sprachwechsel und 24 Routen ab; die Konsole blieb ohne Fehler oder Warnungen.
 - Bei 390 x 844, 768 x 1024 und 1280 x 800 Pixeln trat kein horizontales Ueberlaufen auf; zentrale Touch-Ziele einschliesslich Sprachumschalter und Diagnoseoptionen sind mindestens 44 Pixel hoch.
 - Der Iteration Counter blieb unveraendert, da der Run manuell/interaktiv gestartet wurde.
+
+## 2026-07-15 - Lernpfad und Konzepte zu einer Kursstruktur zusammengefuehrt (manueller Run)
+
+- Status: abgeschlossen und lokal verifiziert.
+- Redundanten Top-Level-Menuepunkt `Konzepte` sowie die zweite Konzeptuebersicht entfernt. Der Lernpfad ist nun die einzige Kursuebersicht; jedes Modul zeigt aufgeklappt direkt seine geordneten Konzepte und zugehoerigen Labs.
+- Konzeptsuche in den Lernpfad integriert. Suchtreffer reduzieren die sichtbaren Module und Konzeptzeilen, oeffnen passende Module automatisch und blenden fuer einen fokussierten Scan die Lablisten aus.
+- Optionale Moduldetailseite auf Voraussetzungen, Quellen, Lernziel und Fortschritt begrenzt. Dashboard-Karten oeffnen das zugehoerige Modul im Lernpfad; `Lernen fortsetzen` fuehrt direkt zum naechsten offenen Konzept.
+- Konzeptfortsetzung folgt explizit `MODULES[].concepts`: innerhalb eines Moduls zum naechsten Konzept, an der Grenze zum ersten Konzept des naechsten Moduls und am Kursende zur Lernpfaduebersicht.
+- Alte `#concepts`-Hashes und gespeicherte `lastView: "concepts"` werden nach `#path` migriert. Modul- und Konzeptdetails markieren den Lernpfad als aktiven Navigationskontext; Zurueck/Vorwaerts erhaelt das geoeffnete Modul.
+- Verifiziert: Inline-JavaScript, Locale-Paritaet mit 469 Oberflaechentexten, reproduzierbarer Site-Build und Service-Worker-Cache `cs336-shell-v6`. Browsertests fuer beide Sprachen, Legacy-Route, Suche, Modulgrenzen, Kursabschluss und History liefen ohne Konsolenfehler.
+- Bei 320 x 700, 390 x 844 und 768 x 1024 Pixeln trat kein horizontales Ueberlaufen auf; Menue- und Sprachbutton blieben 44 x 44 Pixel gross.
+- Der Iteration Counter blieb unveraendert, da der Run manuell/interaktiv gestartet wurde.

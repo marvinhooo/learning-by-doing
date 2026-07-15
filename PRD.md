@@ -23,8 +23,8 @@ Eine offline-first, interaktive zweisprachige Lernhilfe, die einen Lernenden mit
 ## Scope der ersten vollstaendigen Version
 
 1. Wissensdiagnose und personalisierter Lernpfad.
-2. Kurslandkarte von Grundlagen bis Alignment.
-3. Durchsuchbare Konzeptbibliothek mit mentalen Modellen, Details, Fehlerbildern und Selbstchecks.
+2. Ein einziger kanonischer Lernpfad von Grundlagen bis Alignment: geordnete Modul-Akkordeons zeigen direkt ihre Konzepte und zugehoerigen Labs; die Konzeptsuche ist in diesen Lernpfad integriert.
+3. Vertiefte Konzeptseiten mit mentalen Modellen, Details, Fehlerbildern und Selbstchecks, die aus Lernpfad, globaler Suche, Lesezeichen und Assignments direkt erreichbar sind.
 4. Interaktive Labs fuer BPE, Tensorformen, Attention, Ressourcen, Lernrate, GPU-Roofline, Parallelismus, Scaling, Datenpipeline, Evaluation und GRPO.
 5. Assignment-Coach fuer A1 bis A5 mit Voraussetzungen, Meilensteinen, gestuften Hinweisen und Definition of Done.
 6. Eigenstaendiger Tafelwerk-Bereich fuer Symbole und Formeln inklusive Variablen, Dimensionen, Intuition, typischen Fehlern und Quellen.
@@ -46,6 +46,7 @@ Eine offline-first, interaktive zweisprachige Lernhilfe, die einen Lernenden mit
 
 - Die Lernhilfe laesst sich direkt als HTML-Datei oeffnen.
 - Navigation, globale Suche, Themenfilter und mobile Darstellung funktionieren.
+- Der Lernpfad ist die einzige uebergeordnete Kurs- und Konzeptuebersicht. Es gibt keinen redundanten Top-Level-Menuepunkt `Konzepte`; alte `#concepts`-Links und gespeicherte Ansichten werden verlustfrei auf `#path` migriert.
 - Diagnose bietet bei jeder Frage explizit `I don't know` beziehungsweise `Ich weiss es nicht`; diese ehrliche Unsicherheit wird als Wissensluecke gewertet und erzeugt nachvollziehbare Lernempfehlungen.
 - Ohne gespeicherte Praeferenz startet die App auf Englisch. Der Sprachumschalter wechselt alle Lerninhalte und Bedienelemente vollstaendig zwischen Englisch und Deutsch, behaelt die Wahl lokal und verliert weder Ansicht noch Eingaben oder Lab-Zustand.
 - Mindestens zehn interaktive Lernexperimente reagieren korrekt auf Eingaben.
@@ -55,7 +56,7 @@ Eine offline-first, interaktive zweisprachige Lernhilfe, die einen Lernenden mit
 - Jeder Glossarbegriff zeigt geschlossen Begriff, Kategorie und eine vollstaendige Kurzdefinition; geoeffnet erscheint zusaetzlich eine deutlich ausfuehrlichere, beginner-freundliche Erklaerung.
 - Alle 52 Konzeptseiten erklaeren Zweck, Mechanik, Begriffe und mindestens ein konkretes Beispiel beziehungsweise eine wichtige Konsequenz, ohne unerlaeutertes Kursvorwissen vorauszusetzen.
 - Jeder Konzept-Selbstcheck besitzt fuer jede Frage eine standardmaessig geschlossene, aufklappbare Musterloesung; Formel-, Lab- und Assignment-Selbstchecks bieten ebenfalls eine fachliche Antwort beziehungsweise einen loesungsorientierten Lernhinweis innerhalb der Assignment-KI-Richtlinie.
-- Jede Konzeptseite endet mit einer klar beschrifteten Navigation zum naechsten Konzept; nach dem letzten Konzept fuehrt die Aktion zur Konzeptuebersicht.
+- Jede Konzeptseite endet mit einer klar beschrifteten Navigation zum naechsten Konzept innerhalb ihres Moduls; Modulgrenzen und der Wechsel ins naechste Modul sind explizit, nach dem letzten Konzept fuehrt die Aktion zur Lernpfaduebersicht.
 - Glossar-Vertiefungen und vertiefte Konzepterklaerungen sind ueber lokale und globale Suche auffindbar.
 - Assignment-Bereiche verlinken auf die lokalen PDFs und bleiben innerhalb der KI-Richtlinie.
 - Fortschritt, Notizen und Lesezeichen ueberleben ein Neuladen via `localStorage`.
@@ -77,6 +78,7 @@ Eine offline-first, interaktive zweisprachige Lernhilfe, die einen Lernenden mit
 - Version 4 setzt den aktuellen UX- und Accessibility-Audit um: WCAG-2.2-konforme Kontraste und Fokusfuehrung, vollstaendige Tastaturbedienung fuer Dialoge, mobile Navigation und globale Suche, robuste Browser-History, dynamische Seitentitel, ruhigere Leseseiten sowie besser lesbare mobile Diagramme. Die technische Umsetzung und statischen Pruefungen sind abgeschlossen; die Produktionspruefung folgt direkt nach dem Deployment.
 - Version 5 vertieft alle 52 Konzeptseiten fuer Lernende mit weniger Vorwissen: 156 schrittweise Erklaerabschnitte, 104 aufklappbare Konzeptloesungen, 52 Formelantworten, 20 konzeptuelle Assignment-Antworten und 11 Lab-Loesungsideen. Das Glossar umfasst 55 Begriffe mit sichtbarer Kurzdefinition und separater Vertiefung; jede Konzeptseite endet mit einer Weiter- beziehungsweise Abschlussnavigation. Standardbegriffe wie `Linear Layer`, `Attention Head`, `Forward Pass` und `Backward Pass` bleiben auf Englisch und werden im Kontext erklaert.
 - Version 6 ist vollstaendig zweisprachig: Englisch ist der Default, Deutsch bleibt ueber einen persistenten 44-Pixel-Umschalter erreichbar. Uebersetzt sind alle 12 Module, 52 Konzepte, 52 Formeln mitsamt 167 Variablenerklaerungen, 5 Assignment-Coaches, 11 Labs, 12 Diagnosefragen, 12 Quizfragen, 55 Glossarbegriffe, 48 Symbole sowie 465 statische und dynamische Oberflaechentexte. Jede Diagnosefrage besitzt zusaetzlich eine ausdrueckliche Unwissenheitsoption; der Sprachwechsel erhaelt Ansicht, Eingaben und BPE-Merge-Zustand.
+- Version 7 bereinigt die Informationsarchitektur: Der separate Konzeptbereich ist in den Lernpfad aufgegangen. Geoeffnete Module zeigen Konzepte und Labs ohne zusaetzliche Modul- oder Uebersichtsseite; optionale Moduldetails enthalten nur Voraussetzungen, Quellen und Fortschritt. Dashboard-Fortsetzung, modulgebundene Konzeptnavigation, aktive Navigation, Legacy-Routen und die zweisprachige Suche folgen derselben Hierarchie.
 
 ## Offener Rest
 

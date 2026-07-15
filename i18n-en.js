@@ -2,7 +2,6 @@ window.CS336_EN = Object.freeze({
   "nav": {
     "dashboard": "Today",
     "path": "Learning Path",
-    "concepts": "Concepts",
     "labs": "Labs",
     "formulas": "Formulas & Symbols",
     "assignments": "Assignments",
@@ -3990,6 +3989,16 @@ window.CS336_EN = Object.freeze({
         "target": "Next · $1 of $2"
       },
       {
+        "source": "^Weiter · (\\d+) von (\\d+) in Modul (\\d+)$",
+        "flags": "u",
+        "target": "Next · $1 of $2 in module $3"
+      },
+      {
+        "source": "^Nächstes Modul · (\\d+)$",
+        "flags": "u",
+        "target": "Next module · $1"
+      },
+      {
         "source": "^(\\d+)% Kompetenz$",
         "flags": "u",
         "target": "$1% mastery"
@@ -4424,8 +4433,8 @@ window.CS336_EN = Object.freeze({
     "Dunkles Farbschema": "Dark color scheme",
     "Musterlösung anzeigen": "Show model answer",
     "Konzeptnavigation": "Concept navigation",
-    "Kursabschnitt beendet": "Course section complete",
-    "Zur Konzeptübersicht →": "Back to concepts →",
+    "Ende des Lernpfads": "End of the learning path",
+    "Zur Lernpfadübersicht →": "Back to the learning path →",
     "Kompetenz": "Mastery",
     "Stufe:": "Level:",
     "Formeln": "Formulas",
@@ -4489,6 +4498,7 @@ window.CS336_EN = Object.freeze({
     "Die Reihenfolge ist absichtlich kausal: Formen und Wahrscheinlichkeiten tragen den Transformer; dieser trägt Training, Systems, Daten, Evaluation und Reinforcement Learning.": "The order is intentionally causal: shapes and probability support the Transformer; the Transformer supports training, systems, data, evaluation, and Reinforcement Learning.",
     "Ziel:": "Goal:",
     "Modul öffnen": "Open module",
+    "Voraussetzungen & Quellen": "Prerequisites & sources",
     "Die Schicht unter dem Code": "The layer beneath the code",
     "Jede Erklärung startet mit einem mentalen Modell, vertieft die Mechanik und endet mit Abruf- und Transferfragen.": "Each explanation starts with a mental model, develops the mechanics, and ends with retrieval and transfer questions.",
     "Konzepte durchsuchen …": "Search concepts …",
@@ -4565,6 +4575,9 @@ window.CS336_EN = Object.freeze({
     "Nutze die Stufen bewusst: gesehen ist noch nicht beherrscht.": "Use the levels deliberately: having seen something is not the same as mastering it.",
     "Passende Labs": "Relevant labs",
     "Vorhersage zuerst, Erklärung zuletzt.": "Prediction first, explanation last.",
+    "So nutzt du dieses Modul": "How to use this module",
+    "Die Konzepte und Labs stehen in ihrer Lernreihenfolge direkt im Lernpfad. Diese Seite ergänzt nur Voraussetzungen, Quellen und Fortschritt.": "Concepts and labs appear in learning order directly in the learning path. This page only adds prerequisites, sources, and progress.",
+    "Zum Modul im Lernpfad": "Go to this module in the learning path",
     "Quellen": "Sources",
     "Fortschritt": "Progress",
     "Mentales Modell": "Mental model",
