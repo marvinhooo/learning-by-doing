@@ -1,9 +1,9 @@
 {
   "id": "./",
-  "name": "CS336 Lernwerk",
+  "name": "CS336 Learning Lab",
   "short_name": "CS336",
-  "description": "Interaktive Lernhilfe für Language Models from Scratch",
-  "lang": "de",
+  "description": "Interactive learning companion for Language Models from Scratch",
+  "lang": "en",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
@@ -30,12 +30,12 @@
   ],
   "shortcuts": [
     {
-      "name": "Formeln & Symbole",
-      "short_name": "Formeln",
+      "name": "Formulas & Symbols",
+      "short_name": "Formulas",
       "url": "./#formulas"
     },
     {
-      "name": "Interaktive Labs",
+      "name": "Interactive Labs",
       "short_name": "Labs",
       "url": "./#labs"
     }

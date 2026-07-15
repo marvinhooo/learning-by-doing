@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="de" data-theme="dark">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="description" content="Interaktive deutschsprachige Lernhilfe für Stanford CS336 Language Models from Scratch">
+  <meta name="description" content="Interactive learning companion for Stanford CS336 Language Models from Scratch">
   <meta name="theme-color" content="#09111f">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -11,7 +11,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-  <title>CS336 Lernwerk - Language Models from Scratch</title>
+  <title>CS336 Learning Lab - Language Models from Scratch</title>
   <style>
     :root {
       color-scheme: dark;
@@ -286,6 +286,7 @@
       cursor: pointer;
     }
     .icon-button { width: 44px; height: 44px; display: grid; place-items: center; }
+    .language-button { font-size: .76rem; font-weight: 800; letter-spacing: .04em; }
     .icon-button:hover, .button:hover, .chip:hover, .seg-button:hover { border-color: var(--primary); }
     .button { padding: .6rem .9rem; font-weight: 650; }
     .button.primary { border-color: transparent; background: var(--primary); color: var(--on-primary); }
@@ -760,21 +761,22 @@
       *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
     }
   </style>
+  <script src="i18n-en.js"></script>
   <script src="config.js"></script>
   <script src="vendor/supabase.js"></script>
 </head>
 <body>
   <div class="app-shell" id="appShell">
-    <a class="skip-link" href="#mainContent">Zum Lerninhalt springen</a>
-    <aside class="sidebar" id="sidebar" aria-label="Hauptnavigation">
+    <a class="skip-link" href="#mainContent">Skip to learning content</a>
+    <aside class="sidebar" id="sidebar" aria-label="Main navigation">
       <div class="brand">
         <div class="brand-mark" aria-hidden="true">LM</div>
-        <div class="brand-copy"><strong>CS336 Lernwerk</strong><span>Verstehen durch Bauen</span></div>
-        <button class="icon-button sidebar-close" id="sidebarCloseButton" aria-label="Navigation schließen">×</button>
+        <div class="brand-copy"><strong>CS336 Learning Lab</strong><span>Understand by building</span></div>
+        <button class="icon-button sidebar-close" id="sidebarCloseButton" aria-label="Close navigation">×</button>
       </div>
       <nav class="nav-list" id="navList"></nav>
       <div class="sidebar-progress">
-        <div class="label-row"><span>Gesamtfortschritt</span><strong id="sidebarProgressLabel">0%</strong></div>
+        <div class="label-row"><span>Overall progress</span><strong id="sidebarProgressLabel">0%</strong></div>
         <div class="progress-track" aria-hidden="true"><div class="progress-bar" id="sidebarProgressBar"></div></div>
       </div>
     </aside>
@@ -782,21 +784,22 @@
 
     <div class="main-shell">
       <header class="topbar">
-        <button class="icon-button mobile-menu" id="menuButton" aria-label="Navigation öffnen" aria-controls="sidebar" aria-expanded="false">☰</button>
+        <button class="icon-button mobile-menu" id="menuButton" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false">☰</button>
         <div class="search-wrap">
           <div class="search-field">
             <span class="search-glyph" aria-hidden="true">⌕</span>
-            <label class="sr-only" for="globalSearch">Lernwerk durchsuchen</label>
-            <input class="search-input" id="globalSearch" type="search" placeholder="Konzepte, Formeln, Symbole, Assignments …" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="searchResults" aria-expanded="false">
+            <label class="sr-only" for="globalSearch">Search the learning lab</label>
+            <input class="search-input" id="globalSearch" type="search" placeholder="Concepts, formulas, symbols, assignments …" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="searchResults" aria-expanded="false">
           </div>
-          <div class="search-results" id="searchResults" role="listbox" aria-label="Suchergebnisse" hidden></div>
+          <div class="search-results" id="searchResults" role="listbox" aria-label="Search results" hidden></div>
           <div class="sr-only" id="searchStatus" role="status" aria-live="polite"></div>
         </div>
         <div class="toolbar">
-          <button class="icon-button hide-mobile" id="notesQuickButton" aria-label="Notizen öffnen">✎</button>
-          <button class="icon-button account-button" id="accountButton" data-cloud-status="local" aria-label="Konto und Synchronisation öffnen">♙</button>
+          <button class="icon-button hide-mobile" id="notesQuickButton" aria-label="Open notes">✎</button>
+          <button class="icon-button account-button" id="accountButton" data-cloud-status="local" aria-label="Open account and sync settings">♙</button>
           <span class="sr-only" id="cloudStatusMessage" role="status" aria-live="polite"></span>
-          <button class="icon-button" id="themeButton" aria-label="Farbschema wechseln">☼</button>
+          <button class="icon-button language-button" id="languageButton" aria-label="Switch to German">DE</button>
+          <button class="icon-button" id="themeButton" aria-label="Switch color scheme">☼</button>
         </div>
       </header>
 
@@ -817,7 +820,7 @@
 
   <div class="modal-backdrop" id="modalBackdrop" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-      <div class="modal-head"><div><p class="eyebrow" id="modalEyebrow">Lernwerk</p><h2 id="modalTitle">Dialog</h2></div><button class="icon-button" id="modalClose" aria-label="Dialog schließen">×</button></div>
+      <div class="modal-head"><div><p class="eyebrow" id="modalEyebrow">Learning Lab</p><h2 id="modalTitle">Dialog</h2></div><button class="icon-button" id="modalClose" aria-label="Close dialog">×</button></div>
       <div id="modalBody"></div>
     </div>
   </div>
@@ -3039,6 +3042,117 @@
       ["s","Jaccard-Ähnlichkeit","LSH","0 bis 1"],["b, r","Bänder / Zeilen je Band","LSH","ganze Zahlen; Signaturlänge k=br"],["TP, FP, FN","True/False Positives/Negatives","Evaluation","Zählwerte"]
     ].map(([symbol,meaning,context,dimension],i)=>({id:"s"+i,symbol,meaning,context,dimension}));
 
+    const LANGUAGE_STORAGE_KEY = "cs336-language-v1";
+    const FORMULA_CATEGORY_KEYS = {
+      "Grundlagen":"foundations","Architektur":"architecture","Daten":"data","Evaluation":"evaluation","GPU":"gpu",
+      "Inferenz":"inference","Lineare Algebra":"linear-algebra","Loss":"loss","Numerik":"numerics","Optimierung":"optimization",
+      "Parallelismus":"parallelism","Ressourcen":"resources","RL":"rl","Sampling":"sampling","Scaling":"scaling",
+      "Sprachmodell":"language-model","Systems":"systems","Training":"training","Transformer":"transformer","Wahrscheinlichkeit":"probability","Alignment":"alignment"
+    };
+    const i18nClone = value => value===undefined?undefined:JSON.parse(JSON.stringify(value));
+    const keyedSnapshot = items => Object.fromEntries(items.map((item,index)=>[item.id||String(index),i18nClone(item)]));
+    const categoryKey = category => FORMULA_CATEGORY_KEYS[category]||String(category).normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
+    FORMULAS.forEach(item=>{item.catKey=categoryKey(item.cat)});
+    const GERMAN_I18N_DATA = {
+      nav:i18nClone(NAV_ITEMS),sources:i18nClone(SOURCES),modules:keyedSnapshot(MODULES),concepts:keyedSnapshot(CONCEPTS),
+      formulas:keyedSnapshot(FORMULAS),formulaRefs:i18nClone(FORMULA_REFS),assignments:keyedSnapshot(ASSIGNMENTS),labs:keyedSnapshot(LABS),
+      diagnostic:keyedSnapshot(DIAGNOSTIC),quiz:keyedSnapshot(QUIZ),glossary:keyedSnapshot(GLOSSARY),symbols:keyedSnapshot(SYMBOLS)
+    };
+    const I18N_FIELDS = {
+      modules:["stage","title","description","outcome","prereqs"],
+      concepts:["title","level","summary","mental","details","pitfalls","checks","answers"],
+      formulas:["cat","title","expr","read","purpose","dims","vars","intuition","pitfall","example","check","aliases","answer"],
+      assignments:["title","stage","goal","prereqs","models","milestones","checks","hints","pitfalls","done","checkAnswers"],
+      labs:["title","time","desc","transferAnswer"],diagnostic:["q","opts","why"],quiz:["q","opts","why"],
+      glossary:["term","def","cat","detail"],symbols:["meaning","context","dimension"]
+    };
+    const I18N_ARRAYS = {modules:MODULES,concepts:CONCEPTS,formulas:FORMULAS,assignments:ASSIGNMENTS,labs:LABS,diagnostic:DIAGNOSTIC,quiz:QUIZ,glossary:GLOSSARY,symbols:SYMBOLS};
+    function readLanguage(){try{const value=localStorage.getItem(LANGUAGE_STORAGE_KEY);return value==="de"?"de":"en"}catch{return "en"}}
+    function storeLanguage(value){try{localStorage.setItem(LANGUAGE_STORAGE_KEY,value)}catch{}}
+    let currentLanguage=readLanguage();
+    let currentCollator=new Intl.Collator(currentLanguage,{sensitivity:"base",numeric:true});
+    let exactUiTranslations={};
+    let reverseUiTranslations={};
+    let compiledUiPatterns=[];
+    let i18nObserver=null;
+    const I18N_ATTRIBUTES=["aria-label","aria-description","aria-valuetext","placeholder","title","alt"];
+    const CORE_UI_TRANSLATIONS={
+      "Zum Lerninhalt springen":"Skip to learning content","Hauptnavigation":"Main navigation","CS336 Lernwerk":"CS336 Learning Lab","Verstehen durch Bauen":"Understand by building",
+      "Navigation schließen":"Close navigation","Gesamtfortschritt":"Overall progress","Navigation öffnen":"Open navigation","Lernwerk durchsuchen":"Search the learning lab",
+      "Konzepte, Formeln, Symbole, Assignments …":"Concepts, formulas, symbols, assignments …","Suchergebnisse":"Search results","Notizen öffnen":"Open notes",
+      "Konto und Synchronisation öffnen":"Open account and sync settings","Farbschema wechseln":"Switch color scheme","Dialog schließen":"Close dialog","Lernwerk":"Learning Lab",
+      "Ich weiß es nicht":"I don't know","Helles Farbschema":"Light color scheme","Dunkles Farbschema":"Dark color scheme",
+      "Interaktive deutschsprachige Lernhilfe für Stanford CS336 Language Models from Scratch":"Interactive learning companion for Stanford CS336 Language Models from Scratch"
+    };
+    function englishPack(){return window.CS336_EN&&typeof window.CS336_EN==="object"?window.CS336_EN:{}}
+    function replaceObject(target,source){Object.keys(target).forEach(key=>delete target[key]);Object.assign(target,i18nClone(source))}
+    function restoreGermanData(){
+      NAV_ITEMS.splice(0,NAV_ITEMS.length,...i18nClone(GERMAN_I18N_DATA.nav));replaceObject(SOURCES,GERMAN_I18N_DATA.sources);replaceObject(FORMULA_REFS,GERMAN_I18N_DATA.formulaRefs);
+      Object.entries(I18N_ARRAYS).forEach(([kind,target])=>target.splice(0,target.length,...Object.values(i18nClone(GERMAN_I18N_DATA[kind]))));
+    }
+    function applyKeyedOverlay(kind,overlay){
+      if(!overlay||typeof overlay!=="object")return;
+      I18N_ARRAYS[kind].forEach((item,index)=>{const translated=overlay[item.id||String(index)];if(!translated||typeof translated!=="object")return;I18N_FIELDS[kind].forEach(field=>{if(Object.hasOwn(translated,field))item[field]=i18nClone(translated[field])})});
+    }
+    function activateCourseLanguage(language=currentLanguage){
+      restoreGermanData();
+      if(language!=="en")return;
+      const pack=englishPack();
+      if(pack.nav)NAV_ITEMS.forEach(item=>{if(typeof pack.nav[item[0]]==="string")item[2]=pack.nav[item[0]]});
+      if(pack.sources)Object.entries(pack.sources).forEach(([id,value])=>{if(SOURCES[id]&&typeof value?.label==="string")SOURCES[id].label=value.label});
+      Object.keys(I18N_ARRAYS).forEach(kind=>applyKeyedOverlay(kind,pack[kind]));
+      if(pack.formulaRefs)Object.entries(pack.formulaRefs).forEach(([id,value])=>{if(Object.hasOwn(FORMULA_REFS,id)&&typeof value==="string")FORMULA_REFS[id]=value});
+    }
+    function patternSpec(source,replacement=""){
+      if(Array.isArray(source))return{pattern:source[0],replacement:source[1],flags:source[2]};
+      if(source&&typeof source==="object")return{pattern:source.pattern??source.source??source.regex,replacement:source.replacement??source.replace??source.translation??source.target??replacement,flags:source.flags};
+      return{pattern:source,replacement,flags:undefined};
+    }
+    function compileUiPatterns(raw){
+      const entries=Array.isArray(raw)?raw:(raw&&typeof raw==="object"?Object.entries(raw):[]),compiled=[];
+      entries.forEach(entry=>{const spec=Array.isArray(raw)?patternSpec(entry):patternSpec(entry[0],entry[1]);if(typeof spec.pattern!=="string"||typeof spec.replacement!=="string")return;let source=spec.pattern,flags=spec.flags||"";const literal=source.match(/^\/(.*)\/([a-z]*)$/i);if(literal){source=literal[1];flags=spec.flags||literal[2]}try{compiled.push([new RegExp(source,flags),spec.replacement])}catch{}});
+      return compiled;
+    }
+    function refreshLanguageResources(){
+      const pack=englishPack(),ui=pack.ui?.exact&&typeof pack.ui.exact==="object"?pack.ui.exact:(pack.ui||{});
+      exactUiTranslations={...CORE_UI_TRANSLATIONS,...Object.fromEntries(Object.entries(ui).filter(([source,target])=>typeof source==="string"&&typeof target==="string"))};
+      reverseUiTranslations=Object.fromEntries(Object.entries(CORE_UI_TRANSLATIONS).map(([source,target])=>[target,source]));
+      compiledUiPatterns=compileUiPatterns(pack.uiPatterns||pack.ui?.patterns||pack.ui?.__patterns);currentCollator=new Intl.Collator(currentLanguage,{sensitivity:"base",numeric:true});
+    }
+    function translateExact(value,map){
+      if(typeof value!=="string")return value;if(Object.hasOwn(map,value))return map[value];
+      const match=value.match(/^(\s*)([\s\S]*?)(\s*)$/),core=match?.[2]??value;if(!Object.hasOwn(map,core))return value;return(match?.[1]||"")+map[core]+(match?.[3]||"");
+    }
+    function translateUiValue(value){
+      if(currentLanguage!=="en"||typeof value!=="string")return value;let translated=translateExact(value,exactUiTranslations);if(translated!==value)return translated;
+      const match=value.match(/^(\s*)([\s\S]*?)(\s*)$/),core=match?.[2]??value;translated=core;compiledUiPatterns.forEach(([pattern,replacement])=>{pattern.lastIndex=0;translated=translated.replace(pattern,replacement)});return(match?.[1]||"")+translated+(match?.[3]||"");
+    }
+    function localizedUi(source){return currentLanguage==="en"?translateUiValue(source):source}
+    function shouldSkipI18n(node){const element=node.nodeType===Node.ELEMENT_NODE?node:node.parentElement;return !element||Boolean(element.closest("script,style,textarea,code,pre,[contenteditable='true'],[data-no-i18n]"))}
+    function localizeElementAttributes(element,reverse=false){
+      if(!(element instanceof Element)||element.closest("script,style,code,pre,[data-no-i18n]"))return;const translate=reverse?value=>translateExact(value,reverseUiTranslations):translateUiValue;
+      I18N_ATTRIBUTES.forEach(attribute=>{if(!element.hasAttribute(attribute))return;const value=element.getAttribute(attribute),next=translate(value);if(next!==value)element.setAttribute(attribute,next)});
+    }
+    function localizeSubtree(root,reverse=false){
+      if(!root)return;if(!reverse&&currentLanguage!=="en")return;const translate=reverse?value=>translateExact(value,reverseUiTranslations):translateUiValue;
+      if(root.nodeType===Node.TEXT_NODE&&!shouldSkipI18n(root)){const value=root.nodeValue,next=translate(value);if(next!==value)root.nodeValue=next}
+      if(root.nodeType===Node.ELEMENT_NODE)localizeElementAttributes(root,reverse);
+      const walker=document.createTreeWalker(root,NodeFilter.SHOW_ELEMENT|NodeFilter.SHOW_TEXT);let node;
+      while((node=walker.nextNode())){if(node.nodeType===Node.TEXT_NODE){if(shouldSkipI18n(node))continue;const value=node.nodeValue,next=translate(value);if(next!==value)node.nodeValue=next}else localizeElementAttributes(node,reverse)}
+    }
+    function applyStaticLanguage(){
+      document.documentElement.lang=currentLanguage;refreshLanguageResources();
+      if(currentLanguage==="de")localizeSubtree(document.body,true);else localizeSubtree(document.documentElement);
+      const button=document.getElementById("languageButton");if(button){button.textContent=currentLanguage==="en"?"DE":"EN";button.setAttribute("aria-label",currentLanguage==="en"?"Switch to German":"Auf Englisch wechseln")}
+      const description=document.querySelector('meta[name="description"]');if(description){const german="Interaktive deutschsprachige Lernhilfe für Stanford CS336 Language Models from Scratch",english="Interactive learning companion for Stanford CS336 Language Models from Scratch",translated=translateUiValue(german);description.content=currentLanguage==="en"?(translated===german?english:translated):german}
+    }
+    function startI18nObserver(){
+      if(i18nObserver||typeof MutationObserver==="undefined")return;i18nObserver=new MutationObserver(records=>{if(currentLanguage!=="en")return;records.forEach(record=>{if(record.type==="attributes")localizeElementAttributes(record.target);else record.addedNodes.forEach(node=>localizeSubtree(node))})});
+      i18nObserver.observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:I18N_ATTRIBUTES});
+    }
+    function localeCode(){return currentLanguage==="de"?"de-DE":"en-US"}
+    activateCourseLanguage(currentLanguage);refreshLanguageResources();
+
     const LEGACY_STORAGE_KEY = "cs336-lernwerk-v1";
     const LEGACY_CLAIMED_KEY = "cs336-legacy-claimed-user";
     const STORAGE_PREFIX = "cs336-lernwerk-v2:";
@@ -3110,7 +3224,7 @@
     }
     function toast(message){ const el=document.getElementById("toast"); el.textContent=message; el.classList.add("show"); clearTimeout(toastTimer); toastTimer=setTimeout(()=>el.classList.remove("show"),2600); }
     function announceViewStatus(message){const el=document.getElementById("viewStatus");if(!el||!message)return;el.textContent="";requestAnimationFrame(()=>{el.textContent=message})}
-    function sourceAnchor(id, suffix=""){const s=SOURCES[id];if(!s)return "";const page=suffix.match(/S\.\s*(\d+)/)?.[1]||"";return `<button class="source-link" type="button" data-source-id="${esc(id)}" data-source-page="${page}">↗ ${esc(s.label)}${suffix?" · "+esc(suffix):""}</button>`}
+    function sourceAnchor(id, suffix=""){const s=SOURCES[id];if(!s)return "";const page=suffix.match(/(?:S\.|pp?\.)\s*(\d+)/i)?.[1]||"";return `<button class="source-link" type="button" data-source-id="${esc(id)}" data-source-page="${page}">↗ ${esc(s.label)}${suffix?" · "+esc(suffix):""}</button>`}
     function getFormulaRef(id){ return FORMULA_REFS[id.replaceAll("-","_")]||""; }
     function levelLabel(level){ return ["Neu","Gesehen","Erklärt","Angewandt","Zeitversetzt sicher"][level]||"Neu"; }
     function conceptLevel(id){ return Number(user.conceptLevels[id]||0); }
@@ -3131,7 +3245,7 @@
       const local=String(localNotes||"").trim(),remote=String(remoteNotes||"").trim();
       if(!local)return remote;if(!remote||local===remote)return local;
       if(local.includes(remote))return local;if(remote.includes(local))return remote;
-      return `${remote}\n\n--- Automatisch aus zwei Geräten zusammengeführt ---\n\n${local}`;
+      const separator=currentLanguage==="en"?"--- Automatically merged from two devices ---":"--- Automatisch aus zwei Geräten zusammengeführt ---";return `${remote}\n\n${separator}\n\n${local}`;
     }
     function mergeConcurrentLearning(localValue,remoteValue){
       const local=normalizeUser(localValue),remote=normalizeUser(remoteValue),conceptLevels={...remote.conceptLevels};
@@ -3280,9 +3394,38 @@
     }
     function registerPwa(){if("serviceWorker" in navigator&&location.protocol.startsWith("http"))navigator.serviceWorker.register("./sw.js").catch(()=>{})}
 
-    function initNav(){
+    function transientControlKey(element,index){
+      if(element.id)return`id:${element.id}`;
+      if(element.name)return`name:${element.name}:value:${element.value}`;
+      if(element.dataset.i!==undefined)return`data-i:${element.dataset.i}:${element.className}`;
+      return`index:${index}:${element.tagName}:${element.type||""}`;
+    }
+    function snapshotTransientControls(){
+      const root=document.querySelector(`.view[data-view="${appState.view}"]`);if(!root)return new Map();const controls=[...root.querySelectorAll("input:not([type='file']),select,textarea")],snapshot=new Map();
+      controls.forEach((element,index)=>snapshot.set(transientControlKey(element,index),{value:element.value,checked:"checked" in element?element.checked:undefined}));return snapshot;
+    }
+    function restoreTransientControls(snapshot){
+      if(!snapshot?.size)return;const root=document.querySelector(`.view[data-view="${appState.view}"]`);if(!root)return;
+      [...root.querySelectorAll("input:not([type='file']),select,textarea")].forEach((element,index)=>{const state=snapshot.get(transientControlKey(element,index));if(!state)return;element.value=state.value;if(state.checked!==undefined)element.checked=state.checked});
+    }
+    function refreshTransientOutputs(bpeSnapshot=null){
+      if(appState.view!=="detail"||appState.detail?.type!=="lab")return;
+      if(appState.detail.id==="bpe"&&bpeSnapshot){bpeLabState=i18nClone(bpeSnapshot);document.getElementById("bpeReset").onclick=resetBpe;document.getElementById("bpeStep").onclick=stepBpe;renderBpe();return}
+      initLab(appState.detail.id);
+    }
+    function renderNav(){
       document.getElementById("navList").innerHTML=NAV_ITEMS.map(([id,icon,label])=>`<a class="nav-button" href="#${id}" data-nav="${id}"><span class="nav-icon" aria-hidden="true">${icon}</span><span class="nav-label">${label}</span></a>`).join("");
+      document.querySelectorAll("[data-nav]").forEach(link=>{const active=link.dataset.nav===appState.view;link.classList.toggle("is-active",active);if(active)link.setAttribute("aria-current","page");else link.removeAttribute("aria-current")});
+      localizeSubtree(document.getElementById("navList"));
+    }
+    function initNav(){
+      renderNav();
       document.getElementById("navList").addEventListener("click",e=>{const link=e.target.closest("[data-nav]");if(!link||e.button!==0||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;e.preventDefault();navigate(link.dataset.nav)});
+    }
+    function setLanguage(language){
+      const next=language==="de"?"de":"en";if(next===currentLanguage)return;const transient=snapshotTransientControls(),bpeSnapshot=appState.view==="detail"&&appState.detail?.type==="lab"&&appState.detail.id==="bpe"?i18nClone(bpeLabState):null,scrollX=window.scrollX,scrollY=window.scrollY;
+      currentLanguage=next;storeLanguage(next);activateCourseLanguage(next);SEARCH_INDEX=buildSearchIndex();renderNav();applyTheme();applyStaticLanguage();setSearchOpen(false);renderCurrent();restoreTransientControls(transient);refreshTransientOutputs(bpeSnapshot);localizeSubtree(document.querySelector(`.view[data-view="${appState.view}"]`));updateRouteMetadata();setCloudStatus(cloud.status);
+      requestAnimationFrame(()=>{window.scrollTo({left:scrollX,top:scrollY,behavior:"auto"});document.getElementById("languageButton")?.focus()});announceViewStatus(localizedUi(next==="en"?"Language changed to English.":"Sprache auf Deutsch geändert."));
     }
     const mobileNavMedia=window.matchMedia("(max-width: 1180px)");
     function focusableWithin(root){return [...root.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),summary,[tabindex]:not([tabindex="-1"])')].filter(el=>!el.hidden&&!el.closest('[hidden]')&&!el.inert)}
@@ -3298,7 +3441,7 @@
     function routeHash(view,detail=null){return `#${detail?`${view}/${detail.type}/${detail.id}`:view}`}
     function routeKey(view=appState.view,detail=appState.detail){return detail?`${view}/${detail.type}/${detail.id}`:view}
     function routeFromLocation(){const raw=location.hash.slice(1);if(!raw){const saved=NAV_ITEMS.some(x=>x[0]===user.lastView)?user.lastView:"dashboard";return{view:saved,detail:null}}const [view,type,id]=raw.split("/");if(view==="detail"&&type&&id)return{view,detail:{type,id}};if(NAV_ITEMS.some(x=>x[0]===view))return{view,detail:null};return{view:"dashboard",detail:null}}
-    function updateRouteMetadata(){const main=document.getElementById("mainContent"),active=document.querySelector(`.view[data-view="${appState.view}"]`),heading=active?.querySelector("h1");document.querySelectorAll("#activeViewTitle").forEach(title=>title.removeAttribute("id"));if(heading){heading.id="activeViewTitle";main.setAttribute("aria-labelledby",heading.id);document.title=`${heading.textContent.trim()} – CS336 Lernwerk`}else{main.removeAttribute("aria-labelledby");document.title="CS336 Lernwerk – Language Models from Scratch"}}
+    function updateRouteMetadata(){const main=document.getElementById("mainContent"),active=document.querySelector(`.view[data-view="${appState.view}"]`),heading=active?.querySelector("h1"),appName=currentLanguage==="en"?"CS336 Learning Lab":"CS336 Lernwerk";document.querySelectorAll("#activeViewTitle").forEach(title=>title.removeAttribute("id"));if(heading){heading.id="activeViewTitle";main.setAttribute("aria-labelledby",heading.id);document.title=`${heading.textContent.trim()} – ${appName}`}else{main.removeAttribute("aria-labelledby");document.title=`${appName} – Language Models from Scratch`}}
     function navigate(view,detail=null,{historyMode="push",focusMain=true,restoreScroll=false}={}){
       const previousKey=routeKey();if(previousKey!==routeKey(view,detail))routeScrollPositions.set(previousKey,window.scrollY);
       appState.view=view; appState.detail=detail; if(view!=="detail")user.lastView=view; saveUser();
@@ -3313,7 +3456,7 @@
     function handleHistoryNavigation(){const route=routeFromLocation();if(routeKey(route.view,route.detail)===routeKey())return;navigate(route.view,route.detail,{historyMode:"none",focusMain:true,restoreScroll:true})}
     function renderCurrent(){
       const renders={dashboard:renderDashboard,path:renderPath,concepts:renderConcepts,labs:renderLabs,formulas:renderFormulas,assignments:renderAssignments,quiz:renderQuiz,glossary:renderGlossary,notes:renderNotes,detail:renderDetail};
-      (renders[appState.view]||renderDashboard)(); updateProgressUI(); updateRouteMetadata();
+      (renders[appState.view]||renderDashboard)(); localizeSubtree(document.querySelector(`.view[data-view="${appState.view}"]`)); updateProgressUI(); updateRouteMetadata();
     }
     function viewHeader(eyebrow,title,lede){ return `<div class="view-header"><p class="eyebrow">${eyebrow}</p><h1>${title}</h1><p class="lede">${lede}</p></div>`; }
     function answerDisclosure(answer,label="Musterlösung anzeigen"){ return `<details class="answer-disclosure"><summary>${esc(label)}</summary><p>${esc(answer)}</p></details>`; }
@@ -3379,11 +3522,11 @@
     function renderLabs(){ const el=document.getElementById("view-labs"); el.innerHTML=viewHeader("Interaktive Lernlabore","Erst vorhersagen, dann verändern","Die Labs sind keine Animation zum Anschauen. Formuliere zuerst deine Erwartung, ändere genau einen Parameter und erkläre das Resultat.")+`<div class="callout accent"><strong>Lernschleife:</strong> Vorhersagen → Parameter ändern → Ergebnis beobachten → mit Formel erklären → auf einen neuen Fall übertragen.</div><div class="collection-list" style="margin-top:1rem">${LABS.map(labCard).join("")}</div>`; bindOpeners(el); }
 
     function renderFormulas(){
-      const cats=["all",...new Set(FORMULAS.map(f=>f.cat))]; const q=norm(appState.formulaQuery); const el=document.getElementById("view-formulas");
-      const filteredF=FORMULAS.filter(f=>(appState.formulaFilter==="all"||f.cat===appState.formulaFilter)&&(!q||norm(Object.values(f).flat(3).join(" ")).includes(q)));
+      const cats=[...new Map(FORMULAS.map(f=>[f.catKey,f.cat])).entries()]; const q=norm(appState.formulaQuery); const el=document.getElementById("view-formulas");
+      const filteredF=FORMULAS.filter(f=>(appState.formulaFilter==="all"||f.catKey===appState.formulaFilter)&&(!q||norm(Object.values(f).flat(3).join(" ")).includes(q)));
       const filteredS=SYMBOLS.filter(s=>!q||(q.length<=2?norm(s.symbol).includes(q):norm(Object.values(s).join(" ")).includes(q)));
       const resultCount=appState.formulaMode==="formulas"?filteredF.length:filteredS.length;
-      el.innerHTML=viewHeader("Tafelwerk","Formeln & Symbole mit Kontext","Nicht nur kopieren: lies jede Formel, prüfe Dimensionen, verstehe ihre Einsatzgrenze und teste dich selbst.")+`<div class="filter-row" style="justify-content:flex-start;margin-bottom:1rem"><button class="seg-button button ${appState.formulaMode==="formulas"?"primary":""}" data-formula-mode="formulas" aria-pressed="${appState.formulaMode==="formulas"}">Σ Formeln</button><button class="seg-button button ${appState.formulaMode==="symbols"?"primary":""}" data-formula-mode="symbols" aria-pressed="${appState.formulaMode==="symbols"}">α Symbole</button></div><div class="filters"><input class="input" id="formulaSearch" value="${esc(appState.formulaQuery)}" placeholder="z. B. d_model, ∇, Perplexity, 6ND …" aria-label="Formeln und Symbole durchsuchen">${appState.formulaMode==="formulas"?`<label class="sr-only" for="formulaCategoryFilter">Nach Kategorie filtern</label><select class="select filter-select" id="formulaCategoryFilter">${cats.map(cat=>`<option value="${esc(cat)}" ${appState.formulaFilter===cat?"selected":""}>${cat==="all"?"Alle Kategorien":esc(cat)}</option>`).join("")}</select>`:""}</div><p class="small muted filter-status">${resultCount} ${appState.formulaMode==="formulas"?"Formeln":"Symbole"}${appState.formulaMode==="formulas"?" · Die vollständige Formel bleibt schon im geschlossenen Zustand sichtbar.":" · Ein Symbol kann je nach Kapitel etwas anderes bedeuten."}</p>${resultCount?(appState.formulaMode==="formulas"?`<div class="accordion-list">${filteredF.map(formulaAccordion).join("")}</div>`:`<div class="accordion-list">${filteredS.map(symbolAccordion).join("")}</div>`):`<div class="callout"><strong>Kein Treffer.</strong> Prüfe Schreibweise oder entferne einen Filter.</div>`}`;
+      el.innerHTML=viewHeader("Tafelwerk","Formeln & Symbole mit Kontext","Nicht nur kopieren: lies jede Formel, prüfe Dimensionen, verstehe ihre Einsatzgrenze und teste dich selbst.")+`<div class="filter-row" style="justify-content:flex-start;margin-bottom:1rem"><button class="seg-button button ${appState.formulaMode==="formulas"?"primary":""}" data-formula-mode="formulas" aria-pressed="${appState.formulaMode==="formulas"}">Σ Formeln</button><button class="seg-button button ${appState.formulaMode==="symbols"?"primary":""}" data-formula-mode="symbols" aria-pressed="${appState.formulaMode==="symbols"}">α Symbole</button></div><div class="filters"><input class="input" id="formulaSearch" value="${esc(appState.formulaQuery)}" placeholder="z. B. d_model, ∇, Perplexity, 6ND …" aria-label="Formeln und Symbole durchsuchen">${appState.formulaMode==="formulas"?`<label class="sr-only" for="formulaCategoryFilter">Nach Kategorie filtern</label><select class="select filter-select" id="formulaCategoryFilter"><option value="all" ${appState.formulaFilter==="all"?"selected":""}>Alle Kategorien</option>${cats.map(([key,label])=>`<option value="${esc(key)}" ${appState.formulaFilter===key?"selected":""}>${esc(label)}</option>`).join("")}</select>`:""}</div><p class="small muted filter-status">${resultCount} ${appState.formulaMode==="formulas"?"Formeln":"Symbole"}${appState.formulaMode==="formulas"?" · Die vollständige Formel bleibt schon im geschlossenen Zustand sichtbar.":" · Ein Symbol kann je nach Kapitel etwas anderes bedeuten."}</p>${resultCount?(appState.formulaMode==="formulas"?`<div class="accordion-list">${filteredF.map(formulaAccordion).join("")}</div>`:`<div class="accordion-list">${filteredS.map(symbolAccordion).join("")}</div>`):`<div class="callout"><strong>Kein Treffer.</strong> Prüfe Schreibweise oder entferne einen Filter.</div>`}`;
       el.querySelectorAll("[data-formula-mode]").forEach(b=>b.onclick=()=>{const mode=b.dataset.formulaMode;appState.formulaMode=mode;renderFormulas();document.querySelector(`[data-formula-mode="${mode}"]`)?.focus();announceViewStatus(document.querySelector("#view-formulas .filter-status")?.textContent||"")}); document.getElementById("formulaCategoryFilter")?.addEventListener("change",e=>{appState.formulaFilter=e.target.value;renderFormulas();document.getElementById("formulaCategoryFilter")?.focus();announceViewStatus(document.querySelector("#view-formulas .filter-status")?.textContent||"")});
       document.getElementById("formulaSearch").oninput=e=>{const start=e.target.selectionStart,end=e.target.selectionEnd;appState.formulaQuery=e.target.value;renderFormulas();restoreSearchFocus("formulaSearch",start,end);announceViewStatus(document.querySelector("#view-formulas .filter-status")?.textContent||"")}; bindDisclosureState(el,"[data-formula-disclosure]",appState.openFormulaIds,"formulaDisclosure");bindDisclosureState(el,"[data-symbol-disclosure]",appState.openSymbolIds,"symbolDisclosure");bindOpeners(el);updateRouteMetadata();
     }
@@ -3391,10 +3534,10 @@
     function renderAssignments(){ const el=document.getElementById("view-assignments"); el.innerHTML=viewHeader("Assignment Coach","Selbst lösen, gezielt Unterstützung holen","Die KI-Regeln des Kurses erlauben konzeptuelle Hilfe, nicht die Implementierung. Deshalb entsperrt eine eigene Hypothese nur allgemeine, gestufte Denkhinweise.")+`<div class="callout warning"><strong>Lernmodus – keine Abgabelösungen.</strong> Der Coach liefert Voraussetzungen, Invarianten, Tests und Reflexionsfragen. Code und konkrete Deliverables bleiben deine Arbeit.</div><div class="collection-list" style="margin-top:1rem">${ASSIGNMENTS.map(assignmentCard).join("")}</div>`; bindOpeners(el); }
 
     function renderQuiz(){ const el=document.getElementById("view-quiz"); el.innerHTML=viewHeader("Abruftraining","Kannst du es ohne Vorlage erklären?","Beantworte erst aus dem Gedächtnis. Feedback erklärt den Grund, nicht nur richtig oder falsch.")+`<div class="quiz-wrap"><div class="panel" style="margin-bottom:1rem"><h2>12 Kernfragen</h2><p class="muted">Die Fragen decken A1 bis A5 ab. Dein Resultat verändert nicht automatisch den Kompetenzstatus – entscheide danach bewusst.</p><button class="button" id="flashcardButton">Stattdessen Karteikarten</button></div>${QUIZ.map((q,i)=>quizQuestionHtml(q,i,"quiz")).join("")}<button class="button primary" id="checkQuiz" style="margin-top:1rem">Antworten prüfen</button><div id="quizResult" aria-live="polite"></div></div>`; document.getElementById("checkQuiz").onclick=()=>gradeQuestions(QUIZ,"quiz",document.getElementById("quizResult")); document.getElementById("flashcardButton").onclick=openFlashcards; }
-    function quizQuestionHtml(q,i,prefix){ return `<fieldset class="question"><legend><strong>${i+1}. ${esc(q.q)}</strong></legend><div class="option-list">${q.opts.map((o,j)=>`<label class="option"><input type="radio" name="${prefix}-${i}" value="${j}" ${prefix==="diag"&&j===0?"required":""}><span>${esc(o)}</span></label>`).join("")}</div><div class="feedback" id="${prefix}-feedback-${i}" hidden></div></fieldset>`; }
+    function quizQuestionHtml(q,i,prefix){ const options=prefix==="diag"?[...q.opts,localizedUi("Ich weiß es nicht")]:q.opts;return `<fieldset class="question"><legend><strong>${i+1}. ${esc(q.q)}</strong></legend><div class="option-list">${options.map((o,j)=>`<label class="option"><input type="radio" name="${prefix}-${i}" value="${prefix==="diag"&&j===q.opts.length?"unknown":j}" ${prefix==="diag"&&j===0?"required":""}><span>${esc(o)}</span></label>`).join("")}</div><div class="feedback" id="${prefix}-feedback-${i}" hidden></div></fieldset>`; }
     function gradeQuestions(items,prefix,result){ let score=0; items.forEach((q,i)=>{const chosen=document.querySelector(`input[name="${prefix}-${i}"]:checked`);const good=chosen&&Number(chosen.value)===q.a;score+=good?1:0;const fb=document.getElementById(`${prefix}-feedback-${i}`);fb.hidden=false;fb.className="feedback "+(good?"good":"bad");fb.textContent=(good?"Richtig. ":"Noch nicht. ")+q.why;}); result.innerHTML=`<div class="callout ${score/items.length>=.75?"accent":"warning"}" style="margin-top:1rem"><strong>${score}/${items.length}</strong> richtig. ${score/items.length>=.75?"Erkläre jetzt drei Antworten laut ohne auf die Optionen zu schauen.":"Öffne die betroffenen Konzepte und beantworte die Frage später erneut."}</div>`; }
 
-    function renderGlossary(){ const q=norm(appState.glossaryQuery); const list=GLOSSARY.filter(g=>!q||norm(g.term+" "+g.def+" "+g.detail+" "+g.cat).includes(q)).sort((a,b)=>a.term.localeCompare(b.term,"de")); const el=document.getElementById("view-glossary"); el.innerHTML=viewHeader("Glossar","Abkürzungen und Fachbegriffe","Deutsch erklärt, englisch suchbar und nach Kurskontext gekennzeichnet.")+`<div class="filters"><input class="input" id="glossarySearch" value="${esc(appState.glossaryQuery)}" placeholder="Begriff oder Abkürzung …" aria-label="Glossar durchsuchen"><div class="muted small filter-status">${list.length} Begriffe</div></div>${list.length?`<div class="accordion-list">${list.map(glossaryAccordion).join("")}</div>`:`<div class="callout"><strong>Kein Treffer.</strong> Probiere den englischen Begriff oder eine Abkürzung.</div>`}`; document.getElementById("glossarySearch").oninput=e=>{const start=e.target.selectionStart,end=e.target.selectionEnd;appState.glossaryQuery=e.target.value;renderGlossary();restoreSearchFocus("glossarySearch",start,end);announceViewStatus(document.querySelector("#view-glossary .filter-status")?.textContent||"")}; bindDisclosureState(el,"[data-glossary-disclosure]",appState.openGlossaryIds,"glossaryDisclosure");updateRouteMetadata(); }
+    function renderGlossary(){ const q=norm(appState.glossaryQuery); const list=GLOSSARY.filter(g=>!q||norm(g.term+" "+g.def+" "+g.detail+" "+g.cat).includes(q)).sort((a,b)=>currentCollator.compare(a.term,b.term)); const el=document.getElementById("view-glossary"); el.innerHTML=viewHeader("Glossar","Abkürzungen und Fachbegriffe","Deutsch erklärt, englisch suchbar und nach Kurskontext gekennzeichnet.")+`<div class="filters"><input class="input" id="glossarySearch" value="${esc(appState.glossaryQuery)}" placeholder="Begriff oder Abkürzung …" aria-label="Glossar durchsuchen"><div class="muted small filter-status">${list.length} Begriffe</div></div>${list.length?`<div class="accordion-list">${list.map(glossaryAccordion).join("")}</div>`:`<div class="callout"><strong>Kein Treffer.</strong> Probiere den englischen Begriff oder eine Abkürzung.</div>`}`; document.getElementById("glossarySearch").oninput=e=>{const start=e.target.selectionStart,end=e.target.selectionEnd;appState.glossaryQuery=e.target.value;renderGlossary();restoreSearchFocus("glossarySearch",start,end);announceViewStatus(document.querySelector("#view-glossary .filter-status")?.textContent||"")}; bindDisclosureState(el,"[data-glossary-disclosure]",appState.openGlossaryIds,"glossaryDisclosure");updateRouteMetadata(); }
     function renderNotes(){ const el=document.getElementById("view-notes"); const bookmarkedConcepts=user.bookmarks.filter(x=>x.startsWith("concept:")).map(x=>byId(CONCEPTS,x.split(":")[1])).filter(Boolean); const bookmarkedFormulas=user.bookmarks.filter(x=>x.startsWith("formula:")).map(x=>byId(FORMULAS,x.split(":")[1])).filter(Boolean); el.innerHTML=viewHeader("Dein Arbeitsgedächtnis","Notizen & Lesezeichen","Schreibe Fragen, Erklärversuche und Fehlannahmen auf. Änderungen bleiben offline verfügbar und werden nach dem Login zwischen deinen Geräten synchronisiert.")+`<div class="detail-layout"><div class="panel"><label class="field" for="notesArea"><span>Freie Notizen</span><textarea class="textarea" id="notesArea" style="min-height:420px" placeholder="Was kann ich noch nicht erklären? Welche Hypothese teste ich als Nächstes?">${esc(user.notes)}</textarea></label><div class="card-actions" style="margin-top:.7rem"><button class="button primary" id="saveNotes">Notizen speichern</button><button class="button" id="exportProgress">Fortschritt exportieren</button><button class="button ghost" id="importProgressButton" type="button">Fortschritt importieren</button><input id="importProgress" type="file" accept="application/json" hidden></div></div><aside class="detail-aside"><div class="panel"><h3>Gespeicherte Konzepte</h3>${bookmarkedConcepts.length?bookmarkedConcepts.map(c=>`<button class="button ghost small" data-open-concept="${c.id}">${esc(c.title)}</button>`).join(" "):`<p class="muted small">Noch keine.</p>`}</div><div class="panel"><h3>Gespeicherte Formeln</h3>${bookmarkedFormulas.length?bookmarkedFormulas.map(f=>`<button class="button ghost small" data-open-formula="${f.id}">${esc(f.title)}</button>`).join(" "):`<p class="muted small">Noch keine.</p>`}</div><div class="panel"><h3>Reflexionsprompt</h3><p class="muted">„Ich dachte ___, beobachtete ___; deshalb ändere ich meine Erklärung zu ___.“</p></div></aside></div>`; const notesArea=document.getElementById("notesArea");let notesTimer;const persistNotes=()=>{clearTimeout(notesTimer);user.notes=notesArea.value;saveUser(true)};notesArea.oninput=()=>{clearTimeout(notesTimer);notesTimer=setTimeout(persistNotes,450)};notesArea.onblur=persistNotes;document.getElementById("saveNotes").onclick=()=>{persistNotes();toast("Notizen gespeichert")}; document.getElementById("exportProgress").onclick=exportProgress; document.getElementById("importProgressButton").onclick=()=>document.getElementById("importProgress").click(); document.getElementById("importProgress").onchange=importProgress; bindOpeners(el); }
 
     function renderDetail(){
@@ -3461,10 +3604,10 @@
       if(id==="grpo"){document.querySelectorAll(".grpoReward,#grpoStd").forEach(x=>x.oninput=updateGrpo);updateGrpo()}
     }
 
-    function updateShapes(){const B=+document.getElementById("shapeB").value,T=+document.getElementById("shapeT").value,D=+document.getElementById("shapeD").value,H=+document.getElementById("shapeH").value,d=D/H;document.getElementById("shapeBOut").value=B;document.getElementById("shapeTOut").value=T;document.getElementById("shapeStage").innerHTML=`<h2>Shape Ledger</h2><div class="stage-metric"><div class="metric"><strong>(${B}, ${T}, ${D})</strong><span>X nach Embedding</span></div><div class="metric"><strong>(${B}, ${H}, ${T}, ${d})</strong><span>Q, K, V pro Attention Head</span></div><div class="metric"><strong>(${B}, ${H}, ${T}, ${T})</strong><span>QKᵀ Scores</span></div><div class="metric"><strong>(${B}, ${T}, ${D})</strong><span>Concat + Wₒ</span></div></div><div class="callout"><strong>Kontraktion:</strong> Q (${T}×${d}) · Kᵀ (${d}×${T}) → ${T}×${T}. H teilt D in ${H} Attention Heads mit dₖ=${d}.</div><p class="lab-note">Die Score-Aktivierung wächst mit B·H·T² = ${(B*H*T*T).toLocaleString("de-DE")} Elementen. Die Parameter der Linear Layers hängen nicht von B oder T ab.</p>`;}
+    function updateShapes(){const B=+document.getElementById("shapeB").value,T=+document.getElementById("shapeT").value,D=+document.getElementById("shapeD").value,H=+document.getElementById("shapeH").value,d=D/H;document.getElementById("shapeBOut").value=B;document.getElementById("shapeTOut").value=T;document.getElementById("shapeStage").innerHTML=`<h2>Shape Ledger</h2><div class="stage-metric"><div class="metric"><strong>(${B}, ${T}, ${D})</strong><span>X nach Embedding</span></div><div class="metric"><strong>(${B}, ${H}, ${T}, ${d})</strong><span>Q, K, V pro Attention Head</span></div><div class="metric"><strong>(${B}, ${H}, ${T}, ${T})</strong><span>QKᵀ Scores</span></div><div class="metric"><strong>(${B}, ${T}, ${D})</strong><span>Concat + Wₒ</span></div></div><div class="callout"><strong>Kontraktion:</strong> Q (${T}×${d}) · Kᵀ (${d}×${T}) → ${T}×${T}. H teilt D in ${H} Attention Heads mit dₖ=${d}.</div><p class="lab-note">Die Score-Aktivierung wächst mit B·H·T² = ${(B*H*T*T).toLocaleString(localeCode())} Elementen. Die Parameter der Linear Layers hängen nicht von B oder T ab.</p>`;}
 
     function resetBpe(){const text=document.getElementById("bpeText").value.trim();bpeLabState={words:text.split(/\s+/).filter(Boolean).map(w=>["▁",...w]),merges:[]};renderBpe()}
-    function bpePairs(){const counts=new Map();bpeLabState.words.forEach(w=>{for(let i=0;i<w.length-1;i++){const k=w[i]+"¦"+w[i+1];counts.set(k,(counts.get(k)||0)+1)}});return [...counts.entries()].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]))}
+    function bpePairs(){const counts=new Map();bpeLabState.words.forEach(w=>{for(let i=0;i<w.length-1;i++){const k=w[i]+"¦"+w[i+1];counts.set(k,(counts.get(k)||0)+1)}});return [...counts.entries()].sort((a,b)=>b[1]-a[1]||currentCollator.compare(a[0],b[0]))}
     function stepBpe(){const pair=bpePairs()[0];if(!pair){toast("Keine Paare mehr");return;}const [a,b]=pair[0].split("¦");bpeLabState.words=bpeLabState.words.map(w=>{const out=[];for(let i=0;i<w.length;i++){if(i<w.length-1&&w[i]===a&&w[i+1]===b){out.push(a+b);i++}else out.push(w[i])}return out});bpeLabState.merges.push([a,b,pair[1]]);renderBpe()}
     function renderBpe(){const pairs=bpePairs().slice(0,8);document.getElementById("bpeStage").innerHTML=`<h2>Merge ${bpeLabState.merges.length}</h2><div class="token-row">${bpeLabState.words.map(w=>`<span class="token">${w.map(esc).join(" · ")}</span>`).join("")}</div><h3>Häufigste Nachbarpaare</h3><div class="bar-list">${pairs.map(([k,n])=>`<div class="bar-row"><span class="mono">${esc(k.replace("¦"," + "))}</span><div class="bar-track"><div class="bar-fill" style="width:${n/(pairs[0]?.[1]||1)*100}%"></div></div><strong>${n}</strong></div>`).join("")}</div><p class="lab-note">Merge-Regeln: ${bpeLabState.merges.length?bpeLabState.merges.map(([a,b,n])=>`${esc(a)}+${esc(b)} (${n})`).join(" → "):"noch keine"}</p>`;}
 
@@ -3480,7 +3623,7 @@
     function schedule(step,warm,max,min=.1){if(step<warm)return max*step/warm;const p=(step-warm)/(100-warm);return min*max+.5*(max-min*max)*(1+Math.cos(Math.PI*p))}
     function updateOptimizer(){const step=+document.getElementById("optStep").value,warm=Math.min(+document.getElementById("optWarmup").value,99),max=+document.getElementById("optLr").value,g=+document.getElementById("optGrad").value,wd=+document.getElementById("optWd").value,lr=schedule(step,warm,max),theta=1,newTheta=(1-lr*wd)*theta-lr*g/(Math.abs(g)+1e-8);[["optStepOut",step],["optWarmupOut",warm],["optLrOut",max.toFixed(4)],["optGradOut",g.toFixed(2)],["optWdOut",wd.toFixed(2)]].forEach(([id,v])=>document.getElementById(id).value=v);const pts=[];for(let t=0;t<=100;t+=2){const y=schedule(t,warm,max),x=35+t*5.2,py=210-y/max*170;pts.push(`${x},${py}`)}document.getElementById("optStage").innerHTML=`<h2>Lernratenverlauf</h2><svg class="svg-chart" viewBox="0 0 590 225" role="img" aria-label="Lernrate über 100 Schritte: Warmup bis zur maximalen Lernrate, danach Cosine-Abfall. Aktueller Schritt ${step}, Lernrate ${lr.toExponential(2)}."><line class="chart-grid-line" x1="35" x2="555" y1="210" y2="210"/><line class="chart-grid-line" x1="35" x2="35" y1="35" y2="210"/><polyline class="chart-line" points="${pts.join(" ")}"/><circle class="chart-dot" cx="${35+step*5.2}" cy="${210-lr/max*170}" r="6"/></svg><div class="chart-axis-labels"><span>0 Schritte · Lernrate 0</span><span>100 Schritte · Lernrate η</span></div><div class="stage-metric"><div class="metric"><strong>${lr.toExponential(2)}</strong><span>η am Step ${step}</span></div><div class="metric"><strong>${newTheta.toFixed(6)}</strong><span>θ neu aus θ=1, vereinfachtem erstem AdamW-Step</span></div></div><p class="lab-note">Beim ersten Moment-korrigierten Schritt ist m̂≈g und √v̂≈|g|. Das zeigt die adaptive Skalierung, ersetzt aber keinen vollständigen Mehrschritt-Simulator.</p>`;}
 
-    function fmtNum(n){if(n>=1e12)return(n/1e12).toFixed(2)+"T";if(n>=1e9)return(n/1e9).toFixed(2)+"B";if(n>=1e6)return(n/1e6).toFixed(2)+"M";return Math.round(n).toLocaleString("de-DE")}
+    function fmtNum(n){if(n>=1e12)return(n/1e12).toFixed(2)+"T";if(n>=1e9)return(n/1e9).toFixed(2)+"B";if(n>=1e6)return(n/1e6).toFixed(2)+"M";return Math.round(n).toLocaleString(localeCode())}
     function fmtBytes(n){const units=["B","KiB","MiB","GiB","TiB"];let i=0;while(n>=1024&&i<4){n/=1024;i++}return n.toFixed(n<10?2:1)+" "+units[i]}
     function updateResources(){const L=+document.getElementById("resL").value,D=+document.getElementById("resD").value,V=+document.getElementById("resV").value,T=+document.getElementById("resT").value,tokens=+document.getElementById("resTokens").value,N=12*L*D*D+V*D,state=N*16,attnElems=L*T*T,flops=6*N*tokens,time=flops/(4e14);document.getElementById("resLOut").value=L;document.getElementById("resStage").innerHTML=`<h2>Napkin Math</h2><div class="stage-metric"><div class="metric"><strong>${fmtNum(N)}</strong><span>Parameter ≈12LD²+VD</span></div><div class="metric"><strong>${fmtBytes(state)}</strong><span>AdamW-State bei 16 Byte/Parameter</span></div><div class="metric"><strong>${fmtNum(attnElems)}</strong><span>T²-Scoreelemente über alle Layer, B=H=1</span></div><div class="metric"><strong>${(time/3600).toFixed(1)} h</strong><span>bei effektiv 400 TFLOP/s</span></div></div><div class="callout warning"><strong>Näherung:</strong> Aktivierungen, GQA/SwiGLU-Details, Embedding-Tying, Kommunikation und Attention-Zusatz-FLOPs sind setupabhängig. Nutze die Rechnung zum Plausibilisieren, nicht als Speicherzusage.</div>`;}
 
@@ -3505,7 +3648,7 @@
     function openFlashcards(){flashIndex=0;renderFlashcardModal()}
     function renderFlashcardModal(){const cards=[...QUIZ.map(q=>({front:q.q,back:q.opts[q.a]+" — "+q.why})),...FORMULAS.slice(0,15).map(f=>({front:`Erkläre ${f.title} ohne Vorlage.`,back:`${strip(f.expr)} — ${f.intuition}`}))],card=cards[flashIndex%cards.length];openModal("Karteikarten","Aktives Abrufen",`<article class="panel flashcard" aria-labelledby="flashQuestion"><div class="flashcard-inner"><p class="eyebrow">Karte ${flashIndex+1} / ${cards.length}</p><h3 id="flashQuestion">${esc(card.front)}</h3><p class="answer" id="flashAnswer" hidden>${formulaText(card.back)}</p><button class="button" id="flashReveal" aria-controls="flashAnswer" aria-expanded="false">Antwort anzeigen</button></div></article><div class="card-actions" style="justify-content:center;margin-top:1rem"><button class="button" id="flashPrev" ${flashIndex===0?"disabled":""}>Zurück</button><button class="button primary" id="flashNext">Nächste Karte</button></div>`);document.getElementById("flashReveal").onclick=event=>{document.getElementById("flashAnswer").hidden=false;event.currentTarget.setAttribute("aria-expanded","true");event.currentTarget.textContent="Antwort sichtbar";event.currentTarget.disabled=true};document.getElementById("flashPrev").onclick=()=>{flashIndex=Math.max(0,flashIndex-1);renderFlashcardModal()};document.getElementById("flashNext").onclick=()=>{flashIndex=(flashIndex+1)%cards.length;renderFlashcardModal()};requestAnimationFrame(()=>document.getElementById("flashReveal")?.focus())}
 
-    function exportProgress(){const blob=new Blob([JSON.stringify({version:1,exportedAt:new Date().toISOString(),data:user},null,2)],{type:"application/json"}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="cs336-lernfortschritt.json";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast("Fortschritt exportiert")}
+    function exportProgress(){const blob=new Blob([JSON.stringify({version:1,exportedAt:new Date().toISOString(),data:user},null,2)],{type:"application/json"}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=currentLanguage==="en"?"cs336-progress.json":"cs336-lernfortschritt.json";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast("Fortschritt exportiert")}
     function importProgress(e){const file=e.target.files?.[0];if(!file)return;const reader=new FileReader();reader.onload=()=>{try{const parsed=JSON.parse(reader.result);user=normalizeUser(parsed.data||parsed);saveUser(true);applyTheme();renderCurrent();toast("Fortschritt importiert")}catch{toast("Ungültige Fortschrittsdatei")}};reader.readAsText(file)}
 
     function buildSearchIndex(){return [
@@ -3517,20 +3660,21 @@
       ...LABS.map(x=>({type:"Lab",title:x.title,desc:x.desc,id:x.id,kind:"lab",text:Object.values(x).join(" ")})),
       ...GLOSSARY.map(x=>({type:"Glossar",title:x.term,desc:x.def,id:x.id,kind:"glossary",text:x.term+" "+x.def+" "+x.detail+" "+x.cat}))
     ];}
-    const SEARCH_INDEX=buildSearchIndex();
-    function searchAll(query){const q=norm(query);if(q.length<2)return[];return SEARCH_INDEX.map(item=>{const title=norm(item.title),text=norm(item.text);let score=0;if(title===q)score=100;if(title.startsWith(q))score=Math.max(score,70);if(title.includes(q))score=Math.max(score,50);if(text.includes(q))score=Math.max(score,20);return{...item,score}}).filter(x=>x.score>0).sort((a,b)=>b.score-a.score||a.title.localeCompare(b.title)).slice(0,14)}
+    let SEARCH_INDEX=buildSearchIndex();
+    function searchAll(query){const q=norm(query);if(q.length<2)return[];return SEARCH_INDEX.map(item=>{const title=norm(item.title),text=norm(item.text);let score=0;if(title===q)score=100;if(title.startsWith(q))score=Math.max(score,70);if(title.includes(q))score=Math.max(score,50);if(text.includes(q))score=Math.max(score,20);return{...item,score}}).filter(x=>x.score>0).sort((a,b)=>b.score-a.score||currentCollator.compare(a.title,b.title)).slice(0,14)}
     function setSearchOpen(open){const input=document.getElementById("globalSearch"),box=document.getElementById("searchResults");box.hidden=!open;input.setAttribute("aria-expanded",String(open));if(!open){activeSearchIndex=-1;input.removeAttribute("aria-activedescendant");box.querySelectorAll('[role="option"]').forEach(option=>{option.classList.remove("is-active");option.setAttribute("aria-selected","false")})}}
     function setActiveSearchResult(index){if(!searchItems.length)return;activeSearchIndex=(index+searchItems.length)%searchItems.length;const input=document.getElementById("globalSearch"),options=[...document.querySelectorAll("#searchResults [role=option]")];options.forEach((option,i)=>{const active=i===activeSearchIndex;option.classList.toggle("is-active",active);option.setAttribute("aria-selected",String(active))});const active=options[activeSearchIndex];if(active){input.setAttribute("aria-activedescendant",active.id);active.scrollIntoView({block:"nearest"})}}
     function renderSearchResults(){const input=document.getElementById("globalSearch"),box=document.getElementById("searchResults"),status=document.getElementById("searchStatus");searchItems=searchAll(input.value);activeSearchIndex=-1;input.removeAttribute("aria-activedescendant");if(input.value.trim().length<2){box.innerHTML="";status.textContent="";setSearchOpen(false);return}box.innerHTML=searchItems.length?searchItems.map((item,i)=>`<div class="search-result" id="search-option-${i}" role="option" aria-selected="false" data-search-i="${i}"><span class="result-type">${item.type}</span><span class="result-copy"><strong>${esc(item.title)}</strong><small>${formulaText(item.desc)}</small></span></div>`).join(""):`<div class="search-empty" role="option" aria-disabled="true" aria-selected="false"><strong>Kein Treffer</strong><p class="muted small">Probiere englische Begriffe, Unicode-Symbole oder Codebezeichner wie d_model.</p></div>`;status.textContent=searchItems.length?`${searchItems.length} Suchergebnisse verfügbar. Mit Pfeiltasten auswählen.`:"Keine Suchergebnisse.";setSearchOpen(true);box.querySelectorAll("[data-search-i]").forEach(option=>{option.addEventListener("mousedown",event=>event.preventDefault());option.onclick=()=>openSearchItem(searchItems[+option.dataset.searchI])})}
     function handleSearchKeydown(event){const box=document.getElementById("searchResults");if(event.key==="ArrowDown"||event.key==="ArrowUp"){event.preventDefault();if(box.hidden)renderSearchResults();if(searchItems.length){const direction=event.key==="ArrowDown"?1:-1,next=activeSearchIndex<0?(direction>0?0:searchItems.length-1):activeSearchIndex+direction;setActiveSearchResult(next)}return}if(event.key==="Enter"&&!box.hidden&&searchItems.length){event.preventDefault();openSearchItem(searchItems[activeSearchIndex>=0?activeSearchIndex:0]);return}if(event.key==="Escape"&&!box.hidden){event.preventDefault();setSearchOpen(false)}}
     function openSearchItem(item){setSearchOpen(false);document.getElementById("globalSearch").value="";document.getElementById("searchStatus").textContent="";if(["module","concept","formula","assignment","lab"].includes(item.kind)){navigate("detail",{type:item.kind,id:item.id});return}if(item.kind==="symbol"){appState.formulaMode="symbols";appState.formulaQuery=item.title.split(" · ")[0];navigate("formulas");return}if(item.kind==="glossary"){appState.glossaryQuery=item.title;navigate("glossary")}}
 
-    function applyTheme(){document.documentElement.dataset.theme=user.theme;document.querySelector('meta[name="theme-color"]').content=user.theme==="dark"?"#09111f":"#f5f7fb";document.getElementById("themeButton").textContent=user.theme==="dark"?"☼":"☾";document.getElementById("themeButton").setAttribute("aria-label",user.theme==="dark"?"Helles Farbschema":"Dunkles Farbschema")}
+    function applyTheme(){document.documentElement.dataset.theme=user.theme;document.querySelector('meta[name="theme-color"]').content=user.theme==="dark"?"#09111f":"#f5f7fb";document.getElementById("themeButton").textContent=user.theme==="dark"?"☼":"☾";document.getElementById("themeButton").setAttribute("aria-label",localizedUi(user.theme==="dark"?"Helles Farbschema":"Dunkles Farbschema"))}
     function parseHash(){const route=routeFromLocation();appState.view=route.view;appState.detail=route.detail}
     function init(){
-      parseHash();initNav();applyTheme();
+      parseHash();applyStaticLanguage();startI18nObserver();initNav();applyTheme();localizeSubtree(document.querySelector(".topbar"));
       const syncMobileNav=()=>setMobileNav(false,true);if(mobileNavMedia.addEventListener)mobileNavMedia.addEventListener("change",syncMobileNav);else mobileNavMedia.addListener(syncMobileNav);
       document.getElementById("themeButton").onclick=()=>{user.theme=user.theme==="dark"?"light":"dark";saveUser();applyTheme()};
+      document.getElementById("languageButton").onclick=()=>setLanguage(currentLanguage==="en"?"de":"en");
       document.getElementById("notesQuickButton").onclick=()=>navigate("notes");
       document.getElementById("accountButton").onclick=openAccount;
       document.getElementById("menuButton").onclick=()=>setMobileNav(!document.getElementById("sidebar").classList.contains("is-open"));

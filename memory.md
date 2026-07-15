@@ -2,10 +2,12 @@
 
 ## Stabile Produktentscheidungen
 
-- Die CS336-Lernhilfe ist deutschsprachig und offline-first; sie bleibt lokal ohne Build-Schritt nutzbar und kann als PWA ueber GitHub Pages bereitgestellt werden.
+- Die CS336-Lernhilfe ist zweisprachig und offline-first: Englisch ist die Standardsprache, Deutsch ist per Umschalter verfuegbar. Sie bleibt lokal ohne Build-Schritt nutzbar und kann als Progressive Web App (PWA; installierbare Web-App) ueber GitHub Pages bereitgestellt werden.
 - Sie folgt der Assignment-KI-Richtlinie: Konzepterklaerungen und gestufte Hinweise sind erlaubt; Assignment-Implementierungen und abgabefertige Antworten sind ausgeschlossen.
 - Der Lernfluss priorisiert Diagnose, aktives Abrufen, interaktive Experimente und Selbstpruefung.
-- Erklaerungen sind dauerhaft beginner-first: Sie beginnen mit einem konkreten mentalen Modell, erklaeren neue Begriffe und Shapes in Alltagssprache und fuehren erst danach die formale Kursnotation ein. Etablierte Fachbegriffe wie `Linear Layer`, `Attention Head`, `Forward Pass` und `Backward Pass` bleiben auf Englisch.
+- Erklaerungen sind dauerhaft beginner-first: Sie beginnen mit einem konkreten mentalen Modell, erklaeren neue Begriffe und Shapes in Alltagssprache und fuehren erst danach die formale Kursnotation ein. Im deutschen Modus bleiben etablierte Fachbegriffe wie `Linear Layer`, `Attention Head`, `Forward Pass` und `Backward Pass` auf Englisch.
+- Die Sprachpraeferenz bleibt geraetelokal und wird nicht ueber Supabase synchronisiert; ein Sprachwechsel darf Ansicht, Eingaben, Akkordeons, Scrollposition oder Lab-Zustand nicht verlieren.
+- Jede Diagnosefrage besitzt explizit `I don't know` beziehungsweise `Ich weiss es nicht`. Diese Antwort zaehlt als Wissensluecke mit null Punkten und bleibt im Nenner, damit die Diagnose die Lernreihenfolge ehrlich priorisiert; das regulaere Quiz erhaelt keine zusaetzliche Option.
 - Lernfragen in Konzepten, Formeln, Labs und Assignments besitzen standardmaessig geschlossene, aufklappbare Antworten; der eigene Erklaerversuch bleibt der erste Schritt. Assignment-Antworten bleiben konzeptuell und enthalten weder Implementierung noch Abgabecode.
 - Jede Konzeptdetailseite endet mit einer Weiter-Navigation zum naechsten Konzept; nach dem letzten Konzept fuehrt sie zur Konzeptuebersicht.
 - Symbole und Formeln erhalten einen eigenstaendigen, durchsuchbaren Tafelwerk-Bereich mit Dimensionen, Intuition, Fehlerbildern und Quellen.

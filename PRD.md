@@ -2,7 +2,7 @@
 
 ## Ziel
 
-Eine offline-first, interaktive deutschsprachige Lernhilfe, die einen Lernenden mit Erfahrung in neuronalen Netzen, aber Luecken in Mathematik und Systemgrundlagen, durch Stanford CS336 "Language Models from Scratch" fuehrt. Sie funktioniert lokal und kann als private, geräteübergreifend synchronisierte Web-App genutzt werden.
+Eine offline-first, interaktive zweisprachige Lernhilfe, die einen Lernenden mit Erfahrung in neuronalen Netzen, aber Luecken in Mathematik und Systemgrundlagen, durch Stanford CS336 "Language Models from Scratch" fuehrt. Englisch ist die Standardsprache; Deutsch ist jederzeit per Umschalter verfuegbar. Die App funktioniert lokal und kann als private, geraeteuebergreifend synchronisierte Web-App genutzt werden.
 
 ## Primaere Quellen
 
@@ -16,7 +16,7 @@ Eine offline-first, interaktive deutschsprachige Lernhilfe, die einen Lernenden 
 - Gestufte Hinweise statt abgabefertiger Assignment-Loesungen.
 - Abkuerzungen werden bei erster Verwendung erklaert.
 - Erklaerungen setzen weniger Vorwissen voraus als der Kurs: neue Begriffe beginnen mit Alltagssprache oder einem konkreten Bild und fuehren erst danach die formale Kursnotation ein.
-- Etablierte englische Fachbegriffe wie `Linear Layer`, `Forward Pass` oder `Attention Head` bleiben erhalten und werden bei der ersten Verwendung knapp auf Deutsch erklaert; ungewoehnliche Woertlich-Uebersetzungen werden vermieden.
+- Im deutschen Modus bleiben etablierte englische Fachbegriffe wie `Linear Layer`, `Forward Pass` oder `Attention Head` erhalten und werden bei der ersten Verwendung knapp erklaert; ungewoehnliche Woertlich-Uebersetzungen werden vermieden.
 - Jede groessere Aussage ist zu Lecture oder Assignment rueckverfolgbar.
 - Fortschritt und eigene Notizen werden zuerst lokal im Browser gespeichert und nach einer Anmeldung optional ueber Supabase synchronisiert.
 
@@ -32,6 +32,7 @@ Eine offline-first, interaktive deutschsprachige Lernhilfe, die einen Lernenden 
 8. Offline-faehige lokale Nutzung ohne Build-Schritt.
 9. GitHub-Pages-Deployment als Progressive Web App (PWA; installierbare Web-App) fuer Desktop, iPhone und iPad.
 10. E-Mail-/Passwort-Anmeldung, private PDF-Ablage und Synchronisation von Lernstand, Notizen und Lesezeichen ueber ein eigenes Supabase-Projekt.
+11. Vollstaendige englische und deutsche Darstellung aller Lerninhalte und Bedienelemente mit einem persistenten Sprachumschalter.
 
 ## Nicht-Ziele
 
@@ -45,7 +46,8 @@ Eine offline-first, interaktive deutschsprachige Lernhilfe, die einen Lernenden 
 
 - Die Lernhilfe laesst sich direkt als HTML-Datei oeffnen.
 - Navigation, globale Suche, Themenfilter und mobile Darstellung funktionieren.
-- Diagnose erzeugt nachvollziehbare Lernempfehlungen.
+- Diagnose bietet bei jeder Frage explizit `I don't know` beziehungsweise `Ich weiss es nicht`; diese ehrliche Unsicherheit wird als Wissensluecke gewertet und erzeugt nachvollziehbare Lernempfehlungen.
+- Ohne gespeicherte Praeferenz startet die App auf Englisch. Der Sprachumschalter wechselt alle Lerninhalte und Bedienelemente vollstaendig zwischen Englisch und Deutsch, behaelt die Wahl lokal und verliert weder Ansicht noch Eingaben oder Lab-Zustand.
 - Mindestens zehn interaktive Lernexperimente reagieren korrekt auf Eingaben.
 - Formeln und Symbole sind such- und filterbar und erklaeren Notation sowie Dimensionen.
 - Formeln bleiben bereits im geschlossenen Akkordeon vollstaendig sichtbar, brechen ohne internes horizontales Scrollen um und lassen sich fuer Kontext, Variablen und Selbstcheck aufklappen.
@@ -74,6 +76,7 @@ Eine offline-first, interaktive deutschsprachige Lernhilfe, die einen Lernenden 
 - Version 3 ist unter derselben Produktions-URL veroeffentlicht und verdichtet die Oberflaeche: Referenzsammlungen sind kompakte Listen mit nativen Akkordeons, Formeln umbrechen vollstaendig, Dashboard und Lernpfad zeigen Informationen ohne redundante Karten, und die Navigation arbeitet im iPad-Hochformat als zugaengliches Offcanvas-Menue.
 - Version 4 setzt den aktuellen UX- und Accessibility-Audit um: WCAG-2.2-konforme Kontraste und Fokusfuehrung, vollstaendige Tastaturbedienung fuer Dialoge, mobile Navigation und globale Suche, robuste Browser-History, dynamische Seitentitel, ruhigere Leseseiten sowie besser lesbare mobile Diagramme. Die technische Umsetzung und statischen Pruefungen sind abgeschlossen; die Produktionspruefung folgt direkt nach dem Deployment.
 - Version 5 vertieft alle 52 Konzeptseiten fuer Lernende mit weniger Vorwissen: 156 schrittweise Erklaerabschnitte, 104 aufklappbare Konzeptloesungen, 52 Formelantworten, 20 konzeptuelle Assignment-Antworten und 11 Lab-Loesungsideen. Das Glossar umfasst 55 Begriffe mit sichtbarer Kurzdefinition und separater Vertiefung; jede Konzeptseite endet mit einer Weiter- beziehungsweise Abschlussnavigation. Standardbegriffe wie `Linear Layer`, `Attention Head`, `Forward Pass` und `Backward Pass` bleiben auf Englisch und werden im Kontext erklaert.
+- Version 6 ist vollstaendig zweisprachig: Englisch ist der Default, Deutsch bleibt ueber einen persistenten 44-Pixel-Umschalter erreichbar. Uebersetzt sind alle 12 Module, 52 Konzepte, 52 Formeln mitsamt 167 Variablenerklaerungen, 5 Assignment-Coaches, 11 Labs, 12 Diagnosefragen, 12 Quizfragen, 55 Glossarbegriffe, 48 Symbole sowie 465 statische und dynamische Oberflaechentexte. Jede Diagnosefrage besitzt zusaetzlich eine ausdrueckliche Unwissenheitsoption; der Sprachwechsel erhaelt Ansicht, Eingaben und BPE-Merge-Zustand.
 
 ## Offener Rest
 

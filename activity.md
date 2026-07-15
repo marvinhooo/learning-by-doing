@@ -91,3 +91,14 @@ Iteration Counter: 0
 - Verifiziert: JavaScript-Parsing und Dateninvarianten, 52/52 Konzepte und Formeln, 55/55 Glossareintraege, 20/20 Assignment-Antworten und 11/11 Lab-Antworten, `git diff --check`, Hilfsskripte sowie reproduzierbarer `_site`-Build ohne PDFs, Notebooks oder Temporaerdateien.
 - Browserpruefung ohne Konsolenfehler: Selbstcheck-, Formel-, Assignment-, Lab- und Glossar-Akkordeons sowie erste und letzte Konzeptnavigation funktionieren. Bei 390 x 844, 768 x 1024 und 1280 x 800 Pixeln trat kein horizontales Ueberlaufen auf; zentrale Touch-Ziele blieben mindestens 44 Pixel hoch.
 - Der Iteration Counter blieb unveraendert, da der Run manuell/interaktiv gestartet wurde.
+
+## 2026-07-15 - Vollstaendige Englisch-/Deutsch-Umschaltung und ehrliche Diagnoseoption (manueller Run)
+
+- Status: abgeschlossen und fuer das Deployment vorbereitet.
+- Englisch als Standardsprache eingerichtet; ein 44 Pixel grosser Umschalter wechselt vollstaendig zu Deutsch und speichert die Praeferenz geraetelokal, getrennt vom synchronisierten Lernstand.
+- Vollstaendige ID-basierte englische Sprachschicht fuer 12 Module, 52 Konzepte, 52 Formeln mit 167 Variablenerklaerungen, 5 Assignment-Coaches, 11 Labs, 12 Diagnosefragen, 12 Quizfragen, 55 Glossarbegriffe und 48 Symbole ergaenzt. Ein automatischer Paritaetscheck prueft diese Abdeckung und 465 statische beziehungsweise dynamische Oberflaechentexte bei jedem Build.
+- Jede der 12 Diagnosefragen besitzt nun zusaetzlich `I don't know` beziehungsweise `Ich weiss es nicht`. Die Option zaehlt bewusst nicht als richtige Antwort und bleibt Teil des Nenners, damit die Lernreihenfolge echte Wissensluecken priorisiert; das regulaere Quiz bleibt unveraendert.
+- Der Sprachwechsel behaelt aktuelle Ansicht, Filter, Formulare, Akkordeons, Scrollposition und den laufenden BPE-Merge-Zustand. Der Service-Worker-Cache wurde auf `cs336-shell-v5` angehoben, damit installierte iPhone-/iPad-Apps die neue Sprachdatei sicher erhalten.
+- Verifiziert: Locale-Paritaet, JavaScript-Syntax, reproduzierbarer `_site`-Build ohne PDFs oder Notebooks und bytegleiche Quell-/Build-Dateien. Browserpruefungen deckten Diagnose, Account-Dialog, dynamisches BPE-Lab, Sprachwechsel und 24 Routen ab; die Konsole blieb ohne Fehler oder Warnungen.
+- Bei 390 x 844, 768 x 1024 und 1280 x 800 Pixeln trat kein horizontales Ueberlaufen auf; zentrale Touch-Ziele einschliesslich Sprachumschalter und Diagnoseoptionen sind mindestens 44 Pixel hoch.
+- Der Iteration Counter blieb unveraendert, da der Run manuell/interaktiv gestartet wurde.
