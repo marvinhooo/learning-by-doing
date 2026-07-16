@@ -403,6 +403,16 @@
     .detail-section h3 { padding-bottom: .45rem; border-bottom: 1px solid var(--border); }
     .reading-section { padding-block: .25rem 1.35rem; border-bottom: 1px solid var(--border); }
     .reading-section + .reading-section { padding-top: 1.35rem; }
+    .concept-orientation-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); gap: .75rem; }
+    .concept-orientation-card { padding: .9rem 1rem; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+    .concept-orientation-card h3 { margin: 0 0 .45rem; padding: 0; border: 0; font-size: .95rem; }
+    .concept-orientation-card p { margin: 0; }
+    .concept-position { margin-top: .5rem !important; color: var(--muted); font-size: .82rem; }
+    .concept-terms { margin-top: 1rem; padding: .9rem 1rem; border-left: 4px solid var(--accent); border-radius: 0 12px 12px 0; background: var(--accent-soft); }
+    .concept-terms h3 { margin: 0 0 .65rem; padding: 0; border: 0; font-size: .95rem; }
+    .concept-terms dl { display: grid; grid-template-columns: minmax(130px, .45fr) minmax(0, 1fr); gap: .45rem .8rem; margin: 0; }
+    .concept-terms dt { font-weight: 750; overflow-wrap: anywhere; }
+    .concept-terms dd { margin: 0; }
     .callout { padding: .9rem 1rem; border-left: 4px solid var(--primary); border-radius: 0 12px 12px 0; background: var(--primary-soft); }
     .callout.warning { border-color: var(--warning); background: color-mix(in srgb, var(--warning), transparent 90%); }
     .callout.accent { border-color: var(--accent); background: var(--accent-soft); }
@@ -756,6 +766,11 @@
       input[type="range"] { min-height: 44px; }
     }
 
+    @media (max-width: 620px) {
+      .concept-terms dl { grid-template-columns: 1fr; }
+      .concept-terms dd + dt { margin-top: .4rem; }
+    }
+
     @media (max-width: 1180px) {
       .app-shell { display: block; }
       .sidebar {
@@ -828,7 +843,7 @@
       *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
     }
   </style>
-  <script src="i18n-en.js?v=32"></script>
+  <script src="i18n-en.js?v=35"></script>
   <script src="config.js"></script>
   <script src="vendor/supabase.js"></script>
 </head>
@@ -964,7 +979,7 @@
       { id:"training", n:"03", stage:"A1", title:"Training, Optimierung & Sampling", minutes:300,
         description:"Loss, AdamW, Lernraten, Clipping, Datenbatches, Checkpoints und autoregressive Generierung.",
         outcome:"Du kannst einen Trainingslauf planen, numerische Fehler diagnostizieren und Metriken richtig lesen.",
-        prereqs:["Transformer-Block", "Ableitungen & Logarithmen"], concepts:["cross-entropy","adamw","schedules","clipping","training-loop","sampling"], labs:["optimizer","resources"], sources:["a1","l02"] },
+        prereqs:["Transformer-Block", "Ableitungen & Logarithmen"], concepts:["cross-entropy","adamw","schedules","clipping","token-array-loading","training-loop","sampling"], labs:["optimizer","resources"], sources:["a1","l02"] },
       { id:"architecture", n:"04", stage:"Vertiefung", title:"Architekturentscheidungen & MoE", minutes:200,
         description:"Was moderne Modelle gemeinsam haben, was variiert und warum Mixture of Experts (MoE) attraktiv ist.",
         outcome:"Du unterscheidest robuste Standards von empirischen Designentscheidungen und kennst MoE-Kosten.",
@@ -972,15 +987,15 @@
       { id:"gpu", n:"05", stage:"A2", title:"GPU, Profiling, Triton & FlashAttention", minutes:420,
         description:"Hardwarehierarchie, Roofline, Benchmarking, Kernel-Fusion, Tiling, Triton und IO-bewusste Attention.",
         outcome:"Du optimierst erst nach Messung und kannst erklären, ob Compute oder Speichertransfer begrenzt.",
-        prereqs:["Ressourcenrechnung", "Transformer-Attention"], concepts:["gpu-model","roofline","profiling","fusion-tiling","triton-kernels","kernel-contracts","flash-attention","checkpointing"], labs:["triton-tile","kernel-contracts","online-softmax-kata","roofline","resources","attention"], sources:["l05","l06","a2"] },
+        prereqs:["Ressourcenrechnung", "Transformer-Attention"], concepts:["gpu-model","roofline","profiling","fusion-tiling","triton-kernels","flash-attention","kernel-contracts","checkpointing"], labs:["triton-tile","kernel-contracts","online-softmax-kata","roofline","resources","attention"], sources:["l05","l06","a2"] },
       { id:"distributed", n:"06", stage:"A2", title:"Verteiltes Training", minutes:330,
         description:"Collectives, Daten-, Tensor- und Pipelineparallelismus sowie Zero Redundancy Optimizer (ZeRO), Distributed Data Parallel (DDP) und Fully Sharded Data Parallel (FSDP).",
         outcome:"Du leitest Speicher- und Kommunikationskosten einer Parallelisierungsstrategie her.",
-        prereqs:["GPU-Speicherhierarchie", "Training State"], concepts:["distributed-runtime","collectives","ddp-zero-fsdp","model-parallelism"], labs:["distributed-runtime","parallelism"], sources:["l07","l08","a2"] },
+        prereqs:["GPU-Speicherhierarchie", "Training State"], concepts:["collectives","distributed-runtime","ddp-zero-fsdp","model-parallelism"], labs:["distributed-runtime","parallelism"], sources:["l07","l08","a2"] },
       { id:"scaling", n:"07", stage:"A3", title:"Scaling Laws & Experimentdesign", minutes:230,
         description:"Power Laws, Compute-Optimum, IsoFLOPs, Hyperparametertransfer und saubere Extrapolation.",
         outcome:"Du planst kleine Läufe, fitest robuste Kurven und benennst Unsicherheit statt Scheingenauigkeit.",
-        prereqs:["Logs & Regression", "Trainingkosten"], concepts:["power-laws","isoflops","scaling-optima","scaling-practice"], labs:["scaling","scaling-fit","scaling-transfer"], sources:["l09","l11","a3"] },
+        prereqs:["Logs & Regression", "Trainingkosten"], concepts:["power-laws","isoflops","scaling-practice","scaling-optima"], labs:["scaling","scaling-fit","scaling-transfer"], sources:["l09","l11","a3"] },
       { id:"inference", n:"08", stage:"Deployment", title:"Inference & Serving", minutes:230,
         description:"Prefill, Decoding, KV-Cache, Latenz, Durchsatz und die wichtigsten Serving-Optimierungen aus Lecture 10.",
         outcome:"Du kannst einen Inference-Workload zerlegen, Speicher und Engpässe überschlagen und Serving-Trade-offs begründet wählen.",
@@ -1000,44 +1015,53 @@
       { id:"rlvr", n:"12", stage:"A5", title:"RLVR, Policy Gradient & GRPO", minutes:360,
         description:"Reinforcement Learning from Verifiable Rewards (RLVR), Baselines, Advantages, GRPO und Off-Policy-Korrektur.",
         outcome:"Du leitest den Policy-Gradienten her, erklärst Varianzreduktion und interpretierst Gruppen-Normalisierung.",
-        prereqs:["Log-Likelihood", "Erwartungswert & Varianz", "SFT"], concepts:["rl-setup","policy-gradient","grpo","grpo-variants","off-policy","rlvr-systems"], labs:["policy-loss-tracer","grpo","rlvr-system-transfer"], sources:["l15","l16","l17","a5"] }
+        prereqs:["Log-Likelihood", "Erwartungswert & Varianz", "SFT"], concepts:["rl-setup","policy-gradient","grpo","off-policy","grpo-variants","rlvr-systems"], labs:["policy-loss-tracer","grpo","rlvr-system-transfer"], sources:["l15","l16","l17","a5"] }
     ];
 
     const CONCEPTS = [
       {
         "id": "python-engineering",
         "module": "foundations",
-        "title": "Python für CS336: Bytes, Streaming, Token-Arrays & Determinismus",
+        "title": "Python-Datenverträge: Text, Bytes, Streaming & Determinismus",
         "level": "Prerequisite",
-        "summary": "Für A1 und A4 musst du Datenrepräsentation, Streaming, speichergemappte Token-Arrays und reproduzierbare Entscheidungen bewusst kontrollieren.",
-        "mental": "Behandle jedes Python-Objekt als Vertrag: Welchen Datentyp enthält es, wem gehört der Zustand, und wird alles auf einmal oder schrittweise verarbeitet? Ein String ist Unicode-Text, Bytes sind rohe Zahlen von 0 bis 255, und ein Iterator liefert Werte erst beim Verbrauch. Viele scheinbar komplizierte Tokenizer- und Datenpipelinefehler sind eigentlich gebrochene Verträge auf genau dieser Ebene.",
+        "summary": "Bevor ein Tokenizer Text verarbeiten kann, muss Python Rohdokumente eindeutig in Bytes übersetzen, große Korpora stückweise lesen und jede Transformation reproduzierbar ausführen.",
+        "context": "Dies ist der Einstieg in die Datenkette: Rohdokument → Python-Text (str) → UTF-8-Bytes → Tokenizer → Token-IDs. Hier geht es nur bis zur verlässlichen Eingabe des Tokenizers; wie Byte-Pair Encoding die Tokens lernt und wie Token-IDs zu Trainingsbatches werden, folgt in späteren Concepts.",
+        "why": "Wenn Text und Bytes verwechselt werden, Iteratoren unbemerkt leer sind oder Gleichstände zufällig entschieden werden, verändert sich der erzeugte Tokenkorpus. Das kann Zeichen beschädigen, Dokumente verlieren und zwei vermeintlich gleiche Experimente voneinander abweichen lassen.",
+        "terms": [
+          ["Unicode", "Standard, der jedem Textzeichen einen abstrakten Codepoint zuordnet; er legt noch keine Dateibytes fest."],
+          ["UTF-8", "Unicode Transformation Format 8-bit: eine Kodierung, die Unicode-Codepoints als ein bis vier Bytes speichert."],
+          ["Byte-Pair Encoding (BPE)", "Tokenizerverfahren, das häufige benachbarte Bytefolgen zu längeren Tokens zusammenfasst."],
+          ["Iterator / Generator", "Python-Objekt, das Werte erst bei Bedarf nacheinander liefert und nach einem Durchlauf erschöpft sein kann."],
+          ["Counter", "Python-Zählcontainer; beim BPE-Training kann er die Häufigkeit benachbarter Bytepaare zählen."],
+          ["regulärer Ausdruck (Regex)", "Textmuster, das bei der Pretokenisierung festlegt, wie Rohtext zunächst in Stücke zerlegt wird."],
+          ["I/O", "Input/Output, also das bewusste Lesen und Schreiben von Text oder Binärdaten."],
+          ["deterministisch", "Gleiche Eingaben und dieselbe Konfiguration führen nach festgelegten Regeln zum exakt gleichen Ergebnis."]
+        ],
+        "mental": "Stell dir die Datenpipeline als Reihe beschrifteter Übergabestellen vor. An jeder Stelle muss klar sein, welche Repräsentation ankommt, welche hinausgeht und ob der Datenstrom noch einmal gelesen werden kann. Viele scheinbar komplizierte Tokenizerfehler sind in Wahrheit eine vertauschte Übergabe zwischen Text, Bytes und einem einmalig konsumierbaren Iterator.",
         "details": [
-          "Python str speichert Unicode-Zeichen, bytes speichert eine Folge von Bytewerten. encode übersetzt Text mit einer festgelegten Kodierung wie UTF-8 in Bytes; decode führt nur eine vollständige gültige Bytefolge zurück in Text. Ein einzelnes UTF-8-Byte ist deshalb nicht automatisch ein Zeichen. Für Byte-Level BPE arbeitest du intern auf Byte-IDs und dekodierst erst eine zusammengesetzte Folge; die zentrale Invariante lautet decode(encode(text)) = text.",
-          "Iteratoren und Generatoren liefern Elemente nacheinander, statt einen ganzen Korpus in den Arbeitsspeicher zu laden. Das spart Speicher, bedeutet aber auch, dass ein Iterator nach einmaligem Durchlaufen erschöpft sein kann. Counter zählt hashbare Objekte, reguläre Ausdrücke zerlegen oder markieren Text, und Datei-I/O muss Encoding, Binär- oder Textmodus und Fehlerbehandlung explizit wählen. Für große Daten gilt: streamen, nur benötigten Zustand halten und jede Transformation mit stabilen Dokument-IDs nachvollziehbar machen.",
-          "Reproduzierbarkeit verlangt mehr als einen zufälligen Seed. Wenn mehrere Kandidaten dieselbe Häufigkeit haben, braucht ein BPE-Trainer eine dokumentierte Tie-Break-Regel; ungeordnete Mengen oder nebenläufige Verarbeitung dürfen das Resultat nicht heimlich ändern. Konfiguration, Eingabedateien, Merge-Reihenfolge und Zufallszustände gehören zur beobachtbaren Ausführung. Ein guter Test verwendet winzige adversariale Beispiele, bei denen du das vollständige Ergebnis von Hand vorhersagen kannst.",
-          "Für A1 liegt der tokenisierte Korpus als flaches Integer-Array x mit n Token-IDs vor. Für Batchgröße B und Kontextlänge m ziehst du B Startindizes s_b gleichverteilt aus {0,…,n−m−1}. Dann sind X_b=x[s_b:s_b+m] und Y_b=x[s_b+1:s_b+m+1], beide mit Shape [B,m]; jedes Target ist also exakt das nächste Token des zugehörigen Inputs. Der letzte gültige Start ist n−m−1, weil Y noch das Token an Index s_b+m benötigt. In NumPy ist der exklusive obere Rand deshalb n−m, nicht n−m+1; außerdem muss n mindestens m+1 sein.",
-          "Passt das Array nicht in den Arbeitsspeicher, bildet np.memmap eine rohe Binärdatei oder np.load(..., mmap_mode='r') eine mit np.save erzeugte Datei nur virtuell ab und lädt beim Slicing die benötigten Speicherseiten. Der beim Öffnen angegebene dtype muss exakt zum gespeicherten Format passen: uint16, uint32 oder int32 interpretieren dieselben Bytes unterschiedlich und verändern auch die berechnete Arraylänge. Prüfe daher dtype, Dateiformat, 0≤Token-ID<V und einige bekannte Randwerte, bevor du zufällige Fenster sammelst; erst die kleinen Batch-Slices werden in Long-Tensoren auf das gewünschte Device übertragen."
+          "Der Weg beginnt bei einem Rohdokument, etwa einer Textdatei oder einer Webantwort. Python liest daraus entweder Text oder rohe Bytes. Erst nach dieser Entscheidung folgen Normalisierung, Tokenisierung und Speicherung. Schreibe deshalb an jede Pipelinekante Input, Output und erlaubte Rückumwandlung; dann ist sichtbar, an welcher Stelle Information verloren gehen könnte.",
+          "Python str enthält Unicode-Codepoints, während bytes nur Zahlen von 0 bis 255 enthält. encode('utf-8') übersetzt Text in Bytes, decode('utf-8') übersetzt eine vollständige gültige Bytefolge zurück. Das Zeichen é wird in UTF-8 beispielsweise zu den zwei Bytes 195 und 169; keines dieser Bytes ist allein das Zeichen é. Textmodus einer Datei liefert str, Binärmodus liefert bytes, und die Konvertierung dazwischen muss eine Kodierung sowie eine Fehlerstrategie nennen.",
+          "Ein Byte-Level-Tokenizer auf Basis von Byte-Pair Encoding (BPE) darf intern einzelne Bytewerte als IDs verarbeiten, weil sein Startvokabular alle 256 möglichen Bytes enthält. Er dekodiert aber nicht jedes Byte einzeln: Zuerst werden die zu einem Text gehörenden Bytes wieder zusammengesetzt, dann wird die gesamte Folge als UTF-8 dekodiert. Der prüfbare Vertrag lautet decode(encode(text)) = text. Wie BPE häufige Paare auswählt und speichert, behandelt das eigene BPE-Concept.",
+          "Ein Iterator liefert beim nächsten Zugriff jeweils ein Element; ein Generator ist eine bequeme Art, einen solchen Iterator mit yield zu erzeugen. Dadurch kann ein Korpus Dokument für Dokument verarbeitet werden, ohne vollständig im Arbeitsspeicher zu liegen. Nach einem Durchlauf kann der Iterator jedoch leer sein. In einer BPE-Pipeline legt ein regulärer Ausdruck häufig die Pretokenisierung fest, also die erste Zerlegung des Rohtexts in begrenzte Stücke; Counter zählt danach beispielsweise die Häufigkeit benachbarter Bytepaare. Datei-Ein-/Ausgabe (I/O) muss zusätzlich Text- oder Binärmodus bewusst wählen.",
+          "Reproduzierbarkeit bedeutet hier: identische Eingabebytes, Konfiguration und Regeln erzeugen identische Ausgaben. Bei gleicher Häufigkeit mehrerer BPE-Paare braucht der Trainer deshalb eine feste Tie-Break-Regel; Parallelisierung darf die Reihenfolge nicht verändern. Stabile Dokument-IDs und protokollierte Transformationsgründe machen außerdem sichtbar, welches Dokument an welcher Stufe verändert oder verworfen wurde. Winzige Gegenbeispiele, deren Ergebnis du von Hand kennst, prüfen diesen Vertrag zuverlässiger als ein großer End-to-End-Lauf."
         ],
         "pitfalls": [
           "str und bytes stillschweigend mischen: Das verschiebt Kodierungsfehler an eine spätere, schwerer zu diagnostizierende Stelle.",
           "Einen Generator zweimal verwenden und beim zweiten Durchlauf Daten erwarten: Der erste Verbrauch kann ihn bereits vollständig erschöpft haben.",
-          "Bei Gleichständen von der zufälligen Iterationsreihenfolge einer Datenstruktur abhängen: Gleiche Eingaben können dann unterschiedliche Tokenizer erzeugen.",
-          "Startindizes bis einschließlich n−m ziehen oder als exklusiven oberen Rand n−m+1 verwenden: Dann greift das letzte Target hinter das Arrayende oder besitzt nur m−1 Elemente.",
-          "Eine Memory-Map mit einem geratenen dtype öffnen oder sie sofort vollständig in ein reguläres Array kopieren: Im ersten Fall werden Bytes als falsche Token gelesen, im zweiten geht der Speichervorteil verloren."
+          "Jedes UTF-8-Byte einzeln dekodieren: Mehrbytezeichen werden dadurch mitten in ihrer Kodierung getrennt.",
+          "Bei Gleichständen von der zufälligen Iterationsreihenfolge einer Datenstruktur abhängen: Gleiche Eingaben können dann unterschiedliche Tokenizer erzeugen."
         ],
         "checks": [
-          "Warum darf ein Byte-Level-Tokenizer nicht jedes einzelne UTF-8-Byte separat dekodieren?",
-          "Welche Informationen und Regeln brauchst du, damit zwei BPE-Trainingsläufe auf demselben Korpus exakt dieselben Merges erzeugen?",
-          "Welche Startindizes sind für n=10 und m=4 gültig, und wie entstehen daraus Input und Target?",
-          "Warum kann eine np.memmap-Datei plausibel aussehen und trotzdem falsch geladen sein, und welche Prüfungen verhindern das?"
+          "Welchen Weg nimmt das Zeichen é von Python-str zu UTF-8-Bytes und wieder zurück, und an welcher Stelle ist decode erlaubt?",
+          "Warum spart ein Generator Speicher, und warum kann ein zweiter Durchlauf trotzdem keine Dokumente mehr liefern?",
+          "Welche Eingaben und Regeln musst du festhalten, damit zwei BPE-Trainingsläufe exakt dieselben Merges erzeugen?"
         ],
-        "formulas": ["next-token-batch"],
+        "formulas": [],
         "sources": ["l01","l02","a1","a4"],
         "answers": [
-          "UTF-8 kodiert viele Zeichen mit mehreren Bytes. Ein einzelnes Fortsetzungsbyte ist keine vollständige gültige Zeichenkodierung; erst die zusammengesetzte Bytefolge enthält genug Information zum Dekodieren. Der Tokenizer darf Bytes einzeln als IDs verarbeiten, aber Text erst aus einer vollständigen gültigen Folge rekonstruieren.",
-          "Du brauchst identische Eingabebytes und die vorgegebene Pretokenization. Beim Zählen zählt jede benachbarte Paarposition, auch wenn sich Positionen überlappen; erst die Ersetzung eines gewählten Paars läuft links nach rechts ohne überlappende Ersetzungen. Hinzu kommen die lexikographisch größere Tie-Break-Regel aus A1, eine feste Special-Token-Behandlung und dieselbe Abbruchbedingung. Parallelisierung und Datenreihenfolge dürfen diese Entscheidungen nicht verändern.",
-          "Gültig sind s∈{0,1,2,3,4,5}; der exklusive NumPy-Rand ist n−m=6. Für s=5 ist X=x[5:9] und Y=x[6:10]. Beide besitzen vier Tokens, und Y[:-1] ist exakt X[1:]. s=6 wäre ungültig, weil Y das nicht vorhandene Element x[10] benötigen würde.",
-          "Eine Memory-Map interpretiert rohe Bytes gemäß dtype. Ein falscher dtype kann daher andere Werte und eine andere Länge liefern, ohne dass das Öffnen fehlschlägt. Prüfe das passende Dateiformat, den dokumentierten dtype, die erwartete Elementzahl, bekannte Stichproben sowie min≥0 und max<V; vermeide anschließend eine Vollkopie, die das On-Demand-Laden wieder aufhebt."
+          "Der str-Wert é wird mit UTF-8 zu den Bytes 195 und 169. Der Tokenizer darf beide Werte getrennt verarbeiten, aber erst die wieder zusammengesetzte vollständige Folge darf als UTF-8 dekodiert werden; dann entsteht erneut é.",
+          "Ein Generator hält nur den für das nächste Element nötigen Zustand und nicht den gesamten Korpus. Jeder Aufruf verbraucht jedoch ein Element; nach dem Ende ist derselbe Iterator erschöpft, sofern die Datenquelle nicht neu geöffnet oder ein neuer Generator erzeugt wird.",
+          "Du brauchst identische Eingabebytes, dieselbe Pretokenization, Special-Token-Regeln, Abbruchbedingung und eine feste Tie-Break-Regel für gleiche Häufigkeiten. Datenreihenfolge und Parallelisierung dürfen die resultierende Merge-Reihenfolge nicht verändern."
         ]
       },
       {
@@ -1871,6 +1895,53 @@
         "answers": [
           "Jede Komponente jedes Gradienten wird mit demselben positiven Skalar multipliziert. Dadurch ändert sich nur die Länge des zusammengesetzten Gradientenvektors, nicht das Verhältnis seiner Komponenten und somit nicht seine Richtung.",
           "Zuerst werden die Gradienten aus der Loss-Skalierung zurücktransformiert, dann auf nicht endliche Werte geprüft und anhand ihrer echten globalen Norm geclippt. Erst danach darf der Optimizer die Parameter aktualisieren."
+        ]
+      },
+      {
+        "id": "token-array-loading",
+        "module": "training",
+        "title": "Von der Token-Datei zum Next-Token-Batch",
+        "level": "Kern",
+        "summary": "Nach der Tokenisierung werden ganzzahlige Token-IDs platzsparend auf Platte gespeichert und in kleine, um eine Position versetzte Input- und Targetfenster für das Training geladen.",
+        "context": "Die vorgelagerte Tokenisierung hat Rohtext bereits in eine lange Folge ganzzahliger IDs verwandelt. Dieses Concept beginnt bei dieser Datei und endet bei zwei PyTorch-Tensoren X und Y; erst das folgende Concept führt damit den vollständigen Trainingsstep aus.",
+        "why": "Ein falscher Datentyp kann dieselben Dateibytes unbemerkt als andere Token-IDs lesen, ein Fehler um genau eine Position (Off-by-one-Fehler) erzeugt falsche oder zu kurze Targets, und vollständiges Laden kann den Arbeitsspeicher sprengen. Diese drei Verträge müssen vor dem ersten Modelllauf stimmen.",
+        "terms": [
+          ["Token-ID", "Ganzzahliger Index eines Tokenizer-Vokabulareintrags; die Zahl ist eine Adresse, keine Messgröße."],
+          ["Batch", "Gruppe mehrerer Trainingsbeispiele, die das Modell in einem Schritt parallel verarbeitet."],
+          ["Kontextlänge", "Anzahl m aufeinanderfolgender Inputtokens, die ein Trainingsbeispiel dem Modell zeigt."],
+          ["Input / Target", "Input ist die Tokenfolge, die das Modell erhält; Target ist die richtige, um eine Position nach vorn verschobene Folge, die es vorhersagen soll."],
+          ["Memory Mapping (np.memmap)", "Dateigestützte Array-Sicht, bei der das Betriebssystem nur tatsächlich berührte Speicherseiten lädt."],
+          ["NPY-Dateiformat", "NumPys eigenes Array-Dateiformat; neben den Zahlen speichert sein Dateikopf unter anderem Arrayform (Shape) und Datentyp."],
+          ["dtype (data type)", "Festlegung, wie viele Bits jedes Arrayelement besitzt und wie genau diese Bits als Zahl interpretiert werden."],
+          ["Long-Tensor (torch.long)", "PyTorch-Tensor mit 64-Bit-Ganzzahlen; Embedding-Lookups erwarten Tokenindizes in diesem Format."]
+        ],
+        "mental": "Stell dir den tokenisierten Korpus als sehr langes Zahlenband auf Platte vor. Für ein Trainingsbeispiel legst du ein Fenster der Länge m+1 darauf: Die ersten m Zahlen sind die Eingabe X, die letzten m Zahlen sind das um genau eine Position verschobene Ziel Y. Memory Mapping bedeutet, dass nur die gerade berührten Ausschnitte des Bands in den Arbeitsspeicher kommen.",
+        "details": [
+          "Der Tokenizer schreibt den Korpus als flaches Integer-Array x. n bezeichnet die Zahl gespeicherter Token-IDs, V die Vokabulargröße, B die Zahl der Beispiele pro Batch und m die Kontextlänge pro Beispiel. Jede ID muss zwischen 0 und V−1 liegen. X und Y sind keine weiteren Dateien, sondern kleine Fenster, die bei Bedarf aus x ausgeschnitten werden.",
+          "Wenn x nicht sinnvoll in den Arbeitsspeicher passt, öffnet np.memmap eine dokumentierte rohe Binärdatei als dateigestütztes Array. Bei diesem Rohformat gehören dtype und Byte-Reihenfolge zwingend zum Dateivertrag. Für eine mit np.save erzeugte NPY-Datei verwendet man stattdessen np.load(..., mmap_mode='r'), damit der Dateikopf mit Shape und dtype korrekt gelesen wird.",
+          "Der dtype-Vertrag beginnt bereits vor dem Speichern: Prüfe die Token-IDs stückweise auf 0≤ID<V und außerdem V−1≤np.iinfo(dtype).max, bevor sie in den Zieldatentyp umgewandelt werden. Sonst kann etwa 70000 beim Schreiben als uint16 zu 4464 überlaufen und später trotz 0≤ID<V unauffällig aussehen. Speichere Format, dtype, Byte-Reihenfolge, Elementzahl und nach Möglichkeit Prüfsumme oder bekannte Randwerte. Beim Öffnen werden diese Metadaten geprüft; nur bei unbekannter Herkunft folgt bewusst ein vollständiger, stückweiser Scan. min(x) und max(x) vor jedem Batch würden dagegen die gesamte Memory Map berühren und den Vorteil des bedarfsweisen Ladens zunichtemachen.",
+          "Für jedes der B Beispiele wird ein Startindex s_b gleichverteilt gewählt. Das Inputfenster ist X_b=x[s_b:s_b+m], das Targetfenster Y_b=x[s_b+1:s_b+m+1]. Beide besitzen genau m Token-IDs; an jeder Position soll das Modell also das unmittelbar nächste Token vorhersagen. Dafür muss der Korpus mindestens m+1 Tokens enthalten.",
+          "Der letzte gültige Start ist n−m−1, weil Y noch das Element am Index s_b+m benötigt. NumPy verwendet beim Ziehen einen exklusiven oberen Rand, deshalb lautet er n−m und nicht n−m+1. Bei n=10 und m=4 sind die Starts 0 bis 5 gültig. Für s=5 gilt X=x[5:9] und Y=x[6:10]; s=6 würde das nicht vorhandene Element x[10] verlangen.",
+          "Erst die kleinen Slices werden kopiert und als torch.long, also 64-Bit-Ganzzahlen, an das gewünschte Rechengerät übertragen. PyTorch-Embeddings erwarten ganzzahlige Indizes und keine Fließkommazahlen. Ein schneller Test prüft X.shape=Y.shape=[B,m], 0≤X,Y<V und für jedes Batchbeispiel b die Verschiebung Y_b[:-1]=X_b[1:]. Die vollständige Memory Map darf dabei nicht versehentlich in ein reguläres Array kopiert werden."
+        ],
+        "pitfalls": [
+          "Eine rohe Binärdatei und eine NPY-Datei gleich öffnen: Bei NPY gehören Metadaten zum Format, die ein nacktes np.memmap nicht automatisch interpretiert.",
+          "dtype raten oder erst nach dem Speichern prüfen: Die Datei kann plausible Zahlen liefern, obwohl Bytebreite, Vorzeichen oder Byte-Reihenfolge falsch sind; ein zu enger Integer-dtype kann Token-IDs schon beim Schreiben unbemerkt umbrechen.",
+          "n−m+1 als exklusiven oberen Rand verwenden: Dann ist s=n−m möglich und Y besitzt nur m−1 Elemente.",
+          "Die Memory Map sofort vollständig kopieren: Damit geht genau der Speichervorteil des bedarfsweisen Ladens verloren.",
+          "min(x) und max(x) in jedem Ladeaufruf berechnen: Beide Operationen scannen die vollständige Datei statt nur das aktuelle Batchfenster."
+        ],
+        "checks": [
+          "Was ist der vollständige Datenweg von der gespeicherten Token-Datei bis zu den Tensoren X und Y?",
+          "Warum ist n−m der exklusive obere Rand für die Startindizes, und welche Starts sind bei n=10 und m=4 gültig?",
+          "Wie kann eine Memory Map ohne Fehlermeldung falsche Tokens liefern, und welche Prüfungen fangen das vor dem Training ab?"
+        ],
+        "formulas": ["next-token-batch"],
+        "sources": ["a1","l02"],
+        "answers": [
+          "Die Tokenisierung erzeugt ein flaches Integer-Array auf Platte. Eine korrekt mit Dateiformat und dtype geöffnete Memory Map liefert kleine Fenster der Länge m+1; daraus entstehen die ersten m Werte als X und die letzten m Werte als Y, bevor beide als torch.long auf das Zielgerät wechseln.",
+          "Y benötigt die Indizes s+1 bis einschließlich s+m. Daher muss s+m≤n−1 und somit s<n−m gelten. Bei n=10 und m=4 ist der exklusive Rand 6; gültig sind genau die Starts 0, 1, 2, 3, 4 und 5.",
+          "Memory Mapping interpretiert rohe Bytes nach dtype und Byte-Reihenfolge; eine falsche Interpretation muss keinen Ladefehler auslösen. Vor dem Speichern müssen 0≤Token-ID<V und V−1≤np.iinfo(dtype).max gelten, damit keine ID überläuft. Beim Öffnen prüfst du Format, dokumentierten dtype, Byte-Reihenfolge, erwartete Länge und bekannte Werte; ein nötiger Vollscan erfolgt einmal stückweise und nicht in jedem Batchaufruf."
         ]
       },
       {
@@ -3345,6 +3416,290 @@
       }
     ];
 
+    const CONCEPT_ORIENTATIONS_DE = {
+      "pytorch-tensors": {
+        context:"Nachdem Token-IDs zu Batches zusammengestellt wurden, transportieren PyTorch-Tensoren sie und alle späteren Aktivierungen durch die Operationen des Modells.",
+        why:"Wer Shape, Strides, Datentyp, Gerät oder geteilten Speicher verwechselt, kann über die falsche Achse rechnen, ungewollt kopieren oder den Beschleunigerspeicher erschöpfen."
+      },
+      "pytorch-state": {
+        context:"Aus Tensoroperationen wird ein trainierbares System, sobald Module Parameter registrieren, automatische Differentiation Ableitungen verfolgt und der Optimizer seinen Update-Zustand verwaltet.",
+        why:"Nicht registrierte Parameter werden nicht trainiert, und ein unvollständiger Checkpoint setzt den nächsten Schritt anders fort als ein ununterbrochener Lauf."
+      },
+      "shapes": {
+        context:"Auf dem Weg vom Token-Batch zu Logits beschreibt jede Tensorachse eine fachliche Rolle wie Batch, Position, Attention Head, Feature oder Vokabulareintrag.",
+        why:"Eine Operation kann formal broadcastbar sein und trotzdem die falschen Achsen verbinden, wodurch plausible Shapes mit inhaltlich falschen Ergebnissen entstehen."
+      },
+      "matmul": {
+        context:"Matrixmultiplikation ist die wiederkehrende Rechenoperation, die Tokenvektoren in Linear Layers, Attention und Feed-Forward-Netzen in neue Merkmalsräume überführt.",
+        why:"Die gemeinsame innere Achse bestimmt, welche Größen kombiniert werden; eine falsche Achsenordnung mischt daher andere Informationen als beabsichtigt."
+      },
+      "probability": {
+        context:"Das Modell erzeugt zunächst unnormierte Scores, aus denen Wahrscheinlichkeiten für das nächste Token sowie Erwartungswerte und Streuungen für Training und Evaluation abgeleitet werden.",
+        why:"Wer Wahrscheinlichkeit, Erwartungswert und Varianz verwechselt, interpretiert Sampling-Ergebnisse, Schätzfehler oder Optimierungsziele falsch und trifft dadurch unbegründete Entscheidungen."
+      },
+      "logs": {
+        context:"Zwischen Modellwahrscheinlichkeiten und Loss werden Produkte kleiner Wahrscheinlichkeiten als Summen ihrer Logarithmen dargestellt und dadurch stabil berechenbar.",
+        why:"Ohne Lograum können Werte numerisch zu null werden, und ein falsches Vorzeichen verwandelt ein zu minimierendes Trainingsziel in die entgegengesetzte Aufgabe."
+      },
+      "gradients": {
+        context:"Nach dem Forward Pass überträgt der Backward Pass die Änderung des Loss rückwärts durch jede Operation bis zu den trainierbaren Parametern.",
+        why:"Ein unterbrochener Rechengraph, eine falsche lokale Ableitung oder unbeabsichtigte Gradientenakkumulation führt zu fehlenden oder falschen Parameterupdates."
+      },
+      "resource-accounting": {
+        context:"Bevor ein Modell trainiert oder profiliert wird, werden seine Shapes in Parameterzahl, Speicherbedarf, Gleitkommaoperationen und erwartete Laufzeit übersetzt.",
+        why:"Ohne diese Rechnung kann eine Konfiguration den verfügbaren Speicher überschreiten, das Zeitbudget sprengen oder einen gemessenen Engpass falsch erklären."
+      },
+      "unicode": {
+        context:"Unicode ist die erste Stufe der Textpipeline: sichtbarer Text wird als Codepoints verstanden und anschließend mit dem 8-Bit Unicode Transformation Format (UTF-8) in Bytes kodiert.",
+        why:"Wer sichtbare Zeichen, Codepoints und Bytes gleichsetzt, kann mehrbyteige Zeichen zerschneiden, Text beschädigen und den Encode-Decode-Roundtrip brechen."
+      },
+      "bpe": {
+        context:"Byte-Pair Encoding (BPE) liegt zwischen UTF-8-Bytes und Modellinput: Das Training lernt häufige Bytefolgen, und der fertige Tokenizer ersetzt sie durch stabile Token-IDs.",
+        why:"Falsches Zählen, uneindeutige Gleichstandsregeln oder gebrochene Special-Token-Grenzen verändern das Vokabular und machen Tokenisierung oder Tests nicht reproduzierbar."
+      },
+      "tokenizer-tradeoffs": {
+        context:"Bevor der Trainingskorpus gespeichert wird, legt das Tokenizer-Design fest, wie ein festes Vokabular Text in unterschiedlich lange Tokenfolgen zerlegt.",
+        why:"Die Wahl verändert Kontextverbrauch, Rechenkosten und Abdeckung verschiedener Sprachen, sodass Modelle mit unterschiedlichen Tokenizern nicht naiv verglichen werden dürfen."
+      },
+      "lm-objective": {
+        context:"Zwischen Batchbildung und Loss definiert das Sprachmodellziel, dass jede Eingabeposition nur aus früheren Tokens das jeweils nächste Token vorhersagt.",
+        why:"Ein falscher Target-Shift oder Zugriff auf zukünftige Tokens trainiert eine andere Aufgabe und kann einen künstlich niedrigen Loss erzeugen."
+      },
+      "embeddings": {
+        context:"Am Modelleingang werden diskrete Token-IDs durch Embeddings zu Vektoren; am Ausgang werden die letzten Zustände wieder in einen Score für jeden Vokabulareintrag überführt.",
+        why:"Falsche Vokabularindizes, inkompatible Dimensionen oder unbeabsichtigtes Weight Tying verändern Ausgabe, Parameterzahl und gespeicherten Modellzustand."
+      },
+      "parameter-initialization": {
+        context:"Nachdem alle Modul-Shapes feststehen und bevor der erste Forward Pass läuft, setzt die Initialisierung Gewichte und Normalisierungsfaktoren auf kontrollierte Startverteilungen.",
+        why:"Eine falsche Standardabweichung oder ein falscher Gain kann Signale und Gradienten früh kollabieren oder explodieren lassen und exakte Assignment-Tests brechen."
+      },
+      "rmsnorm": {
+        context:"Root Mean Square Normalization (RMSNorm) skaliert im Transformer-Block jeden Tokenzustand vor dem nächsten Unterblock auf eine kontrollierte mittlere quadratische Größe.",
+        why:"Eine falsche Reduktionsachse, ein fehlendes Epsilon oder die Verwechslung mit Layer Normalization verändert Werte und kann das Training numerisch destabilisieren."
+      },
+      "swiglu": {
+        context:"Nach der Attention verarbeitet die Swish-Gated Linear Unit (SwiGLU) jeden Token unabhängig durch zwei Linear Layers, ein gelerntes Gate und eine Rückprojektion.",
+        why:"Falsche Zwischenbreiten, Projektionsreihenfolgen oder Gate-Verknüpfungen ändern Shape und Parameterzahl oder berechnen eine andere Feed-Forward-Funktion."
+      },
+      "rope": {
+        context:"Rotary Position Embedding (RoPE) fügt Positionsinformation unmittelbar vor der Attention ein, indem es benachbarte Featurepaare von Queries und Keys winkelabhängig rotiert.",
+        why:"Eine falsche Winkelformel oder Pairing-Konvention verändert Positionsbeziehungen und bricht sowohl exakte Tests als auch die beabsichtigte relative Attention."
+      },
+      "attention": {
+        context:"Attention überführt Tokenzustände in Query-, Key- und Value-Vektoren, vergleicht Queries mit Keys und mischt daraus kontextabhängige Value-Vektoren.",
+        why:"Eine falsche Skalierung, Achsenordnung oder Maske lässt Tokens die falschen Positionen gewichten und kann unbemerkt Zukunftsinformation einmischen."
+      },
+      "causal-mask": {
+        context:"Die kausale Maske wird auf die Attention-Scores angewendet, bevor Softmax sie normalisiert, sodass jede Position nur sich selbst und frühere Positionen sehen kann.",
+        why:"Ohne korrekte Maskenrichtung sieht das Modell beim Training seine Targets, erreicht irreführend guten Loss und versagt anschließend bei autoregressiver Generierung."
+      },
+      "transformer-block": {
+        context:"Der Transformer-Block setzt Normalisierung, Attention, Residualverbindungen und das gegatete Feed-Forward-Netz zu einer wiederholbaren Zustandsaktualisierung pro Layer zusammen.",
+        why:"Eine vertauschte Normalisierungs- oder Residualreihenfolge verändert Gradientenpfad und Architektur und macht Gewichte oder Tests mit der vorgegebenen Implementierung inkompatibel."
+      },
+      "transformer-ledger": {
+        context:"Vor Implementierung und Benchmarking zerlegt das Architektur-Ledger des ersten Assignments (A1) jede Matrix und Operation des vollständigen Decoders nach Shape, Parameterzahl und Rechenarbeit.",
+        why:"Ein vergessener Faktor für Layer, Sequenzpositionen oder getrennte Linear Layers führt zu falschen Speicherbudgets, Laufzeitprognosen und Architekturvergleichen."
+      },
+      "cross-entropy": {
+        context:"Nach dem Output Linear Layer vergleicht Cross-Entropy die Vokabular-Logits jeder Position mit der ID des tatsächlich nächsten Tokens und verdichtet sie zu einem Loss.",
+        why:"Eine falsche Target-Achse, Reduktion, Maske oder Verschiebung kann einen plausiblen Skalar liefern, obwohl das Modell auf die falschen Tokens trainiert."
+      },
+      "adamw": {
+        context:"Nach der Gradientenberechnung verwendet Adaptive Moment Estimation mit entkoppeltem Weight Decay (AdamW) geglättete Gradientenmomente, um jeden Parameter zu aktualisieren.",
+        why:"Falsch platzierter Weight Decay, fehlende Bias-Korrektur oder verlorener Optimizerzustand verändert die Update-Regel und verhindert reproduzierbares Fortsetzen."
+      },
+      "schedules": {
+        context:"Während der Trainingsloop fortschreitet, übersetzt der Lernratenplan den globalen Schritt in die aktuelle Schrittweite des Optimizers.",
+        why:"Ein falscher globaler Schritt oder eine falsche Warmup- und Decay-Grenze kann Updates zu früh vergrößern, zu stark verkleinern oder nach einem Resume verschieben."
+      },
+      "clipping": {
+        context:"Nach dem Backward Pass und vor dem Optimizer-Step misst globales Gradient Clipping die gemeinsame Gradientennorm und skaliert alle Gradienten bei Bedarf zusammen.",
+        why:"Ohne Begrenzung kann ein einzelner Ausreißer das Update destabilisieren; getrenntes Clipping pro Tensor verändert dagegen unbeabsichtigt die globale Gradientenrichtung."
+      },
+      "training-loop": {
+        context:"Der Trainingsloop orchestriert die vollständige Wiederholung aus Batch laden, Forward Pass, Loss, Backward Pass, Clipping, Optimizer-Step, Lernratenupdate, Logging und Checkpoint.",
+        why:"Eine falsche Reihenfolge oder ein ausgelassener Zustand erzeugt veraltete Gradienten, doppelte Updates, Datenwiederholungen oder nicht reproduzierbare Resume-Läufe."
+      },
+      "sampling": {
+        context:"Nach dem Training erzeugt autoregressives Sampling Text, indem es Logits in eine Auswahlverteilung umwandelt, ein Token zieht und dieses wieder an den Kontext anhängt.",
+        why:"Falsche Temperatur-, Filter- oder Stop-Regeln können Vielfalt zerstören, ungültige Tokens zulassen oder eine Generierung endlos weiterlaufen lassen."
+      },
+      "pre-post-norm": {
+        context:"Nach jedem Transformer-Unterblock entscheidet die Normposition, ob vor der Berechnung oder erst nach der Addition zum Residual Stream normalisiert wird.",
+        why:"Diese Wahl verändert den Gradientenpfad; bei tiefen Modellen kann sie über stabiles Training oder schlecht lernende Schichten entscheiden."
+      },
+      "architecture-stability-shapes": {
+        context:"Nachdem der Standardblock steht, vergleichst du Mechanismen für begrenzte Logit-Skalen sowie Entscheidungen über Breite, Tiefe und Blockanordnung.",
+        why:"Äußerlich gleiche Tensorformen können sehr unterschiedliche Stabilität, Latenz und Parameterkosten verbergen; diese Entscheidungen müssen deshalb getrennt bewertet werden."
+      },
+      "attention-variants": {
+        context:"Nach der normalen Attention trennst du die Zahl der Query Heads von der Zahl der gemeinsam genutzten Key-Value-Heads.",
+        why:"Die gewählte Variante bestimmt Cache-Speicher und gelesene Bytes beim Erzeugen, kann aber auch die Modellqualität verändern."
+      },
+      "moe": {
+        context:"Eine Mixture of Experts (MoE) ersetzt das dichte Feed-Forward-Netz eines Transformer-Blocks durch viele Experten, von denen pro Token nur wenige arbeiten.",
+        why:"So lässt sich die Modellkapazität stärker als die Rechenarbeit pro Token vergrößern; Router- und Kommunikationskosten bleiben jedoch bestehen."
+      },
+      "moe-routing-capacity": {
+        context:"Innerhalb einer Mixture of Experts entscheidet der Router, welche Experten jeden Token verarbeiten und wie begrenzte Expertenplätze verteilt werden.",
+        why:"Schlechtes Routing überlastet einzelne Experten, lässt andere Geräte untätig und kann Tokens verwerfen, obwohl die Modellformeln korrekt aussehen."
+      },
+      "gpu-model": {
+        context:"Nach der Modellmathematik verfolgst du, wie eine Graphics Processing Unit (GPU) Rechenarbeit auf viele Threads und mehrere Speicherebenen verteilt.",
+        why:"Ohne dieses Ausführungsmodell bleibt unklar, warum mathematisch gleiche Programme stark unterschiedliche Laufzeit und Speichernutzung haben."
+      },
+      "roofline": {
+        context:"Nachdem Rechenwerk und Speicherhierarchie bekannt sind, ordnet das Roofline-Modell einen Kernel zwischen Bandbreiten- und Rechengrenze ein.",
+        why:"Die Einordnung zeigt, ob weniger Speicherverkehr oder weniger Rechenarbeit helfen kann, bevor Zeit in die falsche Optimierung fließt."
+      },
+      "profiling": {
+        context:"Vor jeder Optimierung misst Benchmarking die Gesamtlaufzeit; Profiling zerlegt sie anschließend in Operationen, Kernel, Kommunikation und Speicherereignisse.",
+        why:"Ohne belastbare Messung optimierst du leicht einen auffälligen, aber unwichtigen Teil oder vergleichst durch asynchrone Ausführung falsche Zeiten."
+      },
+      "fusion-tiling": {
+        context:"Wenn Speicherverkehr einen Kernel begrenzt, halten Fusion und Tiling Zwischenwerte länger im schnellen Speicher nahe den Recheneinheiten.",
+        why:"Weniger Lesen und Schreiben kann große Beschleunigungen bringen; ungeeignete Tiles erhöhen dagegen Registerdruck oder verschlechtern die Auslastung."
+      },
+      "triton-kernels": {
+        context:"Triton überführt einen Tensoroperator in viele Blockprogramme, die über Grid, Offsets, Strides und Masken jeweils einen Teil des Outputs besitzen.",
+        why:"Falsche Besitz- oder Randlogik erzeugt fehlende, doppelte oder ungültige Speicherzugriffe, auch wenn der Kernel auf bequemen Testformen funktioniert."
+      },
+      "flash-attention": {
+        context:"Bei langen Sequenzen ersetzt FlashAttention die vollständig gespeicherte Attention-Tabelle durch blockweise Berechnung mit laufenden Softmax-Statistiken.",
+        why:"Dadurch bleibt das Ergebnis exakt, während Speicherverkehr und Aktivierungsspitze sinken; falsche Reskalierung oder Maskierung verändert jedoch die Attention."
+      },
+      "kernel-contracts": {
+        context:"Nach einfachen Triton-Kernels und dem FlashAttention-Forward-Pass formulierst du die exakten Speicher-, Rand- und Neuberechnungsverträge für komplexe Vorwärts- und Rückwärtskerne.",
+        why:"Fehlende Randmasken oder falsch zusammengeführte partielle Gradienten liefern stille Zahlenfehler, die einfache Laufzeit- und Shape-Tests nicht erkennen."
+      },
+      "checkpointing": {
+        context:"Wenn gespeicherte Zwischenaktivierungen den Trainingsspeicher sprengen, behält Activation Checkpointing nur Wegmarken und berechnet fehlende Abschnitte im Backward Pass neu.",
+        why:"Die Technik ermöglicht größere Modelle oder Batches, kostet zusätzliche Rechenzeit und muss bei zufälligen Operationen exakt denselben Zustand wiederherstellen."
+      },
+      "collectives": {
+        context:"Sobald mehrere Prozesse gemeinsam trainieren, verteilen, sammeln oder reduzieren Collectives Tensoren innerhalb einer klar definierten Process Group.",
+        why:"Das gewählte Collective bestimmt Datenbesitz und Kommunikationsvolumen; inkompatible Aufrufe können falsche Ergebnisse oder einen Deadlock verursachen."
+      },
+      "distributed-runtime": {
+        context:"Nachdem Kommunikationsmuster feststehen, koordiniert die Distributed-Data-Parallel-Laufzeit Prozesse, Gruppen, asynchrone Transfers und den Gradientenabgleich eines Trainingsschritts.",
+        why:"Unterschiedliche Reihenfolgen können Prozesse blockieren; zu frühe Tensorverwendung kann unvollständige Gradienten und damit falsche Updates erzeugen."
+      },
+      "ddp-zero-fsdp": {
+        context:"Auf Basis der Collectives vergleichst du repliziertes Distributed Data Parallel mit Zero Redundancy Optimizer und Fully Sharded Data Parallel, die Trainingszustand verteilen.",
+        why:"Die Strategie entscheidet, ob das Modell in den Gerätespeicher passt und wie viel zusätzliche Kommunikation und temporärer Spitzenspeicher entsteht."
+      },
+      "model-parallelism": {
+        context:"Wenn ein Modell oder einzelner Layer nicht auf ein Gerät passt, teilen Tensor-, Pipeline- oder Sequenzparallelismus Breite, Tiefe oder Tokenachsen auf.",
+        why:"Die gewählte Achse bestimmt Kommunikationshäufigkeit, Leerlauf und Speicherbesitz; eine unpassende Zerlegung kann trotz mehr Geräten langsamer sein."
+      },
+      "power-laws": {
+        context:"Nach mehreren kontrollierten Trainingsläufen fassen empirische Potenzgesetze zusammen, wie Loss mit Modellgröße, Datenmenge oder Rechenbudget im gemessenen Bereich fällt.",
+        why:"Sie unterstützen Laufplanung, aber eine unkritische Extrapolation über den belegten Bereich kann teure Größen- oder Datenentscheidungen falsch begründen."
+      },
+      "isoflops": {
+        context:"Bei einer festen Zahl von Gleitkommaoperationen vergleichst du verschiedene Aufteilungen des Trainingsbudgets zwischen Modellparametern und gesehenen Tokens.",
+        why:"So erkennst du, ob ein Modell für sein Budget zu klein oder zu groß ist, statt nur den größten möglichen Lauf zu wählen."
+      },
+      "scaling-practice": {
+        context:"Vor einem teuren breiten Modell suchst du Hyperparameter auf kleineren Proxy-Modellen und überträgst sie mit einer konsistenten Parametrisierung und Lernratenplanung.",
+        why:"Naiv gleiche Initialisierung und Lernrate erzeugen bei anderer Breite andere Signal- und Updategrößen und können den Transfer scheitern lassen."
+      },
+      "scaling-optima": {
+        context:"Aus gemessenen Compute-Optima leitest du robuste Fits ab und verknüpfst sie mit Maximum Update Parametrization sowie Warmup-Stable-Decay für den Ziellauf.",
+        why:"Ein falscher Offset, eine vertauschte Matrixrolle oder ein Checkpoint vor der Decay-Phase kann die vermeintliche Skalierungsentscheidung ungültig machen."
+      },
+      "inference-workload": {
+        context:"Beim Einsatz eines trainierten Sprachmodells verarbeitet Prefill den gesamten Prompt, danach erzeugt Decode die Antwort Token für Token.",
+        why:"Beide Phasen besitzen andere Engpässe; wer sie zusammenfasst, wählt leicht die falsche Metrik, Batchgröße oder Optimierung."
+      },
+      "kv-serving": {
+        context:"Während des Decode speichert der Key-Value-Cache frühere Attention-Schlüssel und -Werte pro Layer, damit sie für neue Tokens nicht erneut berechnet werden.",
+        why:"Der Cache beschleunigt die Erzeugung, wächst aber mit Kontext und Batch und kann dadurch die Zahl gleichzeitig bedienbarer Anfragen begrenzen."
+      },
+      "serving-optimizations": {
+        context:"Nachdem der Inference-Engpass gemessen ist, greifen Quantisierung, spekulatives Decoding, dynamische Batches und seitenbasierte Cacheverwaltung an unterschiedlichen Kosten an.",
+        why:"Keine Methode löst jeden Engpass; eine unpassende Wahl kann Qualität verschlechtern, Fairness verletzen oder zusätzlichen Overhead erzeugen."
+      },
+      "alternative-sequence-models": {
+        context:"Wenn quadratische Attention oder ein wachsender Cache problematisch wird, bieten State-Space Models, Hybride und Diffusion andere Wege zur Sequenzverarbeitung.",
+        why:"Jede Alternative tauscht direkten Zugriff auf frühere Tokens gegen anderen Speicher, Parallelismus oder mehrere Generierungsschritte; die Architekturwahl folgt dem Workload."
+      },
+      "perplexity-eval": {
+        context:"Nach dem Training bewertet Perplexity, wie überrascht das Modell von den tatsächlichen nächsten Tokens eines festgelegten Korpus ist.",
+        why:"Sie erkennt Likelihood-Änderungen, ist aber zwischen verschiedenen Tokenizern oder Kontextprotokollen nicht direkt vergleichbar und misst keine allgemeine Nützlichkeit."
+      },
+      "benchmark-validity": {
+        context:"Nachdem eine Behauptung über das Modell formuliert ist, verbindet ein valider Benchmark diese Behauptung mit passenden Aufgaben, Aufrufregeln, Metriken und Unsicherheit.",
+        why:"Ein hoher Score kann sonst Prompttricks, Kontamination oder eine unpassende Metrik statt der behaupteten Fähigkeit messen."
+      },
+      "data-pipeline": {
+        context:"Vor Tokenisierung und Training verwandelt die Datenpipeline rohe Webarchive schrittweise in einen versionierten, gefilterten und deduplizierten Korpus.",
+        why:"Jeder irreversible Schritt verändert die spätere Trainingsverteilung; ohne Herkunft und Entscheidungsprotokoll lassen sich Fehler oder Verzerrungen nicht zurückverfolgen."
+      },
+      "filtering-mechanics": {
+        context:"In der Filterstufe liefern Zielkorpus-Likelihood, Klassenwahrscheinlichkeit und das Verhältnis von Ziel- zu Rohdatenverteilung drei verschiedene Rangsignale.",
+        why:"Wer diese Scores verwechselt, behält häufigen statt zieltypischen Text oder interpretiert einen gelernten Klassifikator fälschlich als objektives Qualitätsmaß."
+      },
+      "quality-filtering": {
+        context:"Nach der Textextraktion entfernen transparente Regeln offensichtliche Fehler, während ein gelernter Klassifikator verbleibende Dokumente nach seinem Trainingsziel bewertet.",
+        why:"Ein zu strenger oder einseitig trainierter Filter kann nützliche Sprachen, Formate und Perspektiven systematisch aus dem Trainingskorpus entfernen."
+      },
+      "pii-harm": {
+        context:"Vor Aufnahme in den Trainingskorpus werden Personally Identifiable Information (PII), schädliche Inhalte und Grenzfälle erkannt, maskiert, entfernt oder zur Prüfung zurückgestellt.",
+        why:"Detektoren machen Fehler; ohne dokumentierte Maßnahmen und Subgruppenprüfung können reale Personen gefährdet oder legitime Inhalte unverhältnismäßig entfernt werden."
+      },
+      "bloom-filters": {
+        context:"Vor einer teuren exakten Nachschlageoperation prüft ein Bloom Filter speichersparend, ob ein Schlüssel definitiv neu oder nur möglicherweise schon bekannt ist.",
+        why:"Er spart Speicher und Zugriffe, darf aber wegen möglicher False Positives niemals allein eine exakte Lösch- oder Deduplikationsentscheidung treffen."
+      },
+      "dedup": {
+        context:"Nach Normalisierung und vor finaler Mischung oder Datenteilung entfernt Deduplikation identische Wiederholungen und findet Kandidaten für nahezu gleiche Dokumente.",
+        why:"Unentdeckte Wiederholungen verzerren Trainingsgewichte und können Evaluationsdaten leaken; zu aggressive Regeln entfernen dagegen unabhängige legitime Inhalte."
+      },
+      "sft": {
+        context:"Nach dem Vortraining zeigt Supervised Fine-Tuning (SFT) dem Sprachmodell gewünschte Prompt-Antwort-Beispiele mit derselben Next-Token-Trainingsmechanik.",
+        why:"Es formt das sichtbare Antwortverhalten; falsche Chattemplates oder Loss-Masken trainieren jedoch auf unerwünschte Prompt- und Paddingtokens."
+      },
+      "reward-models": {
+        context:"Aus menschlich bewerteten Antwortpaaren lernt ein Reward Model einen Score, der spätere Präferenzoptimierung oder Reinforcement Learning steuern kann.",
+        why:"Der Score übernimmt Verzerrungen aus Richtlinie, Annotatoren und Daten; die Policy kann diese Schwächen gezielt ausnutzen."
+      },
+      "rlhf": {
+        context:"Nach Supervised Fine-Tuning optimiert Reinforcement Learning from Human Feedback (RLHF) eine Policy auf den Reward-Model-Score und begrenzt ihre Abweichung von einer Referenz.",
+        why:"Ohne Abweichungskontrolle kann die Policy den gelernten Reward ausnutzen, Sprachqualität verlieren oder sich weit von den Präferenzdaten entfernen."
+      },
+      "dpo": {
+        context:"Direct Preference Optimization (DPO) trainiert bevorzugte gegen abgelehnte Antworten direkt relativ zu einer festen Referenzpolicy, ohne einen separaten On-Policy-Rollout-Zyklus.",
+        why:"Die Methode vereinfacht das System, bleibt aber von korrekten Antwortmasken, stabiler Referenz und unverzerrten Präferenzpaaren abhängig."
+      },
+      "rl-setup": {
+        context:"Für Reinforcement Learning wird die Tokenerzeugung als Folge von Zuständen, Tokenaktionen und einem meist erst am Antwortende vergebenen Reward beschrieben.",
+        why:"Diese Übersetzung legt fest, welche Wahrscheinlichkeit optimiert wird und warum ein einzelner Endreward vielen vorherigen Tokenentscheidungen zugeordnet werden muss."
+      },
+      "policy-gradient": {
+        context:"Nachdem Textgenerierung als Entscheidungsprozess formuliert ist, verbindet der Policy Gradient gesampelte Antworten und ihre Rewards mit Parameterupdates.",
+        why:"Damit lassen sich auch nicht differenzierbare Verifier optimieren; ohne Baseline oder genügend Samples ist der Gradient jedoch stark verrauscht."
+      },
+      "grpo": {
+        context:"Group Relative Policy Optimization (GRPO) erzeugt mehrere Antworten pro Prompt und bewertet jede Antwort relativ zu den anderen Antworten derselben Gruppe.",
+        why:"Der Gruppenvergleich reduziert Unterschiede in der Aufgabenschwierigkeit ohne separates Value Model; identische Gruppenrewards liefern jedoch kein Lernsignal."
+      },
+      "off-policy": {
+        context:"Wenn Training Antworten einer älteren Policy wiederverwendet, korrigieren Importance Ratios den Unterschied zwischen Erzeugungs- und aktueller Policy.",
+        why:"Ohne Korrektur ist das Ziel verzerrt; exakte Sequenzgewichte können dagegen extreme Varianz erzeugen, weshalb Clipping bewusst Bias eintauscht."
+      },
+      "grpo-variants": {
+        context:"Nach dem Basisalgorithmus vergleichst du Varianten danach, wie sie Rewards zentrieren, skalieren, über Tokens mitteln und alte Rollouts gewichten.",
+        why:"Kleine Änderungen am Nenner oder Wahrscheinlichkeitsverhältnis verändern, welche Antworten und Antwortlängen das Training tatsächlich bevorzugt."
+      },
+      "rlvr-systems": {
+        context:"Reinforcement Learning from Verifiable Rewards (RLVR) verbindet Policyversionen, Rollout-Worker, Verifier, gespeicherte Logwahrscheinlichkeiten und Trainer zu einem synchronisierten Zyklus.",
+        why:"Vermischte Policyversionen oder neu berechnete Rolloutdaten machen Wahrscheinlichkeitsverhältnisse bedeutungslos und können ein scheinbar laufendes Training fachlich ungültig machen."
+      }
+    };
+    CONCEPTS.forEach(concept=>Object.assign(concept,CONCEPT_ORIENTATIONS_DE[concept.id]||{}));
+
     const FORMULAS = [
       {id:"mean-var",cat:"Grundlagen",title:"Mittelwert & Varianz",expr:"μ = (1/n) Σᵢ xᵢ   ·   Var(X) = E[(X−μ)²]",latex:"\\mu=\\frac1n\\sum_i x_i,\\quad \\mathrm{Var}(X)=\\mathbb E[(X-\\mu)^2]",read:"Mittelwert ist die Summe durch n; Varianz ist die erwartete quadratische Abweichung.",purpose:"Beschreibt Lage und Streuung; zentral für Initialisierung, Normalisierung und Policy-Gradient-Varianz.",dims:"xᵢ und μ haben dieselbe Einheit; Varianz hat deren Quadrat.",vars:[["n","Anzahl Beobachtungen"],["xᵢ","Beobachtung i"],["μ","Mittelwert"],["E","Erwartungswert"]],intuition:"Quadrate verhindern, dass sich positive und negative Abweichungen aufheben.",pitfall:"Standardabweichung σ ist √Var und hat wieder die Einheit von x.",example:"Für [1,3] ist μ=2, Varianz (mit 1/n)=1.",check:"Warum ist Varianz nie negativ?",sources:["a5","l17"],aliases:"mean average standard deviation sigma erwartungswert"},
       {id:"matmul",cat:"Lineare Algebra",title:"Matrixmultiplikation",expr:"Cᵢⱼ = Σₖ Aᵢₖ Bₖⱼ    |    (m×k)(k×n) → (m×n)",latex:"C_{ij}=\\sum_k A_{ik}B_{kj}",read:"Jeder Output ist das Skalarprodukt einer A-Zeile mit einer B-Spalte.",purpose:"Grundoperation von Linear Layers, Attention und MLPs.",dims:"Innere Dimension k muss übereinstimmen; äußere m,n bleiben.",vars:[["m","Anzahl Zeilen/Objekte"],["k","kontrahierte Featureachse"],["n","Outputfeatures"],["Cᵢⱼ","Output an Zeile i, Spalte j"]],intuition:"Viele gewichtete Summen gleichzeitig.",pitfall:"Nicht mit elementweisem A⊙B verwechseln.",example:"(B·T×D) @ (D×D_out) → (B·T×D_out).",check:"Welche Achse verschwindet und warum?",sources:["l02","a1"],aliases:"matrix multiplication matmul einsum dot product"},
@@ -3353,7 +3708,7 @@
       {id:"softmax",cat:"Wahrscheinlichkeit",title:"Softmax",expr:"pᵢ = exp(zᵢ−m) / Σⱼ exp(zⱼ−m),   m=maxⱼ zⱼ",latex:"p_i=\\frac{e^{z_i-m}}{\\sum_j e^{z_j-m}},\\quad m=\\max_j z_j",read:"Exponentiere relative Logitdifferenzen und teile jeden Wert durch ihre Summe, sodass eine Wahrscheinlichkeitsverteilung entsteht.",purpose:"Wandelt unnormalisierte Scores in vergleichbare Gewichte um: über V Vokabulartokens im LM Head oder über T_key Positionen in Attention.",dims:"z und p haben dieselbe Shape. Genau eine Achse wird normalisiert: bei Next-Token-Logits V, bei Attention-Scores T_key; jede Zeile entlang dieser Achse summiert sich zu eins.",vars:[["zᵢ","Logit: relativer Score für Kategorie i, noch keine Wahrscheinlichkeit"],["pᵢ","normalisierte Wahrscheinlichkeit beziehungsweise Attention-Gewicht"],["m","größter Logit derselben Zeile; wird nur für numerische Stabilität abgezogen"]],intuition:"Differenzen steuern Verhältnisse direkt: pᵢ/pⱼ=exp(zᵢ−zⱼ). Ein Logitvorsprung von 1 macht eine Kategorie e≈2.72-mal so wahrscheinlich wie die andere; ein gemeinsamer Offset ändert nichts.",pitfall:"Die falsche Achse erzeugt zwar Zahlen zwischen null und eins, beantwortet aber eine andere Frage. In Attention muss jede Query über ihre erlaubten Keys verteilen; maskierte Scores werden vor Softmax auf −∞ gesetzt.",example:"z=[2,1,0] ergibt ungefähr p=[0.665,0.245,0.090]. Nach z+100 ist die Verteilung identisch, weil nur die Differenzen zählen.",check:"Welche Achse normalisierst du für LM-Logits [B,T,V] und für Attention-Scores [B,H,T_q,T_k], und warum verändert −m das Resultat nicht?",sources:["a1","l03"],aliases:"probability logits normalization exp attention axis vocabulary"},
       {id:"logsumexp",cat:"Numerik",title:"Log-Sum-Exp",expr:"LSE(z) = m + log Σⱼ exp(zⱼ−m)",latex:"\\operatorname{LSE}(z)=m+\\log\\sum_j e^{z_j-m}",read:"Ziehe das Maximum heraus, summiere sichere Exponentialwerte und addiere es zurück.",purpose:"Stabile Normalisierung von Logits und Cross-Entropy.",dims:"Skalar pro normalisierter Zeile; gleiche Log-Einheit wie z.",vars:[["z","Logitvektor"],["m","max(z)"],["LSE","Logarithmus der Exponentialsumme"]],intuition:"Vermeidet Overflow bei großen und Underflow bei kleinen Logits.",pitfall:"Naives log(sum(exp(z))) kann inf ergeben, obwohl das mathematische Resultat endlich ist.",example:"z=[1000,1000] ⇒ LSE=1000+log 2.",check:"Welche exp-Argumente entstehen nach Stabilisierung?",sources:["a1","a2"],aliases:"log sum exp numerical stability"},
       {id:"autoregressive",cat:"Sprachmodell",title:"Autoregressive Faktorisierung",expr:"p(x₁:ₜ) = ∏ₜ p(xₜ | x&lt;ₜ)   ⇔   log p = Σₜ log p(xₜ | x&lt;ₜ)",latex:"p(x_{1:T})=\\prod_{t=1}^T p(x_t\\mid x_{<t})",read:"Die Sequenzwahrscheinlichkeit ist das Produkt bedingter Next-Token-Wahrscheinlichkeiten.",purpose:"Definiert Training und Generierung eines Decoder-Sprachmodells.",dims:"Ein Skalar pro Sequenz; jede bedingte Verteilung hat V Kategorien.",vars:[["T","Sequenzlänge"],["xₜ","Token an Position t"],["x&lt;ₜ","alle vorherigen Tokens"]],intuition:"Komplexe Sequenzen werden in lokale Vorhersagen zerlegt.",pitfall:"Die kausale Bedingung darf beim parallelen Training nicht verletzt werden.",example:"p(a,b)=p(a)·p(b|a).",check:"Warum wird das Produkt im Lograum zur Summe?",sources:["a1"],aliases:"language model next token likelihood factorization"},
-      {id:"next-token-batch",cat:"Training",title:"Zufällige Next-Token-Batches aus Token-Arrays",expr:"s_b ∈ {0,…,n−m−1};   X_b=x[s_b:s_b+m];   Y_b=x[s_b+1:s_b+m+1]",latex:"s_b\\in\\{0,\\ldots,n-m-1\\},\\quad X_b=x[s_b:s_b+m],\\quad Y_b=x[s_b+1:s_b+m+1]",read:"Ziehe für jedes Batchbeispiel einen gültigen Start und schneide m Inputtokens sowie dieselben um genau eine Position verschobenen m Targets aus.",purpose:"Erzeugt ohne Padding gleich lange Teacher-Forcing-Beispiele aus einem flachen tokenisierten Korpus und erlaubt mit np.memmap beziehungsweise np.load(..., mmap_mode='r') Sampling ohne vollständiges Laden in den Arbeitsspeicher.",dims:"x hat [n], die B Startindizes haben [B], X und Y haben [B,m]. Es muss n≥m+1 gelten; der exklusive obere Zufallsrand ist n−m.",vars:[["x","flaches Integer-Array aus n Token-IDs"],["B","Zahl unabhängig gezogener Fenster im Batch"],["m","Kontextlänge und Länge jedes Input-/Targetfensters"],["s_b","Startindex mit 0≤s_b<n−m"],["X_b,Y_b","Input und um eins verschobenes Next-Token-Target"]],intuition:"Ein einziges Fenster der Länge m+1 enthält beide Tensoren: Die ersten m Werte sind Input, die letzten m Werte Target. Memory Mapping lädt beim Zugriff nur die benötigten Seiten; die kleinen Slices können anschließend als Long-Tensoren auf das Ziel-Device wechseln.",pitfall:"n−m+1 als exklusiven oberen Rand zu verwenden erlaubt s=n−m und erzeugt ein zu kurzes Target. Ein falscher dtype interpretiert dieselben Dateibytes als andere IDs; eine sofortige Vollkopie hebt den memmap-Speichervorteil auf.",example:"n=10,m=4 ⇒ s∈{0,…,5}. Bei s=5 sind X=x[5:9] und Y=x[6:10], jeweils Länge vier; Y[:-1]=X[1:].",check:"Warum ist n−m der exklusive Zufallsrand, welche Slice-Invariante muss gelten, und was prüfst du beim Öffnen einer Token-Memory-Map?",sources:["a1"],aliases:"numpy memmap mmap mode random offset get batch context length dtype off by one token array"},
+      {id:"next-token-batch",cat:"Training",title:"Zufällige Next-Token-Batches aus Token-Arrays",expr:"s_b ∈ {0,…,n−m−1};   X_b=x[s_b:s_b+m];   Y_b=x[s_b+1:s_b+m+1]",latex:"s_b\\in\\{0,\\ldots,n-m-1\\},\\quad X_b=x[s_b:s_b+m],\\quad Y_b=x[s_b+1:s_b+m+1]",read:"Ziehe für jedes Batchbeispiel einen gültigen Start und schneide m Inputtokens sowie dieselben um genau eine Position verschobenen m Targets aus.",purpose:"Erzeugt ohne Padding gleich lange Teacher-Forcing-Beispiele aus einem flachen tokenisierten Korpus und erlaubt mit np.memmap beziehungsweise np.load(..., mmap_mode='r') Sampling ohne vollständiges Laden in den Arbeitsspeicher.",dims:"x hat [n], die B Startindizes haben [B], X und Y haben [B,m]. Es muss n≥m+1 gelten; der exklusive obere Zufallsrand ist n−m.",vars:[["x","flaches Integer-Array aus n Token-IDs"],["B","Zahl unabhängig gezogener Fenster im Batch"],["m","Kontextlänge und Länge jedes Input-/Targetfensters"],["s_b","Startindex mit 0≤s_b<n−m"],["X_b,Y_b","Input und um eins verschobenes Next-Token-Target"]],intuition:"Ein einziges Fenster der Länge m+1 enthält beide Tensoren: Die ersten m Werte sind Input, die letzten m Werte Target. Memory Mapping lädt beim Zugriff nur die benötigten Seiten; die kleinen Slices können anschließend als Long-Tensoren auf das Ziel-Device wechseln.",pitfall:"n−m+1 als exklusiven oberen Rand zu verwenden erlaubt s=n−m und erzeugt ein zu kurzes Target. Ein falscher dtype interpretiert dieselben Dateibytes als andere IDs; eine sofortige Vollkopie hebt den memmap-Speichervorteil auf.",example:"n=10,m=4 ⇒ s∈{0,…,5}. Bei s=5 sind X_b=x[5:9] und Y_b=x[6:10], jeweils Länge vier; Y_b[:-1]=X_b[1:].",check:"Warum ist n−m der exklusive Zufallsrand, welche Slice-Invariante muss gelten, und was prüfst du beim Öffnen einer Token-Memory-Map?",sources:["a1"],aliases:"numpy memmap mmap mode random offset get batch context length dtype off by one token array"},
       {id:"cross-entropy",cat:"Loss",title:"Cross-Entropy / NLL",expr:"L = −(1/M) Σᵢ log softmax(zᵢ)ᵧᵢ",latex:"\\mathcal L=-\\frac1M\\sum_i \\log\\operatorname{softmax}(z_i)_{y_i}",read:"Wähle pro Position die Log-Wahrscheinlichkeit des richtigen Next Tokens, negiere sie und mittlere nur über gültige Ziele.",purpose:"Übersetzt die V Output-Logits pro Position in einen skalaren Trainings-Loss. Der anschließende Gradient-Descent-Schritt entlang des negativen Gradienten hebt den Ziel-Logit relativ zu allen Konkurrenten an.",dims:"Logits z: [B,T,V], Target-IDs y und unreduzierter Loss: [B,T], reduzierter Loss L: Skalar. M zählt nur unmaskierte Target-Tokens.",vars:[["zᵢ","V Logits an einer bewerteten Tokenposition i"],["yᵢ","Index des tatsächlich nächsten Tokens an Position i"],["M","Anzahl gültiger Ziele nach Padding- oder Response-Maske"],["p−onehot(y)","Gradient bezüglich der Logits: Zielkomponente p_y−1 ist negativ, jede Nichtzielkomponente p_j positiv; erst das Update z←z−η∇L bewegt die Logits in die entgegengesetzte Richtung"]],intuition:"−log p_y ist klein, wenn das Modell dem Ziel viel Masse gibt, und wächst unbegrenzt, wenn p_y gegen null geht. Der Logarithmus macht Sequenzprodukte additiv und bestraft selbstsichere Fehler stark.",pitfall:"Inputs und Targets müssen für Next-Token-Training um eine Position verschoben sein. Padding muss aus Summe und Nenner verschwinden; ein Mittel über Sequenzen gewichtet sonst unterschiedlich lange Beispiele falsch.",example:"p_y=0.5 ⇒ Loss≈0.693; p_y=0.01 ⇒ Loss≈4.605. Bei uniformen V Kategorien gilt p_y=1/V und L=log V.",check:"Welcher Loss entsteht bei uniformer Verteilung über V Tokens, und wie unterscheiden sich Gradient und Gradient-Descent-Update für Ziel- und Nichtziel-Logits?",sources:["a1","l02"],aliases:"ce loss nll negative log likelihood token loss gradient target shift mask"},
       {id:"perplexity",cat:"Evaluation",title:"Perplexity",expr:"PPL = exp( (1/M) Σᵢ −log p(yᵢ|x&lt;ᵢ) ) = exp(L)",latex:"\\operatorname{PPL}=\\exp\\left(-\\frac1M\\sum_i\\log p(y_i\\mid x_{<i})\\right)",read:"Exponentiere die mittlere Token-NLL.",purpose:"Likelihood-basierte Modellgüte auf festem Korpus und Tokenizer; in Lecture 14 auch als KenLM-Filterranking.",dims:"Dimensionslose positive Zahl, mindestens 1.",vars:[["M","Zahl bewerteter Tokens"],["p","Zieltoken-Wahrscheinlichkeit"],["L","mittlere Cross-Entropy"]],intuition:"Effektive Verzweigungszahl pro Token.",pitfall:"Zwischen verschiedenen Tokenizern nicht direkt vergleichbar. KenLM score summiert Log10-Werte, daher gilt für diese API 10^(−score/M), nicht exp(−score/M).",example:"Natural-Log-Loss log(10) ⇒ PPL 10.",check:"Warum ist PPL bei Loss 0 gleich 1?",sources:["l12","l14","a1"],aliases:"ppl evaluation likelihood kenlm filter"},
       {id:"embedding-lookup",cat:"Transformer",title:"Token-Embedding-Lookup",expr:"X[b,t,:] = E[token_ids[b,t],:]   |   [B,T] + [V,D] → [B,T,D]",latex:"X_{b,t,:}=E_{\\operatorname{token\\_ids}_{b,t},:}",read:"Jede ganzzahlige Token-ID wählt genau eine Zeile aus der gelernten Embedding-Tabelle; die ID selbst wird nicht als Zahl verrechnet.",purpose:"Übersetzt diskrete Token-IDs in kontinuierliche D-dimensionale Aktivierungen, mit denen Linear Layers, Attention und MLPs rechnen können.",dims:"token_ids: [B,T] mit Integern, E: [V,D] lernbare Parameter, X: [B,T,D] Aktivierungen. B und T bleiben erhalten; eine neue Featureachse D kommt hinzu.",vars:[["token_ids[b,t]","Vokabularindex des Tokens an Batchposition b und Sequenzposition t"],["E","gelernte Tabelle mit einer D-dimensionalen Zeile pro Vokabulartoken"],["X[b,t,:]","Startaktivierung dieses Tokenvorkommens vor den Transformer-Blöcken"],["V,D","Vokabulargröße und Modelldimension"]],intuition:"Die ID ist nur eine Adresse. Derselbe Token startet mit derselben Tabellenzeile, aber Position und Kontext verändern seinen Zustand danach in jedem Transformer-Block.",pitfall:"Ein Lookup ist keine gewichtete Mittelung und ID 101 ist nicht automatisch ähnlicher zu 102 als zu 900. Der LM Head verwendet nur bei Weight Tying dieselbe Matrix; sonst besitzt er eigene gelernte Gewichte.",example:"token_ids=[[2,0,2]] und E mit Shape [5,4] ergeben X [1,3,4]; X[0,0] und X[0,2] beginnen als dieselbe Zeile E[2], können später aber unterschiedliche kontextuelle Zustände werden.",check:"Welche Achse kommt beim Lookup hinzu, und warum können zwei Vorkommen derselben Token-ID nach mehreren Transformer-Blöcken verschieden sein?",sources:["a1","l03"],aliases:"embedding lookup table token id gather contextual representation"},
@@ -3435,7 +3790,7 @@
       "softmax": "Bei LM-Logits [B,T,V] wird über V normalisiert; bei Attention-Scores [B,H,T_q,T_k] über T_k, damit jede Query Gewichte über ihre Keys erhält. Das Subtrahieren von m multipliziert Zähler und Nenner mit demselben exp(−m), der sich herauskürzt und die Verteilung nicht verändert.",
       "logsumexp": "Nach der Stabilisierung lauten die Exponenten zⱼ−m und sind alle kleiner oder gleich null; mindestens einer ist genau null. Ihre Exponentialwerte liegen damit in (0,1], wodurch ein Overflow vermieden wird.",
       "autoregressive": "Der Logarithmus erfüllt log(a·b)=log(a)+log(b). Daher wird das Produkt der bedingten Tokenwahrscheinlichkeiten zur Summe ihrer Logwahrscheinlichkeiten.",
-      "next-token-batch": "Der Input benötigt die Indizes s bis s+m−1, das Target die Indizes s+1 bis s+m. Deshalb muss s+m≤n−1 gelten, also s<n−m; n−m ist der exklusive Zufallsrand. X und Y haben beide [B,m], und für jedes Fenster gilt Y[:-1]=X[1:]. Bei einer Memory-Map müssen Dateiformat, exakter dtype, erwartete Länge und 0≤Token-ID<V geprüft werden, ohne das gesamte Array zu kopieren.",
+      "next-token-batch": "Der Input benötigt die Indizes s bis s+m−1, das Target die Indizes s+1 bis s+m. Deshalb muss s+m≤n−1 gelten, also s<n−m; n−m ist der exklusive Zufallsrand. X und Y haben beide [B,m], und für jedes Batchbeispiel b gilt Y_b[:-1]=X_b[1:]. Bei einer Memory-Map müssen Dateiformat, exakter dtype, erwartete Länge und 0≤Token-ID<V geprüft werden, ohne das gesamte Array zu kopieren.",
       "cross-entropy": "Bei einer uniformen Verteilung hat jedes der V Tokens die Wahrscheinlichkeit 1/V, also ist der Loss −log(1/V)=log(V). Der Logitgradient ist p−onehot(y): Für das Ziel ist p_y−1 negativ, sodass Gradient Descent seinen Logit anhebt; für Nichtziele ist p_j positiv, sodass ihre Logits relativ sinken.",
       "perplexity": "Perplexity ist exp(Loss), und exp(0)=1. Ein Loss von null bedeutet außerdem, dass jedem korrekten Token Wahrscheinlichkeit eins gegeben wird, also effektiv nur eine Möglichkeit verbleibt.",
       "ngram-filter": "Ohne Smoothing macht bereits ein einziges ungesehenes n-Gramm den Faktor p(w|h)=0. Das Produkt aller Tokenwahrscheinlichkeiten wird dadurch null und die Negative Log-Likelihood unendlich, obwohl der übrige Text plausibel sein kann. Backoff verwendet kürzere Kontexte, und Kneser-Ney verteilt discounted Probability Mass anhand informativer Fortsetzungsstatistik neu.",
@@ -3537,10 +3892,10 @@
           {id:"tensor-primitives",title:"Tensor-Primitives",scope:"linear · embedding · rmsnorm · positionwise_feedforward · rope · softmax",derive:"Notiere für jede Primitive Inputachsen, Parameter-Shape, Initialisierungsregel, Reduktionsachse, Output-Shape und einen handrechenbaren Zahlenfall. Leite für einen gewählten Linear Layer σ samt ±3σ-Grenzen her und berechne zwei A1-RoPE-Winkel mit benachbarten Paaren – noch ohne Gesamtmodell.",evidence:"Du kannst Linear-, Embedding- und RMSNorm-Initialisierung exakt unterscheiden, beliebige führende Batchachsen und Broadcasting begründen sowie RoPE gegen Winkelformel, Adjacent-Pairing und nicht-persistenten geteilten Buffer testen.",failure:"Erste Spur: Wenn Shapes passen, prüfe std gegen Varianz, A1-Pairing gegen Half-Split, Reduktionsachse, Parameter-/Bufferregistrierung und unbeabsichtigtes Broadcasting getrennt.",concepts:["pytorch-tensors","pytorch-state","shapes","parameter-initialization","rmsnorm","swiglu","rope"],labs:["pytorch-debugger","shapes"]},
           {id:"attention-lm",title:"Attention, Block & vollständiges LM",scope:"scaled_dot_product_attention · multihead_self_attention · transformer_block · transformer_lm · transformer_accounting",derive:"Führe ein Shape-Ledger von token_ids [B,T] bis logits [B,T,V] und markiere exakt, wo Positionen gemischt, Features gemischt, Heads getrennt und Zukunftspositionen ausgeschlossen werden.",evidence:"Du kannst nichtquadratische Query-/Key-Längen, Mask-Broadcasting, QKV-Head-Split, Residualpfade sowie Parameter- und FLOP-Terme ohne Ausprobieren herleiten.",failure:"Erste Spur: Teste kausale Invarianz – eine Änderung an einem zukünftigen Token darf frühere Logits nicht verändern – und isoliere danach den ersten fehlschlagenden Block.",concepts:["attention","causal-mask","transformer-block","resource-accounting","transformer-ledger"],labs:["attention","shapes","resources","transformer-ledger"]},
           {id:"optimization",title:"Loss, AdamW & Schedule",scope:"cross_entropy · learning_rate_tuning · adamw · adamw_accounting · learning_rate_schedule · gradient_clipping",derive:"Rechne einen skalaren Zwei-Step-Optimierungsfall mit Momenten, Bias Correction, entkoppeltem Weight Decay und Schedule-Grenzen von Hand.",evidence:"Du kannst Lossreduktion, globales Gradient Clipping, Optimizer-State und Step-Indexierung an Grenzwerten testen und die erwartete Update-Richtung nennen.",failure:"Erste Spur: Trenne Losswert, Gradient, geclippten Gradient, adaptiven Adam-Term, Decay-Term und aktuelle Learning Rate in einzelne Logzeilen.",concepts:["cross-entropy","adamw","schedules","clipping"],labs:["optimizer"]},
-          {id:"training-state",title:"Daten, Training Loop & Checkpoint",scope:"data_loading · checkpointing · training_together · experiment_log",derive:"Leite für ein Token-Array der Länge n und Kontext m den exklusiven Startindexbereich, X/Y-Slices und ihre Überlappungsinvariante her. Zeichne danach den Trainingsstep als Zustandsmaschine und liste für einen exakten Resume-Test Modell-, Optimizer-, Scheduler-, Daten- und RNG-Zustand auf.",evidence:"Du kannst dtype und Vokabulargrenzen einer np.memmap prüfen, zufällige [B,m]-Inputs und um eins verschobene Targets ohne Off-by-one bilden, einen Tiny-Batch überfitten und nach Save/Reload denselben nächsten Loss sowie Parameterzustand erzeugen.",failure:"Erste Spur: Prüfe bei falschen Batches zuerst Dateiformat, dtype, n≥m+1, exklusiven Rand n−m und Y[:-1]=X[1:]. Bei abweichendem Resume vergleiche nächsten Batch, Update-Step, RNG und Optimizer-Momente – nicht nur Gewichte.",concepts:["python-engineering","pytorch-state","training-loop","sampling"],labs:["pytorch-debugger","optimizer","resources"]},
+          {id:"training-state",title:"Daten, Training Loop & Checkpoint",scope:"data_loading · checkpointing · training_together · experiment_log",derive:"Leite für ein Token-Array der Länge n und Kontext m den exklusiven Startindexbereich, X/Y-Slices und ihre Überlappungsinvariante her. Zeichne danach den Trainingsstep als Zustandsmaschine und liste für einen exakten Resume-Test Modell-, Optimizer-, Scheduler-, Daten- und RNG-Zustand auf.",evidence:"Du kannst dtype und Vokabulargrenzen einer np.memmap prüfen, zufällige [B,m]-Inputs und um eins verschobene Targets ohne Off-by-one bilden, einen Tiny-Batch überfitten und nach Save/Reload denselben nächsten Loss sowie Parameterzustand erzeugen.",failure:"Erste Spur: Prüfe bei falschen Batches zuerst Dateiformat, dtype, n≥m+1, exklusiven Rand n−m und pro Batchbeispiel Y_b[:-1]=X_b[1:]. Bei abweichendem Resume vergleiche nächsten Batch, Update-Step, RNG und Optimizer-Momente – nicht nur Gewichte.",concepts:["token-array-loading","pytorch-state","training-loop","sampling"],labs:["pytorch-debugger","optimizer","resources"]},
           {id:"generation-experiments",title:"Generierung, Ablations & Hauptlauf",scope:"decoding · learning_rate · batch_size_experiment · generate · layer_norm_ablation · pre_norm_ablation · no_pos_emb · swiglu_ablation · main_experiment · leaderboard",derive:"Formuliere für Sampling, Lernrate, Batchgröße und jede Ablation vorab Hypothese, Kontrollvariable, Budget, Metrik und Abbruchkriterium.",evidence:"Du kannst EOS, Temperatur und Top-p an Toy-Logits erklären, faire Läufe bei dokumentiertem Compute vergleichen und aus Lernkurven mehr als nur den besten Endwert ableiten.",failure:"Erste Spur: Wenn ein Vergleich unklar ist, prüfe zuerst ungleiche Tokens, Seeds, Evalprotokolle, Checkpoints oder gleichzeitig geänderte Variablen.",concepts:["sampling","training-loop","benchmark-validity"],labs:["attention","evaluation"]}
         ],
-        done:["Primitive Tests grün","BPE Roundtrip inkl. Unicode/Sondertokens","Shapes dokumentiert","Mini-Batch überfittet","Save/Reload identische Logits und korrekte Fortsetzung","Experimentlog mit Config, Seed, Tokens und Lernkurve"],concepts:["bpe","parameter-initialization","rope","attention","adamw","training-loop"]},
+        done:["Primitive Tests grün","BPE Roundtrip inkl. Unicode/Sondertokens","Shapes dokumentiert","Mini-Batch überfittet","Save/Reload identische Logits und korrekte Fortsetzung","Experimentlog mit Config, Seed, Tokens und Lernkurve"],concepts:["bpe","parameter-initialization","rope","attention","adamw","token-array-loading","training-loop"]},
       {id:"a2",label:"A2",title:"Systems - Profiling & Parallelism",stage:"Korrekt → messbar effizient",sources:["a2","l05","l06","l07","l08"],
         goal:"Lerne Single-GPU- und Multi-GPU-Training durch belastbares Messen, IO-bewusste Kernel und explizite State-Ownership.",
         prereqs:["A1-Modell sicher erklären","asynchrones GPU-Timing, Speicherhierarchie und FLOPs/Bytes","FP32, FP16, BF16 sowie Autograd Saved Tensors","Rank, World Size und Collective Communication"],
@@ -4202,7 +4557,7 @@
     };
     const I18N_FIELDS = {
       modules:["stage","title","description","outcome","prereqs"],
-      concepts:["title","level","summary","mental","details","pitfalls","checks","answers"],
+      concepts:["title","level","summary","context","why","terms","mental","details","pitfalls","checks","answers"],
       formulas:["cat","title","expr","read","purpose","dims","vars","intuition","pitfall","example","check","aliases","answer"],
       assignments:["title","stage","goal","prereqs","models","milestones","checks","hints","pitfalls","missions","done","checkAnswers"],
       labs:["title","time","desc","mental","formula","symbols","observe","misconception","transferQuestion","transferAnswer"],diagnostic:["q","opts","why"],quiz:["q","opts","why"],
@@ -4243,6 +4598,7 @@
       if(pack.nav)NAV_ITEMS.forEach(item=>{if(typeof pack.nav[item[0]]==="string")item[2]=pack.nav[item[0]]});
       if(pack.sources)Object.entries(pack.sources).forEach(([id,value])=>{if(SOURCES[id]&&typeof value?.label==="string")SOURCES[id].label=value.label});
       Object.keys(I18N_ARRAYS).forEach(kind=>applyKeyedOverlay(kind,pack[kind]));
+      if(pack.conceptOrientations)CONCEPTS.forEach(concept=>{const orientation=pack.conceptOrientations[concept.id];if(orientation&&typeof orientation==="object"){if(typeof orientation.context==="string")concept.context=orientation.context;if(typeof orientation.why==="string")concept.why=orientation.why}});
       if(pack.formulaRefs)Object.entries(pack.formulaRefs).forEach(([id,value])=>{if(Object.hasOwn(FORMULA_REFS,id)&&typeof value==="string")FORMULA_REFS[id]=value});
     }
     function patternSpec(source,replacement=""){
@@ -4632,6 +4988,48 @@
     function viewHeader(eyebrow,title,lede){ return `<div class="view-header"><p class="eyebrow">${eyebrow}</p><h1>${title}</h1><p class="lede">${lede}</p></div>`; }
     function answerDisclosure(answer,label="Musterlösung anzeigen"){ return `<details class="answer-disclosure"><summary>${esc(label)}</summary><p>${esc(answer)}</p></details>`; }
     function selfCheckMarkup(questions,answers,label="Musterlösung anzeigen"){ return `<ol class="self-check-list">${questions.map((question,index)=>`<li><p class="self-check-question">${esc(question)}</p>${answerDisclosure(answers?.[index],label)}</li>`).join("")}</ol>`; }
+    const CONCEPT_PRIMER_TERMS = {
+      de:[
+        ["A1","Assignment 1: das erste Kursprojekt zu Tokenizer, Transformer und Training."],["A2","Assignment 2: das Kursprojekt zu Profiling, GPU-Kernels und verteiltem Training."],["A3","Assignment 3: das Kursprojekt zu Skalierungsgesetzen und Experimentdesign."],["A4","Assignment 4: das Kursprojekt zur Aufbereitung und Filterung von Trainingsdaten."],["A5","Assignment 5: das Kursprojekt zu Reinforcement Learning für Sprachmodelle."],
+        ["LM","Language Model, also Sprachmodell."],["LLM","Large Language Model, also ein großes Sprachmodell."],["BPE","Byte-Pair Encoding: Tokenisierung durch wiederholtes Zusammenfassen häufiger benachbarter Bytefolgen."],["ID / IDs","Identifier: eine Kennzahl, die ein Element eindeutig bezeichnet."],
+        ["GPU","Graphics Processing Unit: ein Prozessor für stark parallele Rechenarbeit."],["CPU","Central Processing Unit: der allgemeine Hauptprozessor eines Rechners."],["HBM","High Bandwidth Memory: besonders breit angebundener Speicher eines Beschleunigers."],["CUDA","Compute Unified Device Architecture: NVIDIAs Plattform und Programmiermodell für GPU-Rechenarbeit."],["SIMT","Single Instruction, Multiple Threads: viele Threads führen dieselbe Instruktion auf verschiedenen Daten aus."],["NCCL","NVIDIA Collective Communications Library: Bibliothek für Kommunikation zwischen NVIDIA-GPUs."],
+        ["FP8","8-Bit-Gleitkommaformat mit sehr geringer Präzision und begrenztem Wertebereich."],["BF16","BFloat16: 16-Bit-Gleitkommaformat mit FP32-ähnlichem Exponentenbereich."],["FP16","16-Bit-Gleitkommaformat mit begrenztem Wertebereich."],["FP32","32-Bit-Gleitkommaformat mit höherer Präzision und größerem Speicherbedarf."],["FLOP","Floating-Point Operation: eine ausgeführte Gleitkommaoperation."],["FLOPs","Floating-Point Operations: Anzahl ausgeführter Gleitkommaoperationen."],["MFU","Model FLOPs Utilization: genutzte Modellrechenrate relativ zum Hardwaremaximum."],
+        ["MLP","Multi-Layer Perceptron: der positionsweise Feed-Forward-Teil eines Transformers."],["MHA","Multi-Head Attention: Attention mit getrennten Query-, Key- und Value-Heads."],["MQA","Multi-Query Attention: alle Query-Heads teilen ein Key-Value-Paar."],["GQA","Grouped-Query Attention: Gruppen von Query-Heads teilen Key- und Value-Heads."],["QKV","Query, Key und Value: die drei Rollen einer Attention-Berechnung."],["KV / KV-Cache","Key-Value beziehungsweise Key-Value-Cache: gespeicherte Attention-Zustände früherer Tokens."],["RMSNorm","Root Mean Square Normalization: Normierung über die quadratische mittlere Featuregröße."],["RoPE","Rotary Position Embedding: Positionsinformation durch Rotation von Query und Key."],["SwiGLU","Swish-Gated Linear Unit: gegateter Feed-Forward-Baustein."],["SiLU","Sigmoid Linear Unit: Aktivierung x·sigmoid(x), auch Swish genannt."],
+        ["RL","Reinforcement Learning: Lernen aus bewerteten Handlungen oder Antworten."],["SFT","Supervised Fine-Tuning: Training auf gewünschten Prompt-Antwort-Beispielen."],["RLHF","Reinforcement Learning from Human Feedback: Optimierung anhand menschlich abgeleiteten Feedbacks."],["RLVR","Reinforcement Learning from Verifiable Rewards: Optimierung mit automatisch prüfbaren Belohnungen."],["DPO","Direct Preference Optimization: direktes Lernen aus bevorzugten und abgelehnten Antwortpaaren."],["PPO","Proximal Policy Optimization: Policy-Gradient-Verfahren mit begrenzten Wahrscheinlichkeitsverhältnissen."],["GRPO","Group Relative Policy Optimization: gruppenrelative Policy-Optimierung ohne separates Value Model."],["GSPO","Group Sequence Policy Optimization: gruppenbasierte Policy-Optimierung mit einem Verhältnis pro Sequenz."],["RFT","Rejection Fine-Tuning: Fine-Tuning nur auf ausgewählten, akzeptierten Antworten."],["MoE","Mixture of Experts: pro Token wird nur eine kleine Auswahl spezialisierter Teilnetze ausgeführt."],
+        ["DDP","Distributed Data Parallel: repliziertes Modell mit synchronisierten Gradienten."],["FSDP","Fully Sharded Data Parallel: Parameter, Gradienten und Optimizerzustand werden auf Prozesse verteilt."],["ZeRO","Zero Redundancy Optimizer: verteilt redundanten Trainingszustand auf mehrere Prozesse."],["TP","Tensor Parallelism: einzelne Layer- oder Matrixachsen werden über Geräte aufgeteilt."],["RNG","Random Number Generator, also Zufallszahlengenerator."],
+        ["KL","Kullback-Leibler-Divergenz: gerichteter Unterschied zwischen zwei Wahrscheinlichkeitsverteilungen."],["NLL","Negative Log-Likelihood: negativer Logarithmus der Wahrscheinlichkeit des richtigen Ergebnisses."],["PPL","Perplexity: Exponential der mittleren Negative Log-Likelihood pro Token."],["EOS","End of Sequence: spezielles Token für das Ende einer Sequenz."],
+        ["PII","Personally Identifiable Information: Information, die eine Person identifizieren kann."],["DSIR","Data Selection via Importance Resampling: Datenauswahl über ein Target-zu-Rohdaten-Dichteverhältnis."],["LSH","Locality-Sensitive Hashing: Kandidatensuche für ähnliche Signaturen."],["FPR","False Positive Rate: Anteil fälschlich positiver Ergebnisse unter tatsächlich negativen Fällen."],
+        ["API","Application Programming Interface: festgelegte Schnittstelle zwischen Softwareteilen."],["NPY","NumPy-Array-Dateiformat mit einem Header für Shape und Datentyp."],["SLO","Service Level Objective: festgelegtes Ziel für eine messbare Diensteigenschaft wie Latenz."],["SSM","State Space Model: Sequenzmodell mit einem fortgeschriebenen internen Zustand."],
+        ["WSD","Warmup-Stable-Decay: Lernratenplan mit Anstieg, stabiler Phase und finalem Abfall."],["μP","Maximum Update Parametrization: Skalierungsregeln für vergleichbare Updates über Modellbreiten."],["I/O / IO","Input/Output, also das Lesen und Schreiben von Daten."],["2D","zweidimensional: eine Operation oder Aufteilung über zwei Achsen."]
+      ],
+      en:[
+        ["A1","Assignment 1: the first course project on tokenization, Transformers, and training."],["A2","Assignment 2: the course project on profiling, GPU kernels, and distributed training."],["A3","Assignment 3: the course project on scaling laws and experiment design."],["A4","Assignment 4: the course project on preparing and filtering training data."],["A5","Assignment 5: the course project on reinforcement learning for language models."],
+        ["LM","Language Model: a model that assigns probabilities to token sequences."],["LLM","Large Language Model: a language model with a large learned parameter set."],["BPE","Byte-Pair Encoding: tokenization by repeatedly joining frequent adjacent byte sequences."],["ID / IDs","Identifier: a number that uniquely names an item."],
+        ["GPU","Graphics Processing Unit: a processor designed for highly parallel computation."],["CPU","Central Processing Unit: a computer's general-purpose main processor."],["HBM","High Bandwidth Memory: accelerator memory connected through a very wide interface."],["CUDA","Compute Unified Device Architecture: NVIDIA's platform and programming model for GPU computation."],["SIMT","Single Instruction, Multiple Threads: many threads execute one instruction on different data."],["NCCL","NVIDIA Collective Communications Library: a library for communication among NVIDIA GPUs."],
+        ["FP8","An 8-bit floating-point format with very low precision and limited range."],["BF16","BFloat16: a 16-bit floating-point format with an FP32-like exponent range."],["FP16","A 16-bit floating-point format with a limited numerical range."],["FP32","A 32-bit floating-point format with higher precision and greater memory use."],["FLOP","Floating-point operation: one arithmetic operation on floating-point values."],["FLOPs","Floating-point operations: the number of arithmetic operations performed."],["MFU","Model FLOPs Utilization: achieved model computation relative to the hardware peak."],
+        ["MLP","Multi-Layer Perceptron: the position-wise feed-forward part of a Transformer."],["MHA","Multi-Head Attention: attention with separate query, key, and value heads."],["MQA","Multi-Query Attention: all query heads share one key-value pair."],["GQA","Grouped-Query Attention: groups of query heads share key and value heads."],["QKV","Query, key, and value: the three roles in an attention computation."],["KV / KV-Cache","Key-value or key-value cache: stored attention states from earlier tokens."],["RMSNorm","Root Mean Square Normalization: normalization by the root mean square feature magnitude."],["RoPE","Rotary Position Embedding: position information introduced by rotating queries and keys."],["SwiGLU","Swish-Gated Linear Unit: a gated feed-forward building block."],["SiLU","Sigmoid Linear Unit: the activation x·sigmoid(x), also called Swish."],
+        ["RL","Reinforcement Learning: learning from scored actions or responses."],["SFT","Supervised Fine-Tuning: training on desired prompt-response examples."],["RLHF","Reinforcement Learning from Human Feedback: optimization from human-derived feedback."],["RLVR","Reinforcement Learning from Verifiable Rewards: optimization with automatically checkable rewards."],["DPO","Direct Preference Optimization: direct learning from preferred and rejected response pairs."],["PPO","Proximal Policy Optimization: policy-gradient learning with bounded probability ratios."],["GRPO","Group Relative Policy Optimization: group-relative policy optimization without a separate value model."],["GSPO","Group Sequence Policy Optimization: group-based policy optimization using one ratio per sequence."],["RFT","Rejection Fine-Tuning: fine-tuning only on selected, accepted responses."],["MoE","Mixture of Experts: only a small selection of specialized subnetworks runs for each token."],
+        ["DDP","Distributed Data Parallel: a replicated model with synchronized gradients."],["FSDP","Fully Sharded Data Parallel: parameters, gradients, and optimizer state are split across processes."],["ZeRO","Zero Redundancy Optimizer: training state is distributed across multiple processes."],["TP","Tensor Parallelism: individual layer or matrix axes are partitioned across devices."],["RNG","Random Number Generator: a stateful source of pseudorandom values."],
+        ["KL","Kullback-Leibler divergence: a directed difference between two probability distributions."],["NLL","Negative Log-Likelihood: the negative logarithm of the correct outcome's probability."],["PPL","Perplexity: the exponential of mean negative log-likelihood per token."],["EOS","End of Sequence: a special token marking the end of a sequence."],
+        ["PII","Personally Identifiable Information: information that can identify a person."],["DSIR","Data Selection via Importance Resampling: selection using a target-to-raw density ratio."],["LSH","Locality-Sensitive Hashing: candidate search for similar signatures."],["FPR","False Positive Rate: the fraction of actually negative cases reported as positive."],
+        ["API","Application Programming Interface: a defined interface between software components."],["NPY","NumPy's array file format with a header for shape and data type."],["SLO","Service Level Objective: a stated target for a measurable service property such as latency."],["SSM","State Space Model: a sequence model with an evolving internal state."],
+        ["WSD","Warmup-Stable-Decay: a learning-rate schedule with growth, a stable phase, and final decay."],["μP","Maximum Update Parametrization: scaling rules for comparable updates across model widths."],["I/O / IO","Input/output: reading and writing data."],["2D","Two-dimensional: an operation or partition over two axes."]
+      ]
+    };
+    function conceptTermMatchIndex(text,term){
+      const names=String(term).split(/\s+\/\s+/u).map(value=>value.trim()).filter(value=>value.length>=2),source=String(text);
+      return names.reduce((best,name)=>{const escaped=name.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"),uppercase=(name.match(/[A-Z]/g)||[]).length,flags=uppercase>=2?"u":"iu",match=new RegExp(`(^|[^\\p{L}\\p{N}_])${escaped}(?=$|[^\\p{L}\\p{N}_])`,flags).exec(source),index=match?match.index+match[1].length:Number.POSITIVE_INFINITY;return index<best?index:best},Number.POSITIVE_INFINITY);
+    }
+    function conceptPrimerTerms(c){
+      const explicit=(c.terms||[]).map(([term,definition],index)=>({term,definition,index:-1000+index}));
+      if(explicit.length)return explicit.slice(0,8);
+      const text=[c.title,c.summary,c.context,c.why,c.mental,c.details,c.pitfalls,c.checks,c.answers].flat().join(" "),seen=new Set(),matched=(CONCEPT_PRIMER_TERMS[currentLanguage]||[]).map(([term,definition])=>({term,definition,index:conceptTermMatchIndex(text,term)})).filter(item=>{const key=String(item.term).toLocaleLowerCase();if(!Number.isFinite(item.index)||seen.has(key))return false;seen.add(key);return true}).sort((a,b)=>a.index-b.index);
+      return matched.slice(0,8);
+    }
+    function conceptOrientationMarkup(c,m){
+      const moduleIndex=m?.concepts.indexOf(c.id)??-1,position=currentLanguage==="en"?`Concept ${moduleIndex+1} of ${m?.concepts.length||1} in module ${m?.n||""}`:`Concept ${moduleIndex+1} von ${m?.concepts.length||1} in Modul ${m?.n||""}`,terms=conceptPrimerTerms(c);
+      return `<section class="reading-section detail-section concept-orientation"><p class="eyebrow">Bevor du einsteigst</p><h2>Orientierung</h2><div class="concept-orientation-grid"><article class="concept-orientation-card"><h3>Worum geht es?</h3><p>${esc(c.summary)}</p></article><article class="concept-orientation-card"><h3>Wo ordnet sich das ein?</h3><p>${esc(c.context)}</p><p class="concept-position">${esc(position)} · ${esc(m?.title||c.module)}</p></article><article class="concept-orientation-card"><h3>Warum ist das wichtig?</h3><p>${esc(c.why)}</p></article></div>${terms.length?`<div class="concept-terms"><h3>Begriffe vor dem ersten Schritt</h3><dl>${terms.map(item=>`<dt>${esc(item.term)}</dt><dd>${esc(item.definition)}</dd>`).join("")}</dl></div>`:""}</section>`;
+    }
     function conceptContinuation(c){
       const moduleIndex=MODULES.findIndex(module=>module.id===c.module),module=MODULES[moduleIndex],index=module?.concepts.indexOf(c.id)??-1,next=byId(CONCEPTS,module?.concepts[index+1]);
       if(next)return `<nav class="detail-pagination" aria-label="Konzeptnavigation"><button class="button primary detail-next" data-open-concept="${next.id}"><span class="detail-next-label">Weiter · ${index+2} von ${module.concepts.length} in Modul ${module.n}</span><span class="detail-next-title">${esc(next.title)} →</span></button></nav>`;
@@ -4775,7 +5173,7 @@
     }
 
     function renderPath(){
-      const q=norm(appState.conceptQuery),conceptMatches=c=>norm([c.title,c.summary,c.mental,c.details,c.pitfalls,c.checks,c.answers].flat().join(" ")).includes(q);
+      const q=norm(appState.conceptQuery),conceptMatches=c=>norm([c.title,c.summary,c.context,c.why,c.terms,c.mental,c.details,c.pitfalls,c.checks,c.answers].flat(Infinity).join(" ")).includes(q);
       const visibleModules=MODULES.map(m=>{const concepts=m.concepts.map(id=>byId(CONCEPTS,id)).filter(Boolean),moduleMatches=!q||norm([m.n,m.stage,m.title].join(" ")).includes(q),visibleConcepts=moduleMatches?concepts:concepts.filter(conceptMatches);return moduleMatches||visibleConcepts.length?{m,concepts:visibleConcepts}:null}).filter(Boolean);
       const visibleConceptCount=visibleModules.reduce((sum,group)=>sum+group.concepts.length,0),el=document.getElementById("view-path");
       el.innerHTML=viewHeader("Kurslandkarte","Vom Byte zum ausgerichteten Sprachmodell","Die Reihenfolge ist absichtlich kausal: Formen und Wahrscheinlichkeiten tragen den Transformer; dieser trägt Training, Systems, Daten, Evaluation, Inference und Reinforcement Learning.")+`<div class="callout accent"><strong>Ground-Truth-Vertrag:</strong> Jede Concept-Seite nennt ihre Lecture-/Assignment-Quelle. Im Lernpfad findest du pro Modul die Original-PDFs; in den Assignment Missions zusätzlich die echten Problem-IDs. Die PDFs bleiben maßgeblich für administrative Regeln, exakte Interfaces und Abgabeanforderungen.</div>${!q?`<div style="margin-top:1rem">${lectureCoverageMarkup()}</div>`:""}<div class="filters" style="margin-top:1rem"><input class="input" id="conceptSearch" value="${esc(appState.conceptQuery)}" placeholder="Konzepte durchsuchen …" aria-label="Konzepte durchsuchen"><div class="muted small filter-status">${visibleConceptCount} von ${CONCEPTS.length} Konzepten</div></div>${visibleModules.length?`<div class="timeline">${visibleModules.map(({m,concepts})=>{const p=moduleProgress(m),open=q||appState.openPathModules.has(m.id)?" open":"",labs=m.labs.map(id=>byId(LABS,id)).filter(Boolean);return `<div class="timeline-item"><div class="timeline-marker ${p===100?"done":p>0?"active":""}">${m.n}</div><div class="timeline-content"><details class="timeline-disclosure" data-path-module="${m.id}"${open}><summary><span class="accordion-summary-main"><span class="accordion-heading"><span class="badge">${esc(m.stage)}</span><span class="accordion-title">${esc(m.title)}</span>${progressRingText(m)}</span><span class="accordion-preview">${esc(m.description)}</span></span><span class="accordion-chevron" aria-hidden="true">⌄</span></summary><div class="timeline-panel"><p>${esc(m.description)}</p><p><strong>Ziel:</strong> ${esc(m.outcome)}</p><div class="meta-row">${m.sources.map(id=>sourceAnchor(id)).join("")}</div><section class="path-section" aria-labelledby="path-concepts-${m.id}"><div class="path-section-head"><h3 id="path-concepts-${m.id}">Konzepte</h3><p>Nutze die Stufen bewusst: gesehen ist noch nicht beherrscht.</p></div><div class="collection-list">${concepts.map(c=>conceptCard(c)).join("")}</div></section>${!q&&labs.length?`<section class="path-section" aria-labelledby="path-labs-${m.id}"><div class="path-section-head"><h3 id="path-labs-${m.id}">Passende Labs</h3><p>Vorhersage zuerst, Erklärung zuletzt.</p></div><div class="collection-list">${labs.map(labCard).join("")}</div></section>`:""}${!q?moduleExitMarkup(m):""}<div class="accordion-actions"><button class="button ghost small" data-open-module="${m.id}">Voraussetzungen &amp; Quellen</button></div></div></details></div></div>`}).join("")}</div>`:`<div class="callout"><strong>Kein Treffer.</strong> Probiere englische Begriffe, Symbole oder die globale Suche.</div>`}`;
@@ -4822,7 +5220,7 @@
     function renderConceptDetail(el,c){
       if(!c)return;
       const m=byId(MODULES,c.module),level=conceptLevel(c.id),retained=conceptRetained(c.id);
-      appState.openPathModules.add(c.module);el.innerHTML=`${backButton("path","Lernpfad")}<div class="view-header" style="margin-top:1rem"><p class="eyebrow">${esc(m?.n||"")} · ${esc(m?.title||c.module)} · ${esc(c.level)}</p><h1>${esc(c.title)}</h1><p class="lede">${esc(c.summary)}</p></div><div class="detail-layout"><div class="detail-body"><section class="reading-section detail-section"><h2>Mentales Modell</h2><div class="callout accent">${esc(c.mental)}</div></section><section class="reading-section detail-section"><h2>Schritt für Schritt</h2>${c.details.map(p=>`<p>${esc(p)}</p>`).join("")}</section><section class="reading-section detail-section"><h2>Typische Fehlannahmen</h2><ul class="check-list">${c.pitfalls.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></section><section class="reading-section detail-section"><h2>Aktiver Selbstcheck</h2><p class="muted">Antworte zuerst selbst. Öffne danach die Musterlösung und vergleiche Begründung und Begriffe.</p>${selfCheckMarkup(c.checks,c.answers)}<label class="field"><span>Deine Erklärung in eigenen Worten</span><textarea class="textarea" id="conceptReflection" placeholder="Ohne abzulesen: Ich erkläre es so …"></textarea></label><button class="button" id="appendReflection" style="margin-top:.6rem">Zu Notizen hinzufügen</button></section>${c.formulas.length?`<section class="detail-section"><h2>Verknüpfte Formeln</h2><div class="accordion-list">${c.formulas.map(id=>byId(FORMULAS,id)).filter(Boolean).map(formulaAccordion).join("")}</div></section>`:""}</div><aside class="detail-aside"><div class="panel"><h3>Kompetenzstufe</h3><p class="muted small">Wähle nur, was du belegen kannst. Stufe 4 wird freigeschaltet, sobald jede Concept-Frage in zwei selbst gestarteten Sitzungen mit „Gewusst“ bewertet wurde. Die Sitzungen dürfen direkt nacheinander stattfinden. Nach der Bestätigung zeigt der Lernverlauf nur die beobachteten Abstände; sie entscheiden nie über Stufe 4.</p><div style="display:grid;gap:.4rem">${[0,1,2,3,4].map(i=>`<button class="button small ${level===i?"primary":"ghost"}" data-level="${i}" aria-pressed="${level===i}" ${i===4&&!retained?"disabled":""}>${i} · ${levelLabel(i)}</button>`).join("")}</div>${retained?conceptReviewEvidenceMarkup(c.id):""}</div><div class="panel"><h3>Quellen</h3><div style="display:grid;gap:.5rem">${c.sources.map(id=>sourceAnchor(id)).join("")}</div></div><div class="panel"><button class="button ${isBookmarked("concept",c.id)?"primary":""}" id="bookmarkConcept">${isBookmarked("concept",c.id)?"★ Gespeichert":"☆ Speichern"}</button></div></aside></div>${conceptContinuation(c)}`;
+      appState.openPathModules.add(c.module);el.innerHTML=`${backButton("path","Lernpfad")}<div class="view-header" style="margin-top:1rem"><p class="eyebrow">${esc(m?.n||"")} · ${esc(m?.title||c.module)} · ${esc(c.level)}</p><h1>${esc(c.title)}</h1></div><div class="detail-layout"><div class="detail-body">${conceptOrientationMarkup(c,m)}<section class="reading-section detail-section"><h2>Mentales Modell</h2><div class="callout accent">${esc(c.mental)}</div></section><section class="reading-section detail-section"><h2>Schritt für Schritt</h2>${c.details.map(p=>`<p>${esc(p)}</p>`).join("")}</section><section class="reading-section detail-section"><h2>Typische Fehlannahmen</h2><ul class="check-list">${c.pitfalls.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></section><section class="reading-section detail-section"><h2>Aktiver Selbstcheck</h2><p class="muted">Antworte zuerst selbst. Öffne danach die Musterlösung und vergleiche Begründung und Begriffe.</p>${selfCheckMarkup(c.checks,c.answers)}<label class="field"><span>Deine Erklärung in eigenen Worten</span><textarea class="textarea" id="conceptReflection" placeholder="Ohne abzulesen: Ich erkläre es so …"></textarea></label><button class="button" id="appendReflection" style="margin-top:.6rem">Zu Notizen hinzufügen</button></section>${c.formulas.length?`<section class="detail-section"><h2>Verknüpfte Formeln</h2><div class="accordion-list">${c.formulas.map(id=>byId(FORMULAS,id)).filter(Boolean).map(formulaAccordion).join("")}</div></section>`:""}</div><aside class="detail-aside"><div class="panel"><h3>Kompetenzstufe</h3><p class="muted small">Wähle nur, was du belegen kannst. Stufe 4 wird freigeschaltet, sobald jede Concept-Frage in zwei selbst gestarteten Sitzungen mit „Gewusst“ bewertet wurde. Die Sitzungen dürfen direkt nacheinander stattfinden. Nach der Bestätigung zeigt der Lernverlauf nur die beobachteten Abstände; sie entscheiden nie über Stufe 4.</p><div style="display:grid;gap:.4rem">${[0,1,2,3,4].map(i=>`<button class="button small ${level===i?"primary":"ghost"}" data-level="${i}" aria-pressed="${level===i}" ${i===4&&!retained?"disabled":""}>${i} · ${levelLabel(i)}</button>`).join("")}</div>${retained?conceptReviewEvidenceMarkup(c.id):""}</div><div class="panel"><h3>Quellen</h3><div style="display:grid;gap:.5rem">${c.sources.map(id=>sourceAnchor(id)).join("")}</div></div><div class="panel"><button class="button ${isBookmarked("concept",c.id)?"primary":""}" id="bookmarkConcept">${isBookmarked("concept",c.id)?"★ Gespeichert":"☆ Speichern"}</button></div></aside></div>${conceptContinuation(c)}`;
       bindBack(el);bindDisclosureState(el,"[data-formula-disclosure]",appState.openFormulaIds,"formulaDisclosure");bindOpeners(el);
       el.querySelectorAll("[data-level]").forEach(b=>b.onclick=()=>setConceptLevel(c.id,b.dataset.level));
       el.querySelector("[data-path-overview]")?.addEventListener("click",()=>navigate("path"));
@@ -5231,7 +5629,7 @@
 
     function buildSearchIndex(){return [
       ...MODULES.map(x=>({type:"Modul",title:x.n+" · "+x.title,desc:x.description,id:x.id,kind:"module",text:[x.title,x.description,x.outcome,x.stage].join(" ")})),
-      ...CONCEPTS.map(x=>({type:"Konzept",title:x.title,desc:x.summary,id:x.id,kind:"concept",text:[x.title,x.summary,x.mental,x.details,x.pitfalls,x.checks,x.answers,x.formulas].flat().join(" ")})),
+      ...CONCEPTS.map(x=>({type:"Konzept",title:x.title,desc:x.summary,id:x.id,kind:"concept",text:[x.title,x.summary,x.context,x.why,x.terms,x.mental,x.details,x.pitfalls,x.checks,x.answers,x.formulas].flat(Infinity).join(" ")})),
       ...FORMULAS.map(x=>({type:"Formel",title:x.title,desc:strip(x.expr),id:x.id,kind:"formula",text:Object.values(x).flat(3).join(" ")})),
       ...SYMBOLS.map(x=>({type:"Symbol",title:x.symbol+" · "+x.meaning,desc:x.context+" — "+x.dimension,id:x.id,kind:"symbol",text:Object.values(x).join(" ")})),
       ...ASSIGNMENTS.map(x=>({type:"Assignment",title:x.label+" · "+x.title,desc:x.goal,id:x.id,kind:"assignment",text:Object.values(x).flat(3).join(" ")})),

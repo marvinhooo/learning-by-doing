@@ -51,6 +51,15 @@ const base = {
   glossary: readConstant("GLOSSARY"),
   symbols: readConstant("SYMBOLS")
 };
+const conceptOrientationsDe = readConstant("CONCEPT_ORIENTATIONS_DE");
+const conceptPrimerTerms = readConstant("CONCEPT_PRIMER_TERMS");
+for (const concept of base.concepts) {
+  const orientation = conceptOrientationsDe[concept.id];
+  if (orientation && (Object.hasOwn(concept, "context") || Object.hasOwn(concept, "why"))) throw new Error(`de.concepts.${concept.id}: orientation is defined twice`);
+  if (orientation) Object.assign(concept, orientation);
+}
+const orientedGermanIds = base.concepts.filter(concept => concept.context && concept.why).map(concept => concept.id);
+if (JSON.stringify(orientedGermanIds) !== JSON.stringify(base.concepts.map(concept => concept.id))) throw new Error("de.concepts: every concept needs context and why");
 const formulaAnswers = readConstant("FORMULA_ANSWERS");
 const assignmentAnswers = readConstant("ASSIGNMENT_CHECK_ANSWERS");
 const labAnswers = readConstant("LAB_TRANSFER_ANSWERS");
@@ -153,6 +162,11 @@ const sandbox = { window: {} };
 runInNewContext(await readFile(path.join(root, "i18n-en.js"), "utf8"), sandbox, { filename: "i18n-en.js" });
 const pack = sandbox.window.CS336_EN;
 if (!pack || typeof pack !== "object") throw new Error("English language pack is missing");
+for (const [id, translated] of Object.entries(pack.concepts || {})) {
+  const orientation = pack.conceptOrientations?.[id];
+  if (orientation && (Object.hasOwn(translated, "context") || Object.hasOwn(translated, "why"))) throw new Error(`en.concepts.${id}: orientation is defined twice`);
+  if (orientation) Object.assign(translated, orientation);
+}
 
 const keyed = items => Object.fromEntries(items.map((item, index) => [item.id || String(index), item]));
 const expectedIds = {
@@ -170,7 +184,7 @@ for (const [kind, ids] of Object.entries(expectedIds)) {
 
 const requiredFields = {
   modules:["stage","title","description","outcome","prereqs"],
-  concepts:["title","level","summary","mental","details","pitfalls","checks","answers"],
+  concepts:["title","level","summary","context","why","mental","details","pitfalls","checks","answers"],
   formulas:["cat","title","read","purpose","dims","vars","intuition","pitfall","example","check","answer"],
   assignments:["title","stage","goal","prereqs","models","milestones","checks","hints","pitfalls","missions","done","checkAnswers"],
   labs:["title","desc","mental","formula","symbols","observe","misconception","transferQuestion","transferAnswer"], diagnostic:["q","opts","why"], quiz:["q","opts","why"],
@@ -187,6 +201,14 @@ for (const [kind, fields] of Object.entries(requiredFields)) {
       if (Array.isArray(translated[field]) && translated[field].length === 0) throw new Error(`${kind}.${id}.${field}: translation array is empty`);
       if (Array.isArray(original) && translated[field].length !== original.length) throw new Error(`${kind}.${id}.${field}: array length changed`);
     }
+  }
+}
+for (const [id, concept] of Object.entries(keyed(base.concepts))) {
+  if (!concept.terms) continue;
+  const translated = pack.concepts[id];
+  if (!Array.isArray(translated.terms) || translated.terms.length !== concept.terms.length) throw new Error(`concepts.${id}.terms: localized primer terms do not match`);
+  for (const [index, pair] of translated.terms.entries()) {
+    if (!Array.isArray(pair) || pair.length !== 2 || pair.some(value => typeof value !== "string" || !value.trim())) throw new Error(`en.concepts.${id}.terms[${index}]: invalid primer term`);
   }
 }
 
@@ -212,6 +234,10 @@ const assertExplanationDepth = (locale, data) => {
     if (concept.pitfalls.length < 2) throw new Error(`${locale}.concepts.${concept.id || concept.title}: fewer than 2 pitfalls`);
     if (concept.checks.length < 2) throw new Error(`${locale}.concepts.${concept.id || concept.title}: fewer than 2 self-checks`);
     if (concept.checks.length !== concept.answers.length) throw new Error(`${locale}.concepts.${concept.id || concept.title}: self-check and answer count differs`);
+    requireWords(`${locale}.concepts.${concept.id || concept.title}.context`, concept.context, 10);
+    requireWords(`${locale}.concepts.${concept.id || concept.title}.why`, concept.why, 8);
+    if (prose(concept.context).toLocaleLowerCase() === prose(concept.summary).toLocaleLowerCase()) throw new Error(`${locale}.concepts.${concept.id || concept.title}: context merely repeats summary`);
+    if (prose(concept.why).toLocaleLowerCase() === prose(concept.context).toLocaleLowerCase()) throw new Error(`${locale}.concepts.${concept.id || concept.title}: why merely repeats context`);
     requireWords(`${locale}.concepts.${concept.id || concept.title}`, [concept.summary, concept.mental, concept.details], 140);
     concept.answers.forEach((answer, index) => requireWords(`${locale}.concepts.${concept.id || concept.title}.answers[${index}]`, answer, 15));
   }
@@ -229,6 +255,56 @@ const assertExplanationDepth = (locale, data) => {
 };
 assertExplanationDepth("de", base);
 assertExplanationDepth("en", pack);
+
+const abbreviationContracts = {
+  A1:"Assignment 1", A2:"Assignment 2", A3:"Assignment 3", A4:"Assignment 4", A5:"Assignment 5",
+  LM:"Language Model", LLM:"Large Language Model", BPE:"Byte-Pair Encoding", GPU:"Graphics Processing Unit", CPU:"Central Processing Unit",
+  HBM:"High Bandwidth Memory", CUDA:"Compute Unified Device Architecture", SIMT:"Single Instruction, Multiple Threads", NCCL:"NVIDIA Collective Communications Library",
+  MLP:"Multi-Layer Perceptron", MHA:"Multi-Head Attention", MQA:"Multi-Query Attention", GQA:"Grouped-Query Attention", QKV:"Query",
+  RMSNorm:"Root Mean Square Normalization", RoPE:"Rotary Position Embedding", SwiGLU:"Swish-Gated Linear Unit", SiLU:"Sigmoid Linear Unit",
+  RL:"Reinforcement Learning", SFT:"Supervised Fine-Tuning", RLHF:"Reinforcement Learning from Human Feedback", RLVR:"Reinforcement Learning from Verifiable Rewards",
+  DPO:"Direct Preference Optimization", PPO:"Proximal Policy Optimization", GRPO:"Group Relative Policy Optimization", GSPO:"Group Sequence Policy Optimization",
+  RFT:"Rejection Fine-Tuning", MoE:"Mixture of Experts", DDP:"Distributed Data Parallel", FSDP:"Fully Sharded Data Parallel", ZeRO:"Zero Redundancy Optimizer",
+  KL:"Kullback-Leibler", NLL:"Negative Log-Likelihood", PPL:"Perplexity", EOS:"End of Sequence", PII:"Personally Identifiable Information",
+  DSIR:"Data Selection via Importance Resampling", LSH:"Locality-Sensitive Hashing", FPR:"False Positive Rate", API:"Application Programming Interface",
+  NPY:"NumPy", SLO:"Service Level Objective", SSM:"State Space Model", WSD:"Warmup-Stable-Decay", "μP":"Maximum Update Parametrization",
+  RNG:"Random Number Generator", FLOP:"Floating-Point Operation", FLOPs:"Floating-Point Operations"
+};
+const standalone = value => new RegExp(`(^|[^\\p{L}\\p{N}_])${value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=$|[^\\p{L}\\p{N}_])`, "u");
+const termMatchIndex = (text, term) => String(term).split(/\s+\/\s+/u).map(value => value.trim()).filter(value => value.length >= 2).reduce((best, name) => {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const flags = (name.match(/[A-Z]/g) || []).length >= 2 ? "u" : "iu";
+  const match = new RegExp(`(^|[^\\p{L}\\p{N}_])${escaped}(?=$|[^\\p{L}\\p{N}_])`, flags).exec(text);
+  return match ? Math.min(best, match.index + match[1].length) : best;
+}, Number.POSITIVE_INFINITY);
+const renderedPrimerTerms = (locale, concept) => {
+  if (concept.terms?.length) return concept.terms.slice(0, 8).map(([term, definition]) => ({term, definition}));
+  const text = prose([concept.title, concept.summary, concept.context, concept.why, concept.mental, concept.details, concept.pitfalls, concept.checks, concept.answers]);
+  return (conceptPrimerTerms[locale] || []).map(([term, definition]) => ({term, definition, index:termMatchIndex(text, term)})).filter(item => Number.isFinite(item.index)).sort((a, b) => a.index - b.index).slice(0, 8);
+};
+const assertAbbreviationSupport = (locale, data) => {
+  for (const concept of records(data.concepts)) {
+    const visible = prose([concept.title, concept.summary, concept.context, concept.why, concept.mental, concept.details, concept.pitfalls, concept.checks, concept.answers]);
+    const primer = renderedPrimerTerms(locale, concept);
+    for (const [abbreviation, expansion] of Object.entries(abbreviationContracts)) {
+      const abbreviationMatch = standalone(abbreviation).exec(visible);
+      if (!abbreviationMatch) continue;
+      const expansionIndex = visible.toLocaleLowerCase().indexOf(expansion.toLocaleLowerCase());
+      const expandedBeforeUse = expansionIndex >= 0 && expansionIndex < abbreviationMatch.index;
+      const explainedInVisiblePrimer = primer.some(item => standalone(abbreviation).test(item.term) && wordCount(item.definition) >= 3);
+      if (!(expandedBeforeUse || explainedInVisiblePrimer)) throw new Error(`${locale}.concepts.${concept.id || concept.title}: ${abbreviation} is used without an explanation visible before Step by step`);
+    }
+  }
+};
+assertAbbreviationSupport("de", base);
+assertAbbreviationSupport("en", pack);
+const primerImplementation = source.slice(source.indexOf("function conceptPrimerTerms"), source.indexOf("function conceptOrientationMarkup"));
+if (primerImplementation.includes("GLOSSARY")) throw new Error("concept primer: automatic glossary matching is semantically unsafe");
+for (const [locale, data] of [["de", base], ["en", pack]]) {
+  const benchmarkConcept = Array.isArray(data.concepts) ? data.concepts.find(concept => concept.id === "benchmark-validity") : data.concepts["benchmark-validity"];
+  const benchmarkPrimer = renderedPrimerTerms(locale, benchmarkConcept);
+  if (benchmarkPrimer.some(item => item.term === "ZeRO")) throw new Error(`${locale}.concepts.benchmark-validity: Zero-shot must not trigger the unrelated ZeRO primer`);
+}
 
 const coreFormulaIds = [
   "linear-map", "embedding-lookup", "chain-rule", "softmax", "cross-entropy",
@@ -288,13 +364,19 @@ requireTextFragments("de.formulas.next-token-batch.expr", baseFormulas["next-tok
   "{0,…,n−m−1}", "x[s_b:s_b+m]", "x[s_b+1:s_b+m+1]"
 ]);
 requireTextFragments("de.concepts.python-engineering", baseConcepts["python-engineering"], [
-  "np.memmap", "mmap_mode='r'", "n−m+1", "dtype", "0≤Token-ID<V"
+  "Byte-Pair Encoding (BPE)", "Iterator / Generator", "decode(encode(text)) = text", "Tie-Break-Regel"
 ]);
 requireTextFragments("en.concepts.python-engineering", englishConcepts["python-engineering"], [
-  "np.memmap", "mmap_mode='r'", "n−m+1", "dtype", "0≤token ID<V"
+  "Byte-Pair Encoding (BPE)", "iterator / generator", "decode(encode(text)) = text", "tie-breaking rule"
+]);
+requireTextFragments("de.concepts.token-array-loading", baseConcepts["token-array-loading"], [
+  "np.memmap", "mmap_mode='r'", "n−m+1", "dtype (data type)", "0≤Token-ID<V", "np.iinfo(dtype).max", "Long-Tensor (torch.long)"
+]);
+requireTextFragments("en.concepts.token-array-loading", englishConcepts["token-array-loading"], [
+  "np.memmap", "mmap_mode='r'", "n−m+1", "dtype (data type)", "0≤token ID<V", "np.iinfo(dtype).max", "Long tensor (torch.long)"
 ]);
 requireTextFragments("en.formulas.next-token-batch", englishFormulas["next-token-batch"], [
-  "np.memmap", "n−m+1", "Y[:-1]=X[1:]", "dtype"
+  "np.memmap", "n−m+1", "Y_b[:-1]=X_b[1:]", "dtype"
 ]);
 requireTextFragments("de.formulas.transformer-ledger", baseFormulas["transformer-ledger"], [
   "2VD+L(4D²+3DF+2D)+D", "8TD²+4T²D+6TDF", "15106048"
@@ -360,14 +442,28 @@ for (const forbidden of ["countLabel", "concepts.length", "Formeln mit dieser Qu
 for (const forbidden of ["Implementierungen können andere Pairings", "Implementations may use different pairings"]) {
   if (`${prose(baseConcepts.rope)} ${prose(baseFormulas.rope)} ${prose(englishConcepts.rope)} ${prose(englishFormulas.rope)}`.includes(forbidden)) throw new Error(`A1 RoPE contract became permissive again: ${forbidden}`);
 }
+const orientationRenderer = source.slice(source.indexOf("function conceptOrientationMarkup"), source.indexOf("function conceptContinuation"));
+for (const required of ["Worum geht es?", "Wo ordnet sich das ein?", "Warum ist das wichtig?", "Begriffe vor dem ersten Schritt", "c.summary", "c.context", "c.why", "conceptPrimerTerms(c)"]) if (!orientationRenderer.includes(required)) throw new Error(`concept orientation renderer: missing ${required}`);
+const conceptRenderer = source.slice(source.indexOf("function renderConceptDetail"), source.indexOf("function renderFormulaDetail"));
+const orientationIndex = conceptRenderer.indexOf("conceptOrientationMarkup(c,m)"), mentalIndex = conceptRenderer.indexOf("Mentales Modell"), detailIndex = conceptRenderer.indexOf("Schritt für Schritt");
+if (!(orientationIndex >= 0 && orientationIndex < mentalIndex && mentalIndex < detailIndex)) throw new Error("concept renderer: orientation must appear before mental model and step-by-step details");
 const transformerModule = base.modules.find(module => module.id === "transformer");
 const initIndex = transformerModule?.concepts.indexOf("parameter-initialization") ?? -1;
 const rmsIndex = transformerModule?.concepts.indexOf("rmsnorm") ?? -1;
 if (!(initIndex >= 0 && initIndex < rmsIndex)) throw new Error("A1 initialization concept must precede RMSNorm in the Transformer module");
+for (const [moduleId, first, second] of [
+  ["gpu", "flash-attention", "kernel-contracts"],
+  ["distributed", "collectives", "distributed-runtime"],
+  ["scaling", "scaling-practice", "scaling-optima"],
+  ["rlvr", "off-policy", "grpo-variants"]
+]) {
+  const concepts = base.modules.find(module => module.id === moduleId)?.concepts || [];
+  if (!(concepts.indexOf(first) >= 0 && concepts.indexOf(first) < concepts.indexOf(second))) throw new Error(`${moduleId}: prerequisite order ${first} before ${second} is missing`);
+}
 const a1 = base.assignments.find(assignment => assignment.id === "a1");
 const a1Mission = id => a1?.missions.find(mission => mission.id === id);
 if (!a1Mission("tensor-primitives")?.concepts.includes("parameter-initialization")) throw new Error("A1 tensor-primitives mission is missing parameter initialization");
-if (!a1Mission("training-state")?.concepts.includes("python-engineering")) throw new Error("A1 training-state mission is missing memory-mapped token-array loading");
+if (!a1Mission("training-state")?.concepts.includes("token-array-loading")) throw new Error("A1 training-state mission is missing memory-mapped token-array loading");
 
 const assignmentSource = keyed(base.assignments);
 for (const [assignmentId, translated] of Object.entries(pack.assignments)) {

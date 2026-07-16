@@ -215,35 +215,44 @@ window.CS336_EN = Object.freeze({
   },
   "concepts": {
     "python-engineering": {
-      "title": "Python for CS336: Bytes, Streaming, Token Arrays & Determinism",
+      "title": "Python Data Contracts: Text, Bytes, Streaming & Determinism",
       "level": "Prerequisite",
-      "summary": "For A1 and A4, you need deliberate control over data representations, streaming, memory-mapped token arrays, and reproducible decisions.",
-      "mental": "Treat every Python object as a contract: what data type does it hold, who owns its state, and is it processed all at once or one piece at a time? A string is Unicode text, bytes are raw numbers from 0 to 255, and an iterator produces values only when consumed. Many seemingly complicated tokenizer and data-pipeline bugs are actually broken contracts at exactly this level.",
+      "summary": "Before a tokenizer can process text, Python must translate raw documents into bytes unambiguously, read large corpora piece by piece, and make every transformation reproducible.",
+      "context": "This is the start of the data path: raw document → Python text (str) → UTF-8 bytes → tokenizer → token IDs. This concept stops at the tokenizer's reliable input; later concepts explain how Byte-Pair Encoding learns tokens and how token IDs become training batches.",
+      "why": "If text and bytes are confused, iterators become empty unnoticed, or ties are resolved incidentally, the resulting token corpus changes. That can corrupt characters, drop documents, and make two supposedly identical experiments diverge.",
+      "terms": [
+        ["Unicode", "A standard that assigns an abstract code point to every text symbol; it does not yet specify the bytes stored in a file."],
+        ["UTF-8", "Unicode Transformation Format 8-bit: an encoding that stores Unicode code points as one to four bytes."],
+        ["Byte-Pair Encoding (BPE)", "A tokenization method that joins frequent adjacent byte sequences into longer tokens."],
+        ["iterator / generator", "A Python object that yields values one at a time on demand and may be exhausted after one pass."],
+        ["Counter", "A Python counting container; during BPE training it can count the frequencies of adjacent byte pairs."],
+        ["regular expression (regex)", "A text pattern that can define how pretokenization initially splits raw text into pieces."],
+        ["I/O", "Input/output: deliberately reading and writing either text or binary data."],
+        ["deterministic", "The same input and configuration produce exactly the same result under documented rules."]
+      ],
+      "mental": "Picture the data pipeline as a row of labeled handoff points. At every point, state which representation arrives, which one leaves, and whether the stream can be read again. Many apparently complicated tokenizer failures are really a swapped handoff between text, bytes, and a one-shot iterator.",
       "details": [
-        "Python str stores Unicode characters, while bytes stores a sequence of byte values. encode translates text into bytes using a specified encoding such as UTF-8; decode turns only a complete, valid byte sequence back into text. A single UTF-8 byte is therefore not automatically a character. For byte-level Byte-Pair Encoding (BPE), you operate internally on byte IDs and decode only an assembled sequence; the central invariant is decode(encode(text)) = text.",
-        "Iterators and generators yield elements one at a time instead of loading an entire corpus into memory. This saves memory, but it also means that an iterator may be exhausted after one pass. Counter counts hashable objects, regular expressions split or mark text, and file input/output must explicitly choose an encoding, binary or text mode, and error handling. For large data: stream it, retain only necessary state, and make every transformation traceable with stable document IDs.",
-        "Reproducibility requires more than a random seed. When several candidates have the same frequency, a BPE trainer needs a documented tie-breaking rule; unordered collections or concurrent processing must not silently change the result. Configuration, input files, merge order, and random states are part of the observable execution. A good test uses tiny adversarial examples whose complete result you can predict by hand.",
-        "In A1, the tokenized corpus is a flat integer array x containing n token IDs. For Batch size B and context length m, draw B start indices s_b uniformly from {0,…,n−m−1}. Then X_b=x[s_b:s_b+m] and Y_b=x[s_b+1:s_b+m+1], both with Shape [B,m]; each Target is exactly the next Token for its corresponding Input. The final valid start is n−m−1 because Y still needs the Token at index s_b+m. The exclusive NumPy upper bound is therefore n−m, not n−m+1, and n must be at least m+1.",
-        "When the array does not fit in memory, np.memmap maps a raw binary file, or np.load(..., mmap_mode='r') maps a file created with np.save, into virtual memory and loads only the pages touched by a slice. The dtype supplied when opening it must exactly match the stored format: uint16, uint32, and int32 interpret the same bytes differently and also imply different array lengths. Verify the dtype, file format, 0≤token ID<V, and known boundary values before sampling random windows; only the small Batch slices are converted to Long tensors and moved to the requested device."
+        "The path starts with a raw document, such as a text file or web response. Python reads it either as text or as raw bytes. Normalization, tokenization, and storage come only after that decision. Label every pipeline edge with its input, output, and permitted reverse conversion so that any point where information can be lost remains visible.",
+        "Python str holds Unicode code points, while bytes holds only numbers from 0 through 255. encode('utf-8') translates text into bytes, and decode('utf-8') translates a complete, valid byte sequence back into text. The character é, for example, becomes the two UTF-8 bytes 195 and 169; neither byte alone is the character é. Text-mode files yield str, binary-mode files yield bytes, and every conversion must name both an encoding and an error policy.",
+        "A byte-level tokenizer based on Byte-Pair Encoding (BPE) may process individual byte values as IDs because its initial vocabulary contains all 256 possible bytes. It must not decode each byte separately: first it reassembles all bytes belonging to the text, then decodes the complete sequence as UTF-8. The testable contract is decode(encode(text)) = text. The dedicated BPE concept explains how frequent pairs are selected and stored.",
+        "An iterator yields one item whenever the caller asks for the next value; a generator is a convenient way to create such an iterator with yield. This lets a corpus be processed document by document without keeping it all in working memory, but the iterator may be empty after one pass. In a BPE pipeline, a regular expression often defines pretokenization—the initial split of raw text into bounded pieces—and Counter can then count the frequencies of adjacent byte pairs. File input/output (I/O) must additionally choose text or binary mode deliberately.",
+        "Reproducibility here means that identical input bytes, configuration, and rules create identical output. If several BPE pairs have the same frequency, the trainer therefore needs a fixed tie-breaking rule; parallel execution must not change the order. Stable document IDs and logged transformation reasons also reveal which stage changed or rejected a document. Tiny adversarial examples whose complete output you know by hand test this contract more reliably than one large end-to-end run."
       ],
       "pitfalls": [
         "Silently mixing str and bytes moves encoding errors to a later point where they are harder to diagnose.",
         "Reusing a generator and expecting data on the second pass: the first pass may already have exhausted it.",
-        "Letting ties depend on a data structure's incidental iteration order: identical inputs can then produce different tokenizers.",
-        "Drawing start indices through n−m inclusive or using n−m+1 as the exclusive upper bound: the last Target then reaches beyond the array or contains only m−1 elements.",
-        "Opening a Memory Map with a guessed dtype or immediately copying it into a regular full array: the first reads the bytes as wrong Tokens, while the second discards the memory advantage."
+        "Decoding every UTF-8 byte separately splits multibyte characters in the middle of their encoding.",
+        "Letting ties depend on a data structure's incidental iteration order: identical inputs can then produce different tokenizers."
       ],
       "checks": [
-        "Why must a byte-level tokenizer not decode every individual UTF-8 byte separately?",
-        "What information and rules are required for two BPE training runs on the same corpus to produce exactly the same merges?",
-        "Which start indices are valid for n=10 and m=4, and how are the Input and Target formed from one of them?",
-        "Why can an np.memmap file look plausible while still being loaded incorrectly, and which checks prevent this?"
+        "What path does the character é take from a Python str to UTF-8 bytes and back, and at which point is decode valid?",
+        "Why does a generator save memory, and why can a second pass still return no documents?",
+        "Which inputs and rules must be fixed for two BPE training runs to produce exactly the same merges?"
       ],
       "answers": [
-        "UTF-8 encodes many characters using multiple bytes. A single continuation byte is not a complete, valid character encoding; only the assembled byte sequence contains enough information to decode. The tokenizer may process individual bytes as IDs, but it should reconstruct text only from a complete, valid sequence.",
-        "You need identical input bytes and the prescribed pretokenization. Counting includes every adjacent pair position, even when positions overlap; only replacement of the chosen pair proceeds left to right without overlapping replacements. You also need A1's lexicographically-greater tie-break, fixed special-token handling, and the same stopping condition. Parallel execution and data order must not change these decisions.",
-        "The valid starts are s∈{0,1,2,3,4,5}; the exclusive NumPy upper bound is n−m=6. For s=5, X=x[5:9] and Y=x[6:10]. Both contain four Tokens, and Y[:-1] is exactly X[1:]. s=6 would be invalid because Y would require the nonexistent element x[10].",
-        "A Memory Map interprets raw bytes according to its dtype. A wrong dtype can therefore produce different values and a different length without failing to open. Check the matching file format, documented dtype, expected element count, known samples, min≥0, and max<V; then avoid a full copy that would defeat on-demand loading."
+        "The str value é becomes the UTF-8 bytes 195 and 169. A tokenizer may process those values separately, but only the complete reassembled sequence may be decoded as UTF-8; that produces é again.",
+        "A generator retains only the state needed for its next item rather than the complete corpus. Each request consumes one item, so after the end the same iterator is exhausted unless the data source is reopened or a new generator is created.",
+        "You need identical input bytes, the same pretokenization, special-token rules, stopping condition, and a fixed tie-break for equal frequencies. Data order and parallel execution must not alter the resulting merge order."
       ]
     },
     "pytorch-tensors": {
@@ -860,6 +869,49 @@ window.CS336_EN = Object.freeze({
       "answers": [
         "Every component of every gradient is multiplied by the same positive scalar. This changes only the length of the combined gradient vector, not the ratios between its components and therefore not its direction.",
         "First, the gradients are transformed back from Loss Scaling, then checked for non-finite values and clipped using their true global norm. Only after that may the Optimizer update the parameters."
+      ]
+    },
+    "token-array-loading": {
+      "title": "From the Token File to a Next-Token Batch",
+      "level": "Core",
+      "summary": "After tokenization, integer token IDs are stored compactly on disk and loaded as small input and target windows shifted by one position for training.",
+      "context": "The earlier tokenization stage has already turned raw text into one long sequence of integer IDs. This concept starts at that file and ends with two PyTorch tensors, X and Y; the next concept uses them in a complete training step.",
+      "why": "A wrong data type can silently read the same file bytes as different token IDs, a one-position boundary mistake (an off-by-one error) creates incorrect or short targets, and loading everything can exhaust working memory. These three contracts must hold before the first model run.",
+      "terms": [
+        ["token ID", "An integer index into a tokenizer vocabulary; the number is an address, not a measured quantity."],
+        ["batch", "A group of training examples that the model processes in parallel during one step."],
+        ["context length", "The number m of consecutive input tokens shown to the model in one training example."],
+        ["input / target", "Input is the token sequence shown to the model; target is the correct sequence shifted one position forward that the model must predict."],
+        ["memory mapping (np.memmap)", "A file-backed array view for which the operating system loads only the pages that are actually touched."],
+        ["NPY file format", "NumPy's own array file format; its header stores metadata such as the array dimensions (shape) and data type alongside the values."],
+        ["dtype (data type)", "The rule that specifies how many bits one array element uses and how those bits are interpreted as a number."],
+        ["Long tensor (torch.long)", "A PyTorch tensor of 64-bit integers; embedding lookups expect token indices in this format."]
+      ],
+      "mental": "Picture the tokenized corpus as one very long tape of numbers stored on disk. Place a window of length m+1 over it: the first m numbers are input X and the final m numbers are target Y shifted exactly one position to the right. Memory mapping means that only the currently touched parts of the tape enter working memory.",
+      "details": [
+        "The tokenizer writes the corpus as a flat integer array x. Let n be the number of stored token IDs, V the vocabulary size, B the number of examples per batch, and m the context length per example. Every ID must lie from 0 through V−1. X and Y are not separate source files; they are small windows cut from x on demand.",
+        "When x is too large for working memory, np.memmap opens a documented raw binary file as a file-backed array. For this raw format, dtype and byte order are mandatory parts of the file contract. For an NPY file created by np.save, use np.load(..., mmap_mode='r') instead so that its header, shape, and dtype are interpreted correctly.",
+        "The dtype contract starts before serialization: check token IDs in chunks for 0≤ID<V and also require V−1≤np.iinfo(dtype).max before converting them to the storage type. Otherwise, writing 70000 as uint16 can wrap it to 4464, which may later pass 0≤ID<V unnoticed. Record the format, dtype, byte order, element count, and, when possible, a checksum or known boundary values. Verify that metadata when opening the file; only data of unknown provenance needs a deliberate, chunked full scan. Computing min(x) and max(x) before every Batch would instead touch the complete memory map and defeat on-demand loading in the hot path.",
+        "For each of the B examples, choose a start index s_b uniformly. The input window is X_b=x[s_b:s_b+m], and the target window is Y_b=x[s_b+1:s_b+m+1]. Both contain exactly m token IDs; at every aligned position, the model is asked to predict the immediately following token. The corpus must therefore contain at least m+1 tokens.",
+        "The final valid start is n−m−1 because Y still needs the element at index s_b+m. NumPy's sampling upper bound is exclusive, so it must be n−m, not n−m+1. With n=10 and m=4, starts 0 through 5 are valid. At s=5, X=x[5:9] and Y=x[6:10]; s=6 would require the nonexistent element x[10].",
+        "Only the small slices are copied and converted to torch.long, meaning signed 64-bit integers, before they move to the requested compute device. PyTorch embeddings expect integer indices rather than floating-point values. A fast test checks X.shape=Y.shape=[B,m], 0≤X,Y<V, and Y_b[:-1]=X_b[1:] for every batch example b. The complete memory map must not be copied accidentally into a regular array."
+      ],
+      "pitfalls": [
+        "Opening a raw binary file and an NPY file in the same way: NPY contains metadata that a bare np.memmap does not interpret automatically.",
+        "Guessing the dtype or checking only after serialization: the file can return plausible values despite a wrong element width, signedness, or byte order, and a narrow integer dtype can already have wrapped token IDs while writing.",
+        "Using n−m+1 as the exclusive upper bound: this permits s=n−m, for which Y contains only m−1 elements.",
+        "Copying the memory map in full immediately, which discards the benefit of loading only the required pages.",
+        "Computing min(x) and max(x) inside every loader call: both operations scan the complete file instead of only the current batch windows."
+      ],
+      "checks": [
+        "What is the complete data path from the stored token file to tensors X and Y?",
+        "Why is n−m the exclusive upper bound for start indices, and which starts are valid when n=10 and m=4?",
+        "How can a memory map return incorrect tokens without raising an error, and which checks catch that before training?"
+      ],
+      "answers": [
+        "Tokenization creates a flat integer array on disk. A memory map opened with the correct file format and dtype supplies small windows of length m+1; their first m values become X and their final m values become Y before both move to the target device as torch.long tensors.",
+        "Y needs indices s+1 through s+m, so s+m≤n−1 and therefore s<n−m. With n=10 and m=4, the exclusive bound is 6 and the valid starts are exactly 0, 1, 2, 3, 4, and 5.",
+        "Memory mapping interprets raw bytes according to dtype and byte order, and a wrong interpretation need not cause a loading error. Before serialization, require both 0≤token ID<V and V−1≤np.iinfo(dtype).max so no ID can wrap. When opening, verify the format, documented dtype, byte order, expected length, and known values; perform any necessary full scan once in chunks rather than inside every Batch call."
       ]
     },
     "training-loop": {
@@ -1962,6 +2014,288 @@ window.CS336_EN = Object.freeze({
       ]
     }
   },
+  "conceptOrientations": {
+    "pytorch-tensors": {
+      "context": "After token IDs have been assembled into batches, PyTorch tensors carry them and every later activation through the model's operations.",
+      "why": "Confusing shape, strides, data type, device, or shared storage can compute along the wrong axis, create unintended copies, or exhaust accelerator memory."
+    },
+    "pytorch-state": {
+      "context": "Tensor operations become a trainable system when modules register parameters, automatic differentiation tracks derivatives, and the optimizer maintains update state.",
+      "why": "Unregistered parameters are not trained, and an incomplete checkpoint makes the next step differ from an uninterrupted run."
+    },
+    "shapes": {
+      "context": "Along the path from token batch to logits, every tensor axis has a semantic role such as batch, position, attention head, feature, or vocabulary entry.",
+      "why": "An operation can be broadcast-compatible while connecting the wrong axes, producing plausible shapes with semantically incorrect results."
+    },
+    "matmul": {
+      "context": "Matrix multiplication is the recurring operation that moves token vectors into new feature spaces throughout linear layers, attention, and feed-forward networks.",
+      "why": "The shared inner axis determines which quantities are combined, so a wrong axis order mixes different information than intended."
+    },
+    "probability": {
+      "context": "The model first produces unnormalized scores, from which next-token probabilities, expectations, and variability for training and evaluation are derived.",
+      "why": "Confusing probability, expectation, and variance leads to incorrect interpretations of sampling results, estimation error, or optimization objectives."
+    },
+    "logs": {
+      "context": "Between model probabilities and the loss, products of tiny probabilities are represented as sums of logarithms so they remain numerically computable.",
+      "why": "Without log space, values can collapse numerically to zero, while a wrong sign turns a minimization objective into the opposite task."
+    },
+    "gradients": {
+      "context": "After the forward pass, the backward pass propagates changes in the loss backward through every operation to the trainable parameters.",
+      "why": "A broken computation graph, incorrect local derivative, or unintended gradient accumulation produces missing or incorrect parameter updates."
+    },
+    "resource-accounting": {
+      "context": "Before a model is trained or profiled, its shapes are translated into parameter count, memory demand, floating-point operations, and expected runtime.",
+      "why": "Without this accounting, a configuration can exceed available memory, miss its time budget, or lead to an incorrect explanation of a measured bottleneck."
+    },
+    "unicode": {
+      "context": "Unicode is the first stage of the text pipeline: visible text is represented as code points and then encoded as bytes with Unicode Transformation Format 8-bit (UTF-8).",
+      "why": "Treating visible characters, code points, and bytes as identical can split multibyte characters, corrupt text, and break the encode-decode round trip."
+    },
+    "bpe": {
+      "context": "Byte-Pair Encoding (BPE) sits between UTF-8 bytes and model input: training learns frequent byte sequences, and the finished tokenizer replaces them with stable token IDs.",
+      "why": "Incorrect counting, ambiguous tie-breaking, or broken special-token boundaries changes the vocabulary and makes tokenization or tests irreproducible."
+    },
+    "tokenizer-tradeoffs": {
+      "context": "Before the training corpus is stored, tokenizer design determines how a fixed vocabulary divides text into token sequences of different lengths.",
+      "why": "This choice changes context usage, compute cost, and coverage across languages, so models using different tokenizers cannot be compared naively."
+    },
+    "lm-objective": {
+      "context": "Between batch construction and the loss, the language-model objective requires every input position to predict the next token using only earlier tokens.",
+      "why": "An incorrect target shift or access to future tokens trains a different task and can produce an artificially low loss."
+    },
+    "embeddings": {
+      "context": "At the model input, embeddings turn discrete token IDs into vectors; at the output, final states are mapped back to one score per vocabulary entry.",
+      "why": "Wrong vocabulary indices, incompatible dimensions, or unintended weight tying change outputs, parameter count, and stored model state."
+    },
+    "parameter-initialization": {
+      "context": "After every module shape is fixed and before the first forward pass, initialization places weights and normalization gains on controlled starting distributions.",
+      "why": "An incorrect standard deviation or gain can make signals and gradients collapse or explode early and can break exact assignment tests."
+    },
+    "rmsnorm": {
+      "context": "Root Mean Square Normalization (RMSNorm) rescales each token state inside a Transformer block before the next sublayer to a controlled root-mean-square magnitude.",
+      "why": "A wrong reduction axis, missing epsilon, or confusion with Layer Normalization changes values and can make training numerically unstable."
+    },
+    "swiglu": {
+      "context": "After attention, the Swish-Gated Linear Unit (SwiGLU) processes each token independently through two linear layers, a learned gate, and an output projection.",
+      "why": "Incorrect intermediate widths, projection order, or gate combination changes shapes and parameter count or computes a different feed-forward function."
+    },
+    "rope": {
+      "context": "Rotary Position Embedding (RoPE) adds position information immediately before attention by rotating adjacent feature pairs of queries and keys by position-dependent angles.",
+      "why": "An incorrect angle formula or pairing convention changes positional relationships and breaks both exact tests and the intended relative attention behavior."
+    },
+    "attention": {
+      "context": "Attention turns token states into query, key, and value vectors, compares queries with keys, and uses the weights to mix contextual value vectors.",
+      "why": "Incorrect scaling, axis order, or masking makes tokens weight the wrong positions and can silently introduce future information."
+    },
+    "causal-mask": {
+      "context": "The causal mask is applied to attention scores before softmax normalization so each position can see only itself and earlier positions.",
+      "why": "With the wrong mask direction, the model sees its targets during training, achieves misleadingly good loss, and then fails during autoregressive generation."
+    },
+    "transformer-block": {
+      "context": "A Transformer block combines normalization, attention, residual connections, and the gated feed-forward network into a repeatable state update for each layer.",
+      "why": "Changing normalization or residual order alters the gradient path and architecture, making weights or tests incompatible with the specified implementation."
+    },
+    "transformer-ledger": {
+      "context": "Before implementation and benchmarking, the architecture ledger for the first assignment (A1) decomposes every matrix and operation in the full decoder by shape, parameter count, and compute.",
+      "why": "Missing a factor for layers, sequence positions, or separate linear layers produces incorrect memory budgets, runtime estimates, and architecture comparisons."
+    },
+    "cross-entropy": {
+      "context": "After the output linear layer, cross-entropy compares each position's vocabulary logits with the actual next-token ID and reduces those comparisons to a loss.",
+      "why": "A wrong target axis, reduction, mask, or shift can produce a plausible scalar while training the model on the wrong tokens."
+    },
+    "adamw": {
+      "context": "After gradients are computed, Adaptive Moment Estimation with decoupled Weight Decay (AdamW) uses smoothed gradient moments to update each parameter.",
+      "why": "Misplaced weight decay, missing bias correction, or lost optimizer state changes the update rule and prevents reproducible resumption."
+    },
+    "schedules": {
+      "context": "As the training loop advances, the learning-rate schedule maps the global step to the optimizer's current update size.",
+      "why": "A wrong global step or incorrect warmup and decay boundary can enlarge updates too early, shrink them too much, or shift them after resumption."
+    },
+    "clipping": {
+      "context": "After the backward pass and before the optimizer step, global gradient clipping measures the joint gradient norm and rescales all gradients together when needed.",
+      "why": "Without clipping, one outlier can destabilize an update, while clipping tensors separately unintentionally changes the global gradient direction."
+    },
+    "training-loop": {
+      "context": "The training loop orchestrates loading a batch, the forward pass, loss, backward pass, clipping, optimizer step, learning-rate update, logging, and checkpointing.",
+      "why": "Incorrect ordering or omitted state causes stale gradients, duplicate updates, repeated data, or irreproducible resumed runs."
+    },
+    "sampling": {
+      "context": "After training, autoregressive sampling generates text by turning logits into a selection distribution, drawing one token, and appending it to the context.",
+      "why": "Incorrect temperature, filtering, or stopping rules can destroy diversity, admit invalid tokens, or let generation continue indefinitely."
+    },
+    "pre-post-norm": {
+      "context": "Around each Transformer sublayer, norm placement decides whether normalization happens before computation or only after adding the update to the residual stream.",
+      "why": "This choice changes the gradient path; in deep models it can determine whether training stays stable or early layers learn poorly."
+    },
+    "architecture-stability-shapes": {
+      "context": "After the standard block is established, you compare controls for logit scale with choices about width, depth, and block arrangement.",
+      "why": "Identical outer tensor shapes can hide very different stability, latency, and parameter costs, so these choices must be evaluated separately."
+    },
+    "attention-variants": {
+      "context": "After standard attention, you separate the number of query heads from the number of shared key-value heads.",
+      "why": "The chosen variant determines cache memory and bytes read during generation, but it can also change model quality."
+    },
+    "moe": {
+      "context": "A Mixture of Experts (MoE) replaces a Transformer block's dense feed-forward network with many experts while activating only a few per token.",
+      "why": "This can grow model capacity faster than compute per token, although routing and communication still add cost."
+    },
+    "moe-routing-capacity": {
+      "context": "Inside a Mixture of Experts, the router decides which experts process each token and how limited expert slots are allocated.",
+      "why": "Poor routing overloads some experts, leaves other devices idle, and may drop tokens even when the model equations look correct."
+    },
+    "gpu-model": {
+      "context": "After the model mathematics, you trace how a Graphics Processing Unit (GPU) distributes work across many threads and several memory levels.",
+      "why": "Without this execution model, mathematically equivalent programs can have dramatically different runtime and memory use for reasons you cannot explain."
+    },
+    "roofline": {
+      "context": "Once compute units and memory hierarchy are understood, the Roofline model places a kernel between bandwidth and compute limits.",
+      "why": "This classification shows whether reducing memory traffic or computation can help before effort is spent on the wrong optimization."
+    },
+    "profiling": {
+      "context": "Before optimization, benchmarking measures total runtime; profiling then breaks it into operations, kernels, communication, and memory events.",
+      "why": "Without reliable measurement, you may optimize a visible but irrelevant component or compare incorrect timings caused by asynchronous execution."
+    },
+    "fusion-tiling": {
+      "context": "When memory traffic limits a kernel, fusion and tiling keep intermediate values longer in fast memory near the compute units.",
+      "why": "Reducing reads and writes can deliver large speedups, while poorly chosen tiles can increase register pressure or reduce utilization."
+    },
+    "triton-kernels": {
+      "context": "Triton maps a tensor operator to many block programs whose grid, offsets, strides, and masks assign ownership of output regions.",
+      "why": "Incorrect ownership or boundary logic causes missing, duplicate, or invalid memory accesses even when convenient test shapes happen to pass."
+    },
+    "flash-attention": {
+      "context": "For long sequences, FlashAttention replaces the fully stored attention table with blockwise computation and running softmax statistics.",
+      "why": "This preserves the exact result while reducing memory traffic and activation peaks, but incorrect rescaling or masking changes the attention output."
+    },
+    "kernel-contracts": {
+      "context": "After basic Triton kernels and the FlashAttention forward pass, you define exact memory, boundary, and recomputation contracts for complex forward and backward kernels.",
+      "why": "Missing boundary masks or incorrectly combined partial gradients cause silent numerical errors that basic runtime and shape tests do not detect."
+    },
+    "checkpointing": {
+      "context": "When saved intermediate activations exceed training memory, activation checkpointing keeps selected boundaries and recomputes missing sections during the backward pass.",
+      "why": "The technique enables larger models or batches, costs additional computation, and must reproduce the same state for random operations."
+    },
+    "collectives": {
+      "context": "Once multiple processes train together, collectives distribute, gather, or reduce tensors within a clearly defined process group.",
+      "why": "The chosen collective determines data ownership and communication volume; incompatible calls can produce wrong results or a deadlock."
+    },
+    "distributed-runtime": {
+      "context": "After communication patterns are defined, the Distributed Data Parallel runtime coordinates processes, groups, asynchronous transfers, and gradient synchronization within a training step.",
+      "why": "Different operation orders can deadlock processes, while using tensors too early can produce incomplete gradients and incorrect updates."
+    },
+    "ddp-zero-fsdp": {
+      "context": "Using collectives, you compare replicated Distributed Data Parallel with Zero Redundancy Optimizer and Fully Sharded Data Parallel, which distribute training state.",
+      "why": "The strategy determines whether the model fits in device memory and how much extra communication and temporary peak memory it requires."
+    },
+    "model-parallelism": {
+      "context": "When a model or individual layer does not fit on one device, tensor, pipeline, or sequence parallelism splits width, depth, or token axes.",
+      "why": "The chosen axis determines communication frequency, idle time, and memory ownership; a poor split can be slower despite using more devices."
+    },
+    "power-laws": {
+      "context": "After several controlled training runs, empirical power laws summarize how loss falls with model size, data, or compute within the measured range.",
+      "why": "They support run planning, but careless extrapolation beyond observed evidence can justify expensive model-size or data decisions incorrectly."
+    },
+    "isoflops": {
+      "context": "At a fixed number of floating-point operations, you compare different allocations of the training budget between model parameters and observed tokens.",
+      "why": "This reveals whether a model is too small or too large for its budget instead of simply choosing the largest possible run."
+    },
+    "scaling-practice": {
+      "context": "Before training an expensive wide model, you tune smaller proxy models and transfer settings through consistent parameterization and learning-rate scheduling.",
+      "why": "Naively keeping initialization and learning rate unchanged across widths changes signal and update scales and can make transfer fail."
+    },
+    "scaling-optima": {
+      "context": "From measured compute optima, you build robust fits and connect them to Maximum Update Parametrization and Warmup-Stable-Decay for the target run.",
+      "why": "A wrong offset, misclassified matrix role, or checkpoint taken before decay can invalidate the apparent scaling decision."
+    },
+    "inference-workload": {
+      "context": "When serving a trained language model, prefill processes the full prompt, then decode generates the response one token at a time.",
+      "why": "The two phases have different bottlenecks; treating them as one can lead to the wrong metric, batch size, or optimization."
+    },
+    "kv-serving": {
+      "context": "During decode, the key-value cache stores earlier attention keys and values per layer so they need not be recomputed for each new token.",
+      "why": "The cache accelerates generation but grows with context and batch size, potentially limiting how many requests can be served concurrently."
+    },
+    "serving-optimizations": {
+      "context": "After measuring the inference bottleneck, quantization, speculative decoding, dynamic batching, and paged cache management target different costs.",
+      "why": "No method solves every bottleneck; a poor choice can reduce quality, harm scheduling fairness, or add more overhead than it removes."
+    },
+    "alternative-sequence-models": {
+      "context": "When quadratic attention or a growing cache becomes problematic, state-space models, hybrids, and diffusion offer alternative sequence-processing paths.",
+      "why": "Each alternative trades direct access to earlier tokens for different memory, parallelism, or generation steps, so architecture choice must follow the workload."
+    },
+    "perplexity-eval": {
+      "context": "After training, perplexity measures how surprised the model is by the actual next tokens in a fixed corpus.",
+      "why": "It detects likelihood changes but is not directly comparable across tokenizers or context protocols and does not measure general usefulness."
+    },
+    "benchmark-validity": {
+      "context": "After stating a claim about the model, a valid benchmark connects that claim to suitable tasks, invocation rules, metrics, and uncertainty.",
+      "why": "Otherwise, a high score may measure prompt tricks, contamination, or an unsuitable metric rather than the claimed capability."
+    },
+    "data-pipeline": {
+      "context": "Before tokenization and training, the data pipeline turns raw web archives into a versioned, filtered, and deduplicated corpus.",
+      "why": "Each irreversible step changes the later training distribution; without provenance and decision logs, errors or bias cannot be traced back."
+    },
+    "filtering-mechanics": {
+      "context": "Within filtering, target-corpus likelihood, class probability, and the target-to-raw density ratio provide three different ranking signals.",
+      "why": "Confusing these scores can retain merely common text instead of target-typical text or mistake a learned classifier for an objective quality measure."
+    },
+    "quality-filtering": {
+      "context": "After text extraction, transparent rules remove obvious failures, while a learned classifier scores remaining documents according to its training target.",
+      "why": "An overly strict or narrowly trained filter can systematically remove useful languages, formats, and perspectives from the training corpus."
+    },
+    "pii-harm": {
+      "context": "Before data enters the training corpus, Personally Identifiable Information (PII), harmful content, and edge cases are detected, masked, removed, or held for review.",
+      "why": "Detectors make mistakes; without documented actions and subgroup review, real people may be harmed or legitimate content removed disproportionately."
+    },
+    "bloom-filters": {
+      "context": "Before an expensive exact lookup, a Bloom filter compactly checks whether a key is definitely new or only possibly already known.",
+      "why": "It saves memory and lookups but must not make exact deletion or deduplication decisions alone because false positives are possible."
+    },
+    "dedup": {
+      "context": "After normalization and before final mixing or data splitting, deduplication removes exact repeats and finds candidates for near-duplicate documents.",
+      "why": "Missed repeats distort training weights and can leak evaluation data, while overly aggressive rules remove independent legitimate content."
+    },
+    "sft": {
+      "context": "After pretraining, Supervised Fine-Tuning (SFT) shows the language model desired prompt-response examples using the same next-token training mechanism.",
+      "why": "It shapes visible response behavior, but incorrect chat templates or loss masks train on unintended prompt and padding tokens."
+    },
+    "reward-models": {
+      "context": "From human-ranked response pairs, a reward model learns a score that can guide later preference optimization or reinforcement learning.",
+      "why": "The score inherits bias from guidelines, annotators, and data, and the policy may learn to exploit those weaknesses."
+    },
+    "rlhf": {
+      "context": "After Supervised Fine-Tuning, Reinforcement Learning from Human Feedback (RLHF) optimizes a policy for reward-model scores while limiting deviation from a reference.",
+      "why": "Without deviation control, the policy can exploit the learned reward, lose language quality, or move far beyond the preference data."
+    },
+    "dpo": {
+      "context": "Direct Preference Optimization (DPO) trains preferred against rejected responses directly relative to a fixed reference policy, without a separate on-policy rollout cycle.",
+      "why": "The method simplifies the system but still depends on correct response masks, a fixed reference, and sound preference pairs."
+    },
+    "rl-setup": {
+      "context": "For reinforcement learning, token generation is represented as a sequence of states, token actions, and a reward usually assigned after the full response.",
+      "why": "This translation defines which probability is optimized and why one final reward must be assigned across many earlier token decisions."
+    },
+    "policy-gradient": {
+      "context": "After text generation is formulated as a decision process, the policy gradient connects sampled responses and their rewards to parameter updates.",
+      "why": "This allows optimization of non-differentiable verifiers, but without a baseline or enough samples the gradient is highly noisy."
+    },
+    "grpo": {
+      "context": "Group Relative Policy Optimization (GRPO) generates several responses per prompt and evaluates each response relative to the others in the same group.",
+      "why": "The group comparison reduces task-difficulty variation without a separate value model, but identical group rewards provide no learning signal."
+    },
+    "off-policy": {
+      "context": "When training reuses responses from an older policy, importance ratios correct the difference between the generating policy and the current policy.",
+      "why": "Without correction the objective is biased, while exact sequence weights can create extreme variance, so clipping deliberately trades in some bias."
+    },
+    "grpo-variants": {
+      "context": "After the base algorithm, you compare variants by how they center rewards, scale advantages, average across tokens, and weight older rollouts.",
+      "why": "Small changes to denominators or probability ratios change which responses and response lengths the training objective actually favors."
+    },
+    "rlvr-systems": {
+      "context": "Reinforcement Learning from Verifiable Rewards (RLVR) connects policy versions, rollout workers, verifiers, stored log probabilities, and trainers in one synchronized cycle.",
+      "why": "Mixed policy versions or recomputed rollout data make probability ratios meaningless and can invalidate training even when the system appears to run."
+    }
+  },
   "formulas": {
     "mean-var": {
       "cat": "Basics",
@@ -2156,21 +2490,21 @@ window.CS336_EN = Object.freeze({
     "next-token-batch": {
       "cat": "Training",
       "title": "Random Next-Token Batches from Token Arrays",
-      "read": "Draw one valid start for each Batch example and slice m Input Tokens plus the same m Targets shifted by exactly one position.",
-      "purpose": "Creates equally sized Teacher-Forcing examples without Padding from one flat tokenized corpus and supports Sampling without loading it all into memory through np.memmap or np.load(..., mmap_mode='r').",
-      "dims": "x has Shape [n], the B start indices have [B], and X and Y each have [B,m]. n≥m+1 is required; the exclusive random upper bound is n−m.",
+      "read": "Draw one valid start for each batch example and slice m input tokens plus the same m targets shifted by exactly one position.",
+      "purpose": "Creates equally sized teacher-forcing examples without padding from one flat tokenized corpus and supports sampling without loading it all into memory through np.memmap or np.load(..., mmap_mode='r').",
+      "dims": "x has shape [n], the B start indices have [B], and X and Y each have [B,m]. n≥m+1 is required; the exclusive random upper bound is n−m.",
       "vars": [
-        ["x","Flat integer array containing n Token IDs"],
-        ["B","Number of independently sampled windows in the Batch"],
-        ["m","Context length and length of each Input and Target window"],
+        ["x","Flat integer array containing n token IDs"],
+        ["B","Number of independently sampled windows in the batch"],
+        ["m","Context length and length of each input and target window"],
         ["s_b","Start index satisfying 0≤s_b<n−m"],
-        ["X_b,Y_b","Input and its Next-Token Target shifted by one position"]
+        ["X_b,Y_b","Input and its next-token target shifted by one position"]
       ],
-      "intuition": "One window of length m+1 contains both tensors: the first m values are the Input and the final m values are the Target. Memory Mapping loads only touched pages; the small slices can then be converted to Long tensors and moved to the target device.",
-      "pitfall": "Using n−m+1 as the exclusive upper bound permits s=n−m and creates a short Target. A wrong dtype interprets the same file bytes as different IDs, while an immediate full copy removes the memory advantage.",
-      "example": "For n=10 and m=4, s∈{0,…,5}. At s=5, X=x[5:9] and Y=x[6:10], both length four, with Y[:-1]=X[1:].",
-      "check": "Why is n−m the exclusive random upper bound, which Slice invariant must hold, and what must be checked when opening a Token Memory Map?",
-      "answer": "The Input needs indices s through s+m−1 and the Target needs s+1 through s+m. Thus s+m≤n−1, or s<n−m, making n−m the exclusive upper bound. X and Y both have Shape [B,m], and each window satisfies Y[:-1]=X[1:]. For a Memory Map, verify file format, exact dtype, expected length, and 0≤Token ID<V without copying the entire array."
+      "intuition": "One window of length m+1 contains both tensors: the first m values are the input and the final m values are the target. Memory mapping loads only touched pages; the small slices can then be converted to torch.long tensors and moved to the target device.",
+      "pitfall": "Using n−m+1 as the exclusive upper bound permits s=n−m and creates a short target. A wrong dtype or byte order interprets the same file bytes differently; a storage type that cannot represent V−1 can wrap IDs before loading, while an immediate full copy removes the memory advantage.",
+      "example": "For n=10 and m=4, s∈{0,…,5}. At s=5, X_b=x[5:9] and Y_b=x[6:10], both length four, with Y_b[:-1]=X_b[1:].",
+      "check": "Why is n−m the exclusive random upper bound, which slice invariant must hold, and what must be checked when opening a token memory map?",
+      "answer": "The input needs indices s through s+m−1 and the target needs s+1 through s+m. Thus s+m≤n−1, or s<n−m, making n−m the exclusive upper bound. X and Y both have shape [B,m], and every batch example b satisfies Y_b[:-1]=X_b[1:]. Before writing, require V−1≤np.iinfo(dtype).max; when opening a memory map, verify file format, exact dtype, byte order, expected length, and 0≤token ID<V without copying the entire array."
     },
     "cross-entropy": {
       "cat": "Loss",
@@ -3968,10 +4302,10 @@ window.CS336_EN = Object.freeze({
           "id": "training-state",
           "title": "Data, Training Loop & Checkpoint",
           "scope": "data_loading · checkpointing · training_together · experiment_log",
-          "derive": "For a Token array of length n and context m, derive the exclusive start-index range, X/Y slices, and their overlap invariant. Then draw the training Step as a State Machine and list the model, Optimizer, Scheduler, data, and RNG state required for an exact resume test.",
-          "evidence": "You can verify dtype and Vocabulary bounds for an np.memmap, form random [B,m] Inputs and one-position-shifted Targets without an Off-by-one error, overfit a tiny Batch, and reproduce the next Loss and parameter state after Save/Reload.",
-          "failure": "First lead: For bad Batches, first check file format, dtype, n≥m+1, exclusive bound n−m, and Y[:-1]=X[1:]. For resume divergence, compare the next Batch, update Step, RNG, and Optimizer moments—not just weights.",
-          "concepts": ["python-engineering", "pytorch-state", "training-loop", "sampling"],
+          "derive": "For a token array of length n and context m, derive the exclusive start-index range, X/Y slices, and their overlap invariant. Then draw the training step as a state machine and list the model, optimizer, scheduler, data, and random-number-generator (RNG) state required for an exact resume test.",
+          "evidence": "You can verify dtype and vocabulary bounds for an np.memmap, form random [B,m] inputs and one-position-shifted targets without an off-by-one error, overfit a tiny batch, and reproduce the next loss and parameter state after save/reload.",
+          "failure": "First lead: For bad batches, first check file format, dtype, n≥m+1, exclusive bound n−m, and Y_b[:-1]=X_b[1:] for every batch example b. For resume divergence, compare the next batch, update step, RNG, and optimizer moments—not just weights.",
+          "concepts": ["token-array-loading", "pytorch-state", "training-loop", "sampling"],
           "labs": ["pytorch-debugger", "optimizer", "resources"]
         },
         {
@@ -6530,6 +6864,11 @@ window.CS336_EN = Object.freeze({
     "Zum Modul im Lernpfad": "Go to this module in the learning path",
     "Quellen": "Sources",
     "Fortschritt": "Progress",
+    "Bevor du einsteigst": "Before you begin",
+    "Orientierung": "Orientation",
+    "Worum geht es?": "What is this about?",
+    "Wo ordnet sich das ein?": "Where does this fit?",
+    "Begriffe vor dem ersten Schritt": "Terms before the first step",
     "Mentales Modell": "Mental model",
     "Schritt für Schritt": "Step by step",
     "Typische Fehlannahmen": "Common misconceptions",
