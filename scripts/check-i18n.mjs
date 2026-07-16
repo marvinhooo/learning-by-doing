@@ -59,6 +59,55 @@ base.assignments.forEach(item => { item.checkAnswers = assignmentAnswers[item.id
 base.labs.forEach(item => { item.transferAnswer = labAnswers[item.id]; });
 base.glossary.forEach(item => { item.detail = glossaryDetails[item.term]; });
 
+const assertUnique = (items, label, key = "id") => {
+  const values = items.map(item => item[key]);
+  const duplicate = values.find((value, index) => values.indexOf(value) !== index);
+  if (duplicate !== undefined) throw new Error(`${label}: duplicate ${key} ${duplicate}`);
+};
+assertUnique(base.modules, "modules");
+assertUnique(base.modules, "modules", "n");
+for (const kind of ["concepts", "formulas", "assignments", "labs", "glossary", "symbols"]) assertUnique(base[kind], kind);
+
+const ids = {
+  sources: new Set(Object.keys(base.sources)),
+  modules: new Set(base.modules.map(item => item.id)),
+  concepts: new Set(base.concepts.map(item => item.id)),
+  formulas: new Set(base.formulas.map(item => item.id)),
+  labs: new Set(base.labs.map(item => item.id))
+};
+const requireRefs = (owner, values, target) => {
+  for (const value of values || []) if (!ids[target].has(value)) throw new Error(`${owner}: unknown ${target} reference ${value}`);
+};
+for (const module of base.modules) {
+  requireRefs(`modules.${module.id}`, module.concepts, "concepts");
+  requireRefs(`modules.${module.id}`, module.labs, "labs");
+  requireRefs(`modules.${module.id}`, module.sources, "sources");
+  for (const conceptId of module.concepts) {
+    const concept = base.concepts.find(item => item.id === conceptId);
+    if (concept.module !== module.id) throw new Error(`modules.${module.id}: concept ${conceptId} belongs to ${concept.module}`);
+  }
+}
+for (const concept of base.concepts) {
+  requireRefs(`concepts.${concept.id}`, [concept.module], "modules");
+  requireRefs(`concepts.${concept.id}`, concept.formulas, "formulas");
+  requireRefs(`concepts.${concept.id}`, concept.sources, "sources");
+}
+for (const formula of base.formulas) requireRefs(`formulas.${formula.id}`, formula.sources, "sources");
+for (const lab of base.labs) requireRefs(`labs.${lab.id}`, [lab.module], "modules");
+for (const assignment of base.assignments) {
+  requireRefs(`assignments.${assignment.id}`, assignment.sources, "sources");
+  requireRefs(`assignments.${assignment.id}`, assignment.concepts, "concepts");
+  assertUnique(assignment.missions || [], `assignments.${assignment.id}.missions`);
+  for (const mission of assignment.missions || []) {
+    for (const field of ["derive", "evidence", "failure"]) if (typeof mission[field] !== "string" || !mission[field].trim()) throw new Error(`assignments.${assignment.id}.missions.${mission.id}.${field}: missing learning contract`);
+    if (!(mission.concepts || []).length) throw new Error(`assignments.${assignment.id}.missions.${mission.id}: no linked concepts`);
+    if (!(mission.labs || []).length) throw new Error(`assignments.${assignment.id}.missions.${mission.id}: no linked labs`);
+    requireRefs(`assignments.${assignment.id}.missions.${mission.id}`, mission.concepts, "concepts");
+    requireRefs(`assignments.${assignment.id}.missions.${mission.id}`, mission.labs, "labs");
+  }
+}
+for (const item of base.quiz) requireRefs(`quiz.${item.q}`, [item.m], "modules");
+
 const sandbox = { window: {} };
 runInNewContext(await readFile(path.join(root, "i18n-en.js"), "utf8"), sandbox, { filename: "i18n-en.js" });
 const pack = sandbox.window.CS336_EN;
@@ -82,7 +131,7 @@ const requiredFields = {
   modules:["stage","title","description","outcome","prereqs"],
   concepts:["title","level","summary","mental","details","pitfalls","checks","answers"],
   formulas:["cat","title","read","purpose","dims","vars","intuition","pitfall","example","check","answer"],
-  assignments:["title","stage","goal","prereqs","models","milestones","checks","hints","pitfalls","done","checkAnswers"],
+  assignments:["title","stage","goal","prereqs","models","milestones","checks","hints","pitfalls","missions","done","checkAnswers"],
   labs:["title","desc","mental","formula","symbols","observe","misconception","transferQuestion","transferAnswer"], diagnostic:["q","opts","why"], quiz:["q","opts","why"],
   glossary:["def","cat","detail"], symbols:["meaning","context","dimension"]
 };
@@ -100,16 +149,290 @@ for (const [kind, fields] of Object.entries(requiredFields)) {
   }
 }
 
+const prose = value => {
+  const flattened = Array.isArray(value) ? value.flat(Infinity) : [value];
+  return flattened
+    .filter(item => item !== undefined && item !== null)
+    .join(" ")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&(?:#\d+|#x[\da-f]+|[a-z]+);/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+};
+const wordCount = value => prose(value).split(/\s+/u).filter(Boolean).length;
+const records = value => Array.isArray(value) ? value : Object.values(value);
+const requireWords = (owner, value, minimum) => {
+  const actual = wordCount(value);
+  if (actual < minimum) throw new Error(`${owner}: explanation is too shallow (${actual}/${minimum} words)`);
+};
+const assertExplanationDepth = (locale, data) => {
+  for (const concept of records(data.concepts)) {
+    if (concept.details.length < 3) throw new Error(`${locale}.concepts.${concept.id || concept.title}: fewer than 3 explanatory details`);
+    if (concept.pitfalls.length < 2) throw new Error(`${locale}.concepts.${concept.id || concept.title}: fewer than 2 pitfalls`);
+    if (concept.checks.length < 2) throw new Error(`${locale}.concepts.${concept.id || concept.title}: fewer than 2 self-checks`);
+    if (concept.checks.length !== concept.answers.length) throw new Error(`${locale}.concepts.${concept.id || concept.title}: self-check and answer count differs`);
+    requireWords(`${locale}.concepts.${concept.id || concept.title}`, [concept.summary, concept.mental, concept.details], 140);
+    concept.answers.forEach((answer, index) => requireWords(`${locale}.concepts.${concept.id || concept.title}.answers[${index}]`, answer, 15));
+  }
+  for (const formula of records(data.formulas)) {
+    if (!formula.vars.length) throw new Error(`${locale}.formulas.${formula.id || formula.title}: no variables explained`);
+    requireWords(`${locale}.formulas.${formula.id || formula.title}`, [formula.read, formula.purpose, formula.dims, formula.intuition, formula.pitfall, formula.example], 30);
+    requireWords(`${locale}.formulas.${formula.id || formula.title}.answer`, formula.answer, 15);
+  }
+  for (const entry of records(data.glossary)) {
+    const owner = `${locale}.glossary.${entry.id || entry.term}`;
+    requireWords(`${owner}.detail`, entry.detail, 40);
+    if (prose(entry.detail).toLocaleLowerCase() === prose(entry.def).toLocaleLowerCase()) throw new Error(`${owner}: detail merely repeats the short definition`);
+    if (wordCount(entry.detail) <= wordCount(entry.def)) throw new Error(`${owner}: detail is not more explanatory than the short definition`);
+  }
+};
+assertExplanationDepth("de", base);
+assertExplanationDepth("en", pack);
+
+const coreFormulaIds = [
+  "linear-map", "embedding-lookup", "chain-rule", "softmax", "cross-entropy",
+  "parameter-init", "next-token-batch", "rmsnorm", "swiglu", "rope", "attention", "residual", "kv-cache", "adamw", "gradient-clip"
+];
+const coreGlossaryIds = [
+  "g0", "g1", "g6", "g7", "g10", "g11", "g12", "g14", "g19", "g20", "g24", "g25", "g26", "g28", "g34", "g37",
+  "g40", "g42", "g45", "g46", "g51", "g54", "g55", "g56", "g57", "g58",
+  "g59", "g60", "g61", "g62", "g63", "g64", "g65"
+];
+const assertCoreExplanations = (locale, data) => {
+  const formulas = Array.isArray(data.formulas) ? keyed(data.formulas) : data.formulas;
+  const glossary = Array.isArray(data.glossary) ? keyed(data.glossary) : data.glossary;
+  for (const id of coreFormulaIds) {
+    const formula = formulas[id];
+    if (!formula) throw new Error(`${locale}.formulas.${id}: missing core explanation`);
+    for (const [field, minimum] of [["read", 8], ["purpose", 8], ["dims", 8], ["intuition", 10], ["pitfall", 10], ["example", 5], ["answer", 15]]) {
+      requireWords(`${locale}.formulas.${id}.${field}`, formula[field], minimum);
+    }
+  }
+  for (const id of coreGlossaryIds) {
+    const entry = glossary[id];
+    if (!entry) throw new Error(`${locale}.glossary.${id}: missing core explanation`);
+    requireWords(`${locale}.glossary.${id}.detail`, entry.detail, 85);
+  }
+};
+assertCoreExplanations("de", base);
+assertCoreExplanations("en", pack);
+
+const requireTextFragments = (owner, value, fragments) => {
+  const text = prose(value && typeof value === "object" && !Array.isArray(value) ? Object.values(value) : value);
+  for (const fragment of fragments) if (!text.includes(fragment)) throw new Error(`${owner}: missing exact A1 contract fragment ${fragment}`);
+};
+const baseConcepts = keyed(base.concepts);
+const baseFormulas = keyed(base.formulas);
+const englishConcepts = pack.concepts;
+const englishFormulas = pack.formulas;
+requireTextFragments("de.formulas.parameter-init.expr", baseFormulas["parameter-init"].expr, [
+  "√(2/(d_in+d_out))", "W∈[−3σ,3σ]", "E ~ N(0,1)", "E∈[−3,3]", "g_RMS = 1"
+]);
+requireTextFragments("de.concepts.parameter-initialization", baseConcepts["parameter-initialization"], [
+  "torch.nn.init.trunc_normal_", "std=1", "RMSNorm-Gain", "empirische Varianz"
+]);
+requireTextFragments("en.concepts.parameter-initialization", englishConcepts["parameter-initialization"], [
+  "torch.nn.init.trunc_normal_", "std=1", "RMSNorm Gain", "empirical variance"
+]);
+requireTextFragments("de.formulas.rope.expr", baseFormulas.rope.expr, [
+  "i / Θ^((2k−2)/d)", "q′₂ₖ₋₁", "q′₂ₖ"
+]);
+requireTextFragments("de.concepts.rope", baseConcepts.rope, [
+  "[0,1]", "[2,3]", "Half-Split", "self.register_buffer(..., persistent=False)", "keine nn.Parameter"
+]);
+requireTextFragments("en.concepts.rope", englishConcepts.rope, [
+  "[0,1]", "[2,3]", "Half-Split", "self.register_buffer(..., persistent=False)", "not nn.Parameters"
+]);
+requireTextFragments("de.formulas.next-token-batch.expr", baseFormulas["next-token-batch"].expr, [
+  "{0,…,n−m−1}", "x[s_b:s_b+m]", "x[s_b+1:s_b+m+1]"
+]);
+requireTextFragments("de.concepts.python-engineering", baseConcepts["python-engineering"], [
+  "np.memmap", "mmap_mode='r'", "n−m+1", "dtype", "0≤Token-ID<V"
+]);
+requireTextFragments("en.concepts.python-engineering", englishConcepts["python-engineering"], [
+  "np.memmap", "mmap_mode='r'", "n−m+1", "dtype", "0≤token ID<V"
+]);
+requireTextFragments("en.formulas.next-token-batch", englishFormulas["next-token-batch"], [
+  "np.memmap", "n−m+1", "Y[:-1]=X[1:]", "dtype"
+]);
+for (const forbidden of ["Implementierungen können andere Pairings", "Implementations may use different pairings"]) {
+  if (`${prose(baseConcepts.rope)} ${prose(baseFormulas.rope)} ${prose(englishConcepts.rope)} ${prose(englishFormulas.rope)}`.includes(forbidden)) throw new Error(`A1 RoPE contract became permissive again: ${forbidden}`);
+}
+const transformerModule = base.modules.find(module => module.id === "transformer");
+const initIndex = transformerModule?.concepts.indexOf("parameter-initialization") ?? -1;
+const rmsIndex = transformerModule?.concepts.indexOf("rmsnorm") ?? -1;
+if (!(initIndex >= 0 && initIndex < rmsIndex)) throw new Error("A1 initialization concept must precede RMSNorm in the Transformer module");
+const a1 = base.assignments.find(assignment => assignment.id === "a1");
+const a1Mission = id => a1?.missions.find(mission => mission.id === id);
+if (!a1Mission("tensor-primitives")?.concepts.includes("parameter-initialization")) throw new Error("A1 tensor-primitives mission is missing parameter initialization");
+if (!a1Mission("training-state")?.concepts.includes("python-engineering")) throw new Error("A1 training-state mission is missing memory-mapped token-array loading");
+
+const assignmentSource = keyed(base.assignments);
+for (const [assignmentId, translated] of Object.entries(pack.assignments)) {
+  translated.missions.forEach((mission, index) => {
+    const original = assignmentSource[assignmentId].missions[index];
+    for (const field of ["id", "scope", "concepts", "labs"]) {
+      if (JSON.stringify(mission[field]) !== JSON.stringify(original[field])) throw new Error(`assignments.${assignmentId}.missions[${index}].${field}: semantic links changed in translation`);
+    }
+  });
+}
+
 const formulaSource = keyed(base.formulas);
 for (const id of ["causal-attention","mfu","arithmetic-intensity","ring-allreduce"]) {
   if (!pack.formulas[id]?.expr || pack.formulas[id].expr === formulaSource[id].expr) throw new Error(`formulas.${id}.expr: English expression is missing`);
 }
 if (pack.ui?.["Ich weiß es nicht"] !== "I don't know") throw new Error("Diagnostic unknown label is not translated");
+for (const key of [
+  "Der schnelle, tiefe Weg",
+  "Prerequisite-Blocker zuerst",
+  "Ground-Truth-Vertrag:",
+  "Belegbarer Abschluss",
+  "Text inklusive Whitespace und Unicode",
+  "Roundtrip-Invariante",
+  "Serving-Konfiguration",
+  "Vollständiger KV-Cache",
+  "Vom Reward zum Tokengewicht",
+  "Die Missions gruppieren die echten Problem-IDs aus dem Handout. Öffne genau den Cluster, an dem du arbeitest: erst herleiten, dann Nachweis erbringen, dann selbst implementieren.",
+  "Original-Handout-Scope",
+  "Arbeitsreihenfolge auf hoher Ebene",
+  "Aktuelle Mission",
+  "Learn → Recall → Apply Gate",
+  "Fester Mini-Rollout",
+  "Gathered log p und response_mask",
+  "Erste diagnostische Spur:",
+  "Hypothese für diese Mission speichern",
+  "Hinweise werden nach einer eigenen, gespeicherten Hypothese für die gewählte Mission entsperrt.",
+  "12–15 Minuten · ohne Hilfsmittel",
+  "Stufe 4 wird freigeschaltet, sobald jede Concept-Frage in zwei selbst gestarteten Sitzungen mit „Gewusst“ bewertet wurde. Es gibt keine Mindestwartezeit. Der Lernverlauf zeigt den beobachteten Abstand danach nur als Information.",
+  "Wähle nur, was du belegen kannst. Stufe 4 wird freigeschaltet, sobald jede Concept-Frage in zwei selbst gestarteten Sitzungen mit „Gewusst“ bewertet wurde. Die Sitzungen dürfen direkt nacheinander stattfinden. Nach der Bestätigung zeigt der Lernverlauf nur die beobachteten Abstände; sie entscheiden nie über Stufe 4.",
+  "Das Deck entsteht automatisch aus allen Selbstchecks und verknüpften Formeln der Concepts, die du mindestens selbst erklärt hast. Jede Sitzung wählt höchstens zehn Karten nach Lernbedarf: zuerst nie abgerufene, dann zuletzt mit „Noch nicht“ bewertete und danach die am längsten nicht erfolgreich abgerufenen Karten. Du kannst jederzeit üben und Sitzungen direkt nacheinander starten. Stufe 4 wird freigeschaltet, sobald jede Concept-Frage in zwei selbst gestarteten Sitzungen mit „Gewusst“ bewertet wurde; es gibt keine Mindestwartezeit. Danach zeigt die Concept-Seite die beobachteten Sitzungsabstände als Lernverlauf. Du entscheidest unabhängig davon, wann du weiterübst.",
+  "Alle Karten bleiben jederzeit verfügbar und werden nach Lernbedarf sortiert. Du kannst die nächste Sitzung sofort oder später starten. Für Stufe 4 braucht jede Concept-Frage zwei „Gewusst“-Bewertungen aus selbst gestarteten Sitzungen; es gibt keine Mindestwartezeit. Nach der Bestätigung zeigt die Concept-Seite die beobachteten Sitzungsabstände als Lernverlauf."
+]) {
+  if (typeof pack.ui?.[key] !== "string" || !pack.ui[key].trim() || pack.ui[key] === key) throw new Error(`ui.${key}: English translation is missing`);
+}
 const patterns = pack.ui?.__patterns;
 if (!Array.isArray(patterns) || patterns.length === 0) throw new Error("Dynamic UI translation patterns are missing");
 for (const entry of patterns) {
   if (!entry || typeof entry.source !== "string" || typeof entry.target !== "string") throw new Error("Invalid UI translation pattern");
   new RegExp(entry.source, entry.flags || "");
+}
+const translatePattern = value => {
+  for (const entry of patterns) {
+    const pattern = new RegExp(entry.source, entry.flags || "");
+    if (pattern.test(value)) return value.replace(pattern, entry.target);
+  }
+  return value;
+};
+for (const [sourceText, expected] of [
+  ["GPU Systems · 0/6 Missions nachgewiesen · 5 Selbstchecks", "GPU Systems · 0/6 missions verified · 5 self-checks"],
+  ["0/6 nachgewiesen", "0/6 verified"],
+  ["○ 1/3 verknüpfte Concepts ohne Vorlage erklärt · ✓ 2/2 verknüpfte Labs angewandt · ", "○ 1/3 linked concepts explained without notes · ✓ 2/2 linked labs applied · "],
+  ["✓ 30/30 eigener Beleg", "✓ 30/30 own evidence"],
+  ["3/7 erklärte Concepts durch Abruf bestätigt", "3/7 explained concepts confirmed by retrieval"],
+  ["12 Karten verfügbar · 3/7 erklärte Concepts durch Abruf bestätigt", "12 cards available · 3/7 explained concepts confirmed by retrieval"],
+  ["4 Karten nie abgerufen · 2 zuletzt nicht gewusst · 1 zuletzt schwer · 5 zuletzt gewusst", "4 cards never reviewed · 2 last rated again · 1 last rated hard · 5 last rated got it"],
+  ["Abrufsitzung starten (10)", "Start review session (10)"]
+]) {
+  if (translatePattern(sourceText) !== expected) throw new Error(`Dynamic UI translation failed: ${sourceText}`);
+}
+
+const reviewPolicy = readConstant("REVIEW_POLICY");
+const reviewGapFormat = readConstant("REVIEW_GAP_FORMAT");
+const reviewStart = Date.parse("2026-07-16T08:00:00.000Z");
+const reviewDay = 24 * 60 * 60 * 1000;
+const assertReview = (condition, message) => { if (!condition) throw new Error(`Retrieval policy: ${message}`); };
+const firstReview = reviewPolicy.next({}, "good", reviewStart, "session-a");
+assertReview(firstReview.streak === 1 && !reviewPolicy.retained(firstReview), "first successful session must establish one retrieval credit");
+assertReview(firstReview.firstGoodAt === new Date(reviewStart).toISOString() && firstReview.firstGoodSessionId === "session-a", "the first successful session must freeze its timestamp and session ID");
+const duplicateInSession = reviewPolicy.next(firstReview, "good", reviewStart + 2 * reviewDay, "session-a");
+assertReview(duplicateInSession.streak === 1 && !reviewPolicy.retained(duplicateInSession), "the same session must not credit a card twice even after two days");
+assertReview(duplicateInSession.firstGoodAt === firstReview.firstGoodAt && duplicateInSession.firstGoodSessionId === firstReview.firstGoodSessionId, "same-session practice must not move the evidence anchor");
+const immediateSecondSession = reviewPolicy.next(firstReview, "good", reviewStart, "session-b");
+assertReview(immediateSecondSession.streak === 2 && reviewPolicy.retained(immediateSecondSession), "a second self-started session must unlock evidence without a minimum wait");
+assertReview(reviewPolicy.gapMs(immediateSecondSession) === 0, "back-to-back sessions must retain an honest zero-millisecond gap");
+assertReview(reviewGapFormat.label(0, "de") === "unter 1 Minute" && reviewGapFormat.label(0, "en") === "under 1 minute", "sub-minute gaps must be formatted in both languages");
+const sixMinuteSecondSession = reviewPolicy.next(firstReview, "good", reviewStart + 6 * 60 * 1000, "session-b");
+assertReview(reviewPolicy.gapMs(sixMinuteSecondSession) === 6 * 60 * 1000, "the observed gap must use the two credited retrieval timestamps");
+for (const [gap, de, en] of [
+  [6 * 60 * 1000, "6 Minuten", "6 minutes"],
+  [3 * 60 * 60 * 1000, "3 Stunden", "3 hours"],
+  [2 * reviewDay, "2 Tage", "2 days"]
+]) assertReview(reviewGapFormat.label(gap, "de") === de && reviewGapFormat.label(gap, "en") === en, `gap ${gap} must be formatted in both languages`);
+assertReview(!("retentionAnchorAt" in immediateSecondSession) && !("dueAt" in immediateSecondSession), "obsolete calendar fields must be removed when a record is updated");
+const laterPractice = reviewPolicy.next(immediateSecondSession, "good", reviewStart + 2 * reviewDay, "session-c");
+assertReview(laterPractice.firstGoodAt === immediateSecondSession.firstGoodAt && laterPractice.retainedAt === immediateSecondSession.retainedAt, "later successful practice must not rewrite completed evidence timestamps");
+const unscopedFirst = reviewPolicy.next({}, "good", reviewStart);
+const unscopedSecond = reviewPolicy.next(unscopedFirst, "good", reviewStart + 2 * reviewDay);
+assertReview(!reviewPolicy.retained(unscopedSecond) && Number(unscopedSecond.streak || 0) === 0, "missing session IDs must fail closed and never turn time into a session boundary");
+const hardBeforeGood = reviewPolicy.next({}, "hard", reviewStart, "session-a");
+assertReview(!reviewPolicy.retained(hardBeforeGood) && Number(hardBeforeGood.streak||0) === 0, "hard must not create retrieval credit");
+const hardBetweenGoods = reviewPolicy.next(firstReview, "hard", reviewStart, "session-b");
+assertReview(hardBetweenGoods.streak === 1 && !reviewPolicy.retained(hardBetweenGoods), "hard must preserve but not increase one retrieval credit");
+assertReview(hardBetweenGoods.firstGoodAt === firstReview.firstGoodAt && hardBetweenGoods.firstGoodSessionId === firstReview.firstGoodSessionId, "hard must preserve the first evidence anchor");
+const goodAfterHard = reviewPolicy.next(hardBetweenGoods, "good", reviewStart, "session-c");
+assertReview(reviewPolicy.retained(goodAfterHard), "a later self-started session must complete evidence after hard");
+const hardAfterRetention = reviewPolicy.next(immediateSecondSession, "hard", reviewStart, "session-c");
+assertReview(reviewPolicy.retained(hardAfterRetention) && hardAfterRetention.firstGoodAt === immediateSecondSession.firstGoodAt && hardAfterRetention.retainedAt === immediateSecondSession.retainedAt, "hard must preserve completed evidence");
+const legacyOne = {lastAt:"2026-07-16T07:30:00.000Z",lastResult:"good",streak:1,dueAt:"2099-01-01T00:00:00.000Z",retentionAnchorAt:"2026-07-01T00:00:00.000Z"};
+const migratedLegacyOne = reviewPolicy.next(legacyOne, "good", reviewStart, "session-new");
+assertReview(reviewPolicy.retained(migratedLegacyOne) && !("retentionAnchorAt" in migratedLegacyOne) && !("dueAt" in migratedLegacyOne), "legacy streak one must complete in one new session without calendar fields");
+assertReview(migratedLegacyOne.firstGoodAt === legacyOne.retentionAnchorAt && reviewPolicy.gapMs(migratedLegacyOne) === reviewStart - Date.parse(legacyOne.retentionAnchorAt), "legacy retention anchors must migrate byte-for-byte and preserve their real gap");
+const invalidFirstLegacy = {...legacyOne,firstGoodAt:"not-a-date"};
+const migratedInvalidFirst = reviewPolicy.next(invalidFirstLegacy, "good", reviewStart, "session-new");
+assertReview(migratedInvalidFirst.firstGoodAt === legacyOne.retentionAnchorAt, "an invalid firstGoodAt must not hide a valid legacy retention anchor");
+const legacyKnownGap = {lastResult:"good",streak:2,retentionAnchorAt:"2026-07-16T07:54:00.000Z",retainedAt:"2026-07-16T08:00:00.000Z"};
+assertReview(reviewPolicy.gapMs(legacyKnownGap) === 6 * 60 * 1000, "completed legacy evidence with both timestamps must expose its actual gap");
+const migratedKnownGap = reviewPolicy.next(legacyKnownGap, "hard", reviewStart + 60 * 1000, "session-new");
+assertReview(migratedKnownGap.firstGoodAt === legacyKnownGap.retentionAnchorAt && reviewPolicy.gapMs(migratedKnownGap) === 6 * 60 * 1000 && !("retentionAnchorAt" in migratedKnownGap), "legacy completed evidence must migrate without changing its gap");
+const legacyRetained = {lastAt:"2026-07-16T07:30:00.000Z",lastResult:"good",streak:2};
+const legacyPractice = reviewPolicy.next(legacyRetained, "good", reviewStart, "session-new");
+assertReview(reviewPolicy.retained(legacyPractice) && !legacyPractice.retainedAt, "legacy completed evidence must remain valid without inventing a completion time");
+assertReview(reviewPolicy.gapMs(legacyPractice) === null, "legacy evidence with missing endpoints must report an unknown gap");
+const sparseLegacyOne = reviewPolicy.next({lastResult:"good",streak:1}, "good", reviewStart, "session-new");
+assertReview(!reviewPolicy.retained(sparseLegacyOne) && sparseLegacyOne.streak === 1 && sparseLegacyOne.firstGoodSessionId === "session-new", "a sparse one-credit record must restart from honest evidence instead of inventing a legacy session");
+assertReview(reviewPolicy.gapMs({firstGoodAt:"2026-07-16T08:01:00.000Z",retainedAt:"2026-07-16T08:00:00.000Z"}) === null, "backward timestamps must remain unknown rather than being absolutized");
+assertReview(reviewPolicy.attempted({streak:2}), "legacy evidence without lastAt must not be treated as a new card");
+const inconsistentAgain = {lastResult:"again",streak:2,retainedAt:"2026-07-15T08:00:00.000Z",lastGoodSessionId:"session-old"};
+assertReview(!reviewPolicy.retained(inconsistentAgain), "again must fail closed for inconsistent legacy evidence");
+const hardAfterInconsistentAgain = reviewPolicy.next(inconsistentAgain, "hard", reviewStart, "session-new");
+assertReview(!reviewPolicy.retained(hardAfterInconsistentAgain) && hardAfterInconsistentAgain.streak === 0, "hard must not revive inconsistent evidence after again");
+const goodAfterInconsistentAgain = reviewPolicy.next(inconsistentAgain, "good", reviewStart, "session-new");
+assertReview(!reviewPolicy.retained(goodAfterInconsistentAgain) && goodAfterInconsistentAgain.streak === 1, "one good must not revive inconsistent evidence after again");
+const resetRecord = reviewPolicy.next(immediateSecondSession, "again", reviewStart, "session-c");
+assertReview(resetRecord.streak === 0 && !resetRecord.retainedAt && !resetRecord.lastGoodSessionId && !resetRecord.firstGoodAt && !resetRecord.firstGoodSessionId && !reviewPolicy.retained(resetRecord), "again must revoke all retrieval evidence");
+const restartedRecord = reviewPolicy.next(resetRecord, "good", reviewStart, "session-d");
+const sameRestartSession = reviewPolicy.next(restartedRecord, "good", reviewStart, "session-d");
+assertReview(!reviewPolicy.retained(sameRestartSession), "one session must not restore evidence after again");
+const immediateRetry = reviewPolicy.next(sameRestartSession, "good", reviewStart, "session-e");
+assertReview(reviewPolicy.retained(immediateRetry), "two new self-started sessions must restore evidence immediately after again");
+
+const reviewEntries = [
+  {label:"recent-good",order:0,record:{lastAt:"2026-07-15T08:00:00.000Z",lastGoodAt:"2026-07-15T08:00:00.000Z",lastResult:"good"}},
+  {label:"new",order:1,record:undefined},
+  {label:"old-good",order:2,record:{lastAt:"2026-07-10T08:00:00.000Z",lastGoodAt:"2026-07-10T08:00:00.000Z",lastResult:"good",dueAt:"2099-01-01T00:00:00.000Z"}},
+  {label:"again",order:3,record:{lastAt:"2026-07-16T07:00:00.000Z",lastResult:"again"}},
+  {label:"hard-without-success",order:4,record:{lastAt:"2026-07-16T07:30:00.000Z",lastResult:"hard"}}
+].sort((a,b)=>reviewPolicy.compare(a,b)).map(entry=>entry.label);
+assertReview(JSON.stringify(reviewEntries) === JSON.stringify(["new","again","hard-without-success","old-good","recent-good"]), "cards must be ordered by pull priority, independent of legacy dueAt");
+
+const retrievalSources = `${source}\n${await readFile(path.join(root, "i18n-en.js"), "utf8")}`;
+for (const forbidden of ["Abrufe heute fällig", "fällige Abrufe", "heute fällig", "zum geplanten Zeitpunkt", "due today", "due reviews", "scheduled time", "Noch nicht · 10 min", "Again · 10 min", "Schwer · 1 Tag", "Hard · 1 day", "Gewusst · ${", "Got it · $1 day", "Zeitversetzt sicher", "zeitversetzt belegt", "zeitversetzte erfolgreiche Abrufe", "genügend echtem Zeitabstand", "Retained over time", "retained over time", "spaced successful reviews", "separated in time", "enough real time has passed"]) {
+  if (retrievalSources.includes(forbidden)) throw new Error(`Retrieval UI still contains a scheduling promise: ${forbidden}`);
+}
+for (const removedGate of ["reviewDueTime", "dueReviewCards", "retentionDelayMs"]) {
+  if (source.includes(removedGate)) throw new Error(`Retrieval UI still contains the due-date gate ${removedGate}`);
+}
+for (const evidenceText of [
+  "Lernverlauf",
+  "Selbstcheck ${index+1} · beobachteter Abstand ${gap}",
+  "Selbstcheck ${index+1} · älterer Nachweis · Abstand nicht gespeichert",
+  "Learning history",
+  "Self-check ${index+1} · observed gap ${gap}",
+  "Self-check ${index+1} · earlier evidence · interval not recorded",
+  "Du entscheidest unabhängig davon, wann du wieder übst.",
+  "You decide independently when to practice again."
+]) {
+  if (!source.includes(evidenceText)) throw new Error(`Retrieval UI is missing honest gap evidence: ${evidenceText}`);
 }
 
 const englishValues = [];
@@ -123,8 +446,9 @@ Object.entries(pack.ui).forEach(([key, value]) => {
   if (key === "__patterns") value.forEach(entry => englishValues.push(entry.target));
   else if (typeof value === "string") englishValues.push(value);
 });
-const germanResidue = /[äöüßÄÖÜ]|\b(?:warum|welche|erkläre|beispiel|typischer|fehler|antwort|sequenzlänge|modellparameter|datenpipeline|ausführlich|wissenslücke|musterlösung)\b/i;
+const germanResidue = /[äöüßÄÖÜ]|\b(?:und|zuerst|warum|welche|erkläre|beispiel|typischer|fehler|antwort|sequenzlänge|modellparameter|datenpipeline|ausführlich|wissenslücke|musterlösung)\b/i;
 const leaked = englishValues.filter(value => germanResidue.test(value));
 if (leaked.length) throw new Error(`German residue in English pack: ${leaked.slice(0, 3).join(" | ")}`);
 
-console.log(`i18n OK: ${expectedIds.concepts.length} concepts, ${expectedIds.formulas.length} formulas, ${expectedIds.glossary.length} glossary entries, ${Object.keys(pack.ui).length - 1} UI strings`);
+const missionCount = base.assignments.reduce((total, assignment) => total + (assignment.missions || []).length, 0);
+console.log(`i18n OK: ${expectedIds.concepts.length} concepts, ${expectedIds.formulas.length} formulas, ${expectedIds.symbols.length} symbols, ${expectedIds.glossary.length} glossary entries, ${expectedIds.labs.length} labs, ${missionCount} missions, ${Object.keys(pack.ui).length - 1} UI strings`);

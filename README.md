@@ -1,6 +1,18 @@
 # CS336 Lernwerk
 
-Inoffizielle, deutschsprachige Lernhilfe für Stanford CS336 „Language Models from Scratch“. Das Projekt ist nicht mit Stanford verbunden und erzeugt keine Assignment-Lösungen.
+Inoffizielle, zweisprachige Lernplattform für Stanford CS336 „Language Models from Scratch“. Englisch ist die Standardsprache, Deutsch lässt sich jederzeit zuschalten. Das Projekt ist nicht mit Stanford verbunden und erzeugt keine Assignment-Lösungen.
+
+Der aktuelle Lernpfad umfasst 13 Module, 65 vertiefte Konzepte, 72 Formeln, 71 Symbole, 70 Glossarbegriffe und 20 interaktive Labs. Eine Lecture Coverage Map ordnet alle 17 Vorlesungen den passenden Konzepten, Formeln, Labs und Assignments zu; 29 Assignment-Missions bilden alle 124 Problem-IDs der sechs Handouts ab.
+
+## Empfohlener Lernfluss
+
+1. Grundlagen-Diagnose ohne Hilfsmittel durchführen und `I don't know` ehrlich nutzen.
+2. Den daraus priorisierten Prerequisite Sprint bearbeiten: Concept erklären, Selbstchecks erst selbst beantworten, dann Musterlösung vergleichen.
+3. Verknüpfte Labs mit einer Vorhersage beginnen und objektive Transfer-Gates bestehen.
+4. Assignment-Missions erst nach eigenem Entwurf öffnen; die Plattform liefert Invarianten, Tests und gestufte Hinweise, aber keinen Abgabecode.
+5. Retrieval-Karten jederzeit nach Lernbedarf abrufen. Für den höchsten Mastery-Level wird jede Concept-Frage in zwei selbst gestarteten Sitzungen erfolgreich abgerufen; zwischen den Sitzungen gibt es keine Mindestwartezeit. Der danach sichtbare Lernverlauf zeigt den tatsächlich beobachteten Abstand pro Selbstcheck nur als Information.
+
+Die Plattform spart Lecture-Nacharbeit und Suchzeit, ersetzt aber nicht das eigenständige Implementieren, Testen, Profiling oder die exakten Schnittstellen und Regeln der Handouts.
 
 ## Architektur
 
@@ -9,6 +21,7 @@ Inoffizielle, deutschsprachige Lernhilfe für Stanford CS336 „Language Models 
 - `localStorage` speichert Änderungen sofort auf dem Gerät; Supabase synchronisiert sie nach dem Login.
 - Eine Progressive Web App (PWA) ermöglicht die Installation auf iPhone und iPad.
 - Die PDFs werden durch `.gitignore` vom öffentlichen Repository ausgeschlossen.
+- Auf iPhone und iPad besitzen zentrale Controls mindestens 44 Pixel große Touch-Ziele; Labs stapeln im Portrait-Modus für lesbare Erklärungen und Antwortoptionen.
 
 ## Supabase einrichten
 
