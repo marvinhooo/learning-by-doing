@@ -2,7 +2,7 @@
 
 Inoffizielle, zweisprachige Lernplattform für Stanford CS336 „Language Models from Scratch“. Englisch ist die Standardsprache, Deutsch lässt sich jederzeit zuschalten. Das Projekt ist nicht mit Stanford verbunden und erzeugt keine Assignment-Lösungen.
 
-Der aktuelle Lernpfad umfasst 13 Module, 65 vertiefte Konzepte, 72 Formeln, 71 Symbole, 70 Glossarbegriffe und 20 interaktive Labs. Eine Lecture Coverage Map ordnet alle 17 Vorlesungen den passenden Konzepten, Formeln, Labs und Assignments zu; 29 Assignment-Missions bilden alle 124 Problem-IDs der sechs Handouts ab.
+Der aktuelle Lernpfad umfasst 13 Module, 71 vertiefte Konzepte, 79 Formeln, 71 Symbole, 70 Glossarbegriffe und 26 interaktive Labs. Die Lecture Coverage Map zeigt für jede der 17 Vorlesungen getrennt Erklärung, Mechanik und Transfer samt Seitenanker; jedes Nachweisziel nennt dieselbe Lecture in seinen sichtbaren Quellen. 29 Assignment-Missions bilden alle 124 Problem-IDs der sechs Handouts ab.
 
 ## Empfohlener Lernfluss
 

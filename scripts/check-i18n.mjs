@@ -39,6 +39,7 @@ function readConstant(name) {
 const base = {
   nav: readConstant("NAV_ITEMS"),
   sources: readConstant("SOURCES"),
+  lectureUnits: readConstant("LECTURE_UNITS"),
   modules: readConstant("MODULES"),
   concepts: readConstant("CONCEPTS"),
   formulas: readConstant("FORMULAS"),
@@ -53,6 +54,7 @@ const base = {
 const formulaAnswers = readConstant("FORMULA_ANSWERS");
 const assignmentAnswers = readConstant("ASSIGNMENT_CHECK_ANSWERS");
 const labAnswers = readConstant("LAB_TRANSFER_ANSWERS");
+const labObjectives = readConstant("LAB_OBJECTIVES");
 const glossaryDetails = readConstant("GLOSSARY_DETAILS");
 base.formulas.forEach(item => { item.answer = formulaAnswers[item.id]; });
 base.assignments.forEach(item => { item.checkAnswers = assignmentAnswers[item.id]; });
@@ -78,6 +80,45 @@ const ids = {
 const requireRefs = (owner, values, target) => {
   for (const value of values || []) if (!ids[target].has(value)) throw new Error(`${owner}: unknown ${target} reference ${value}`);
 };
+const coverageKinds = { concept: "concepts", formula: "formulas", lab: "labs" };
+const lectureIds = Object.keys(base.sources).filter(id => /^l\d+$/u.test(id));
+if (JSON.stringify(Object.keys(base.lectureUnits)) !== JSON.stringify(lectureIds)) throw new Error("lecture coverage: every lecture must appear exactly once and in source order");
+for (const lectureId of lectureIds) {
+  const units = base.lectureUnits[lectureId];
+  if (!Array.isArray(units) || !units.length) throw new Error(`lecture coverage.${lectureId}: no content unit`);
+  for (const [index, unit] of units.entries()) {
+    if (!unit.title?.de || !unit.title?.en || !/^\d+(?:[–-]\d+)?$/u.test(unit.pages)) throw new Error(`lecture coverage.${lectureId}[${index}]: missing bilingual title or page range`);
+    for (const proof of ["explain", "mechanism", "transfer"]) {
+      const ref = unit[proof], target = coverageKinds[ref?.kind];
+      if (!target) throw new Error(`lecture coverage.${lectureId}[${index}].${proof}: invalid evidence kind`);
+      requireRefs(`lecture coverage.${lectureId}[${index}].${proof}`, [ref.id], target);
+      const item = base[target].find(candidate => candidate.id === ref.id);
+      const evidenceSources = ref.kind === "lab"
+        ? base.modules.find(module => module.id === item.module)?.sources
+        : item.sources;
+      if (!evidenceSources?.includes(lectureId)) throw new Error(`lecture coverage.${lectureId}[${index}].${proof}: evidence ${ref.kind}:${ref.id} does not cite ${lectureId}`);
+    }
+  }
+}
+const objectiveLabIds = Object.keys(labObjectives);
+for (const id of objectiveLabIds) {
+  requireRefs(`labObjectives.${id}`, [id], "labs");
+  const objective = labObjectives[id];
+  if (!Array.isArray(objective.answers) || !objective.answers.length) throw new Error(`labObjectives.${id}: no answer key`);
+  for (const locale of ["de", "en"]) {
+    const copy = objective[locale];
+    if (!copy?.title || !copy?.hint || !copy?.success || copy.questions?.length !== objective.answers.length) throw new Error(`labObjectives.${id}.${locale}: incomplete localized objective`);
+    copy.questions.forEach((question, index) => {
+      if (!question.prompt || !Array.isArray(question.options) || question.options.length < 2) throw new Error(`labObjectives.${id}.${locale}.questions[${index}]: incomplete question`);
+      const optionValues = question.options.map(option => option[0]);
+      if (new Set(optionValues).size !== optionValues.length) throw new Error(`labObjectives.${id}.${locale}.questions[${index}]: duplicate option value`);
+      if (!question.options.some(option => option[0] === objective.answers[index])) throw new Error(`labObjectives.${id}.${locale}.questions[${index}]: answer is not an option`);
+    });
+  }
+  const germanOptionValues = objective.de.questions.map(question => question.options.map(option => option[0]).sort());
+  const englishOptionValues = objective.en.questions.map(question => question.options.map(option => option[0]).sort());
+  if (JSON.stringify(germanOptionValues) !== JSON.stringify(englishOptionValues)) throw new Error(`labObjectives.${id}: locale option values differ`);
+}
 for (const module of base.modules) {
   requireRefs(`modules.${module.id}`, module.concepts, "concepts");
   requireRefs(`modules.${module.id}`, module.labs, "labs");
@@ -255,6 +296,67 @@ requireTextFragments("en.concepts.python-engineering", englishConcepts["python-e
 requireTextFragments("en.formulas.next-token-batch", englishFormulas["next-token-batch"], [
   "np.memmap", "n−m+1", "Y[:-1]=X[1:]", "dtype"
 ]);
+requireTextFragments("de.formulas.transformer-ledger", baseFormulas["transformer-ledger"], [
+  "2VD+L(4D²+3DF+2D)+D", "8TD²+4T²D+6TDF", "15106048"
+]);
+requireTextFragments("en.formulas.transformer-ledger", englishFormulas["transformer-ledger"], [
+  "2VD+L(4D²+3DF+2D)+D", "8TD²+4T²D+6TDF", "15106048"
+]);
+requireTextFragments("de.concepts.kernel-contracts", baseConcepts["kernel-contracts"], [
+  "program_id(0)", "program_id(1)", "[n_row_tiles,D]", "D_row=rowsum(O⊙dO)", "dS-Zeile"
+]);
+requireTextFragments("en.concepts.kernel-contracts", englishConcepts["kernel-contracts"], [
+  "program_id(0)", "program_id(1)", "[n_row_tiles,D]", "D_row=rowsum(O⊙dO)", "dS row"
+]);
+requireTextFragments("de.concepts.distributed-runtime", baseConcepts["distributed-runtime"], [
+  "W_total=d·t·p", "B_global=B_micro·accum·d", "async_op", "max(0,T_comm−T_overlap)"
+]);
+requireTextFragments("en.concepts.distributed-runtime", englishConcepts["distributed-runtime"], [
+  "W_total=d·t·p", "B_global=B_micro·accum·d", "async_op", "max(0,T_comm−T_overlap)"
+]);
+requireTextFragments("de.concepts.scaling-optima", baseConcepts["scaling-optima"], [
+  "log(L_opt−E)", "Varianz 1/r²", "Lernrate 1/r", "Warmup, Stable und Decay"
+]);
+requireTextFragments("en.concepts.scaling-optima", englishConcepts["scaling-optima"], [
+  "log(L_opt−E)", "variance 1/r²", "learning rate 1/r", "Warmup, Stable, and Decay"
+]);
+requireTextFragments("de.concepts.grpo-variants", baseConcepts["grpo-variants"], [
+  "Dr. GRPO", "Rejection Fine-Tuning", "MaxRL", "geometrischen Mittelwert", "keine exakte Importance-Korrektur"
+]);
+requireTextFragments("en.concepts.grpo-variants", englishConcepts["grpo-variants"], [
+  "Dr. GRPO", "Rejection Fine-Tuning", "MaxRL", "geometric mean", "not an exact Importance correction"
+]);
+requireTextFragments("de.concepts.rlvr-systems", baseConcepts["rlvr-systems"], [
+  "old_logprobs", "R1-Zero", "vier Werte pro Präferenzpaar", "Reference bleibt"
+]);
+requireTextFragments("en.concepts.rlvr-systems", englishConcepts["rlvr-systems"], [
+  "old_logprobs", "R1-Zero", "four values per preference pair", "Reference stays frozen"
+]);
+
+const V = 1000, D = 64, F = 192, L = 3, T = 32;
+const exactParameters = 2 * V * D + L * (4 * D ** 2 + 3 * D * F + 2 * D) + D;
+const exactBlockFlops = 8 * T * D ** 2 + 4 * T ** 2 * D + 6 * T * D * F;
+const exactForwardFlops = L * exactBlockFlops + 2 * T * D * V;
+if (exactParameters !== 288192 || exactBlockFlops !== 3670016 || exactForwardFlops !== 15106048) throw new Error("A1 exact accounting regression");
+
+const scores = [0.2, -0.4, 1.1], upstream = [0.3, -0.2, 0.7], maximum = Math.max(...scores);
+const exponentials = scores.map(value => Math.exp(value - maximum)), normalizer = exponentials.reduce((sum, value) => sum + value, 0), probabilities = exponentials.map(value => value / normalizer);
+const softmaxProjection = probabilities.reduce((sum, value, index) => sum + value * upstream[index], 0);
+const scoreGradients = probabilities.map((value, index) => value * (upstream[index] - softmaxProjection));
+if (Math.abs(scoreGradients.reduce((sum, value) => sum + value, 0)) > 1e-12) throw new Error("FlashAttention backward row-sum invariant regression");
+
+for (const [id, answers] of Object.entries({
+  "transformer-ledger":["288192","3670016","15106048"],
+  "kernel-contracts":["3x3","3x70","ds-zero"],
+  "distributed-runtime":["32","32","wait"],
+  "scaling-transfer":["hidden","readout","decayed"],
+  "moe-routing":["4","2","alpha"],
+  "rlvr-system-transfer":["dr","surrogate","four"]
+})) if (JSON.stringify(labObjectives[id]?.answers) !== JSON.stringify(answers)) throw new Error(`labObjectives.${id}: fixed answer regression`);
+
+const coverageRenderer = source.slice(source.indexOf("function lectureCoverageMarkup"), source.indexOf("function renderPath"));
+for (const required of ["proofLabel.explain", "proofLabel.mechanism", "proofLabel.transfer", "LECTURE_UNITS"]) if (!coverageRenderer.includes(required)) throw new Error(`lecture coverage renderer: missing ${required}`);
+for (const forbidden of ["countLabel", "concepts.length", "Formeln mit dieser Quelle", "Passende Experimente"]) if (coverageRenderer.includes(forbidden)) throw new Error(`lecture coverage renderer reverted to resource counters: ${forbidden}`);
 for (const forbidden of ["Implementierungen können andere Pairings", "Implementations may use different pairings"]) {
   if (`${prose(baseConcepts.rope)} ${prose(baseFormulas.rope)} ${prose(englishConcepts.rope)} ${prose(englishFormulas.rope)}`.includes(forbidden)) throw new Error(`A1 RoPE contract became permissive again: ${forbidden}`);
 }

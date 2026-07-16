@@ -444,6 +444,29 @@ window.CS336_EN = Object.freeze({
         "Token-wise activations with Shape [B,T,D] double when all other quantities stay fixed. An explicit score matrix [B,H,T,T] grows quadratically and therefore needs roughly four times as much memory; IO-aware Attention can avoid fully materializing it."
       ]
     },
+    "transformer-ledger": {
+      "title": "A1 Architecture Ledger: Parameters & Forward FLOPs",
+      "level": "Core",
+      "summary": "The A1 ledger counts every matrix in the specified bias-free Decoder architecture exactly and separates stored parameters from compute performed for a concrete sequence.",
+      "mental": "Write the architecture as a bill of materials: two Vocabulary matrices; four Attention projections, three SwiGLU matrices, and two RMSNorm gains per block; plus one final norm. For FLOPs, every matrix is applied at T token positions, while QKᵀ and PV each contribute a T²D term. Sum only after every line has an owner.",
+      "details": [
+        "The A1 convention uses untied Token Embedding and LM Head matrices with V·D parameters each, no Biases, two RMSNorm gains per block, and one final RMSNorm gain. A block has four D×D matrices for Q, K, V, and Output, plus two D×F and one F×D matrix for SwiGLU. Therefore P_block=4D²+3DF+2D and P_total=2VD+L(4D²+3DF+2D)+D. RoPE contributes no trainable parameters.",
+        "For a bias-free matrix multiplication [m,n]@[n,p], A1 counts exactly 2mnp Floating-Point Operations (FLOPs). The four Attention projections cost 8TD² together, QKᵀ and the product of Attention weights with V cost 4T²D together, and the three SwiGLU matrices cost 6TDF. The LM Head costs 2TDV, giving F_forward=L(8TD²+4T²D+6TDF)+2TDV.",
+        "The number of Heads H cancels out of the exact Attention accounting as long as H·d_head=D: H Heads that each cost proportionally to d_head sum back to D. Doubling T doubles projection, SwiGLU, and Head compute but quadruples the 4T²D Attention-mixing term. This contract is specific to the explicit A1 architecture and must not be confused with the rough training approximation C≈6ND_tokens."
+      ],
+      "pitfalls": [
+        "Omitting the LM Head because Weight Tying is possible even though this A1 contract explicitly assumes untied matrices, or adding Biases the architecture does not contain.",
+        "Counting only two SwiGLU matrices or only QKᵀ in Attention; the gate, value branch, output projection, and PV product are separate matrix multiplications."
+      ],
+      "checks": [
+        "Which individual terms form P_total when the Embedding and LM Head are not tied?",
+        "Why does the T² term not depend on H at fixed D, and what happens when T doubles?"
+      ],
+      "answers": [
+        "Embedding and LM Head contribute 2VD. Each of L blocks contributes 4D² for Q, K, V, and Output, 3DF for the three SwiGLU matrices, and 2D for two RMSNorm gains. The final RMSNorm adds D; RoPE and Biases add nothing in this contract.",
+        "Each Head costs proportionally to T²d_head, so H Heads cost H·T²d_head=T²D. Doubling T doubles every token-wise matrix cost but quadruples QKᵀ and PV because both Query and Key position axes grow."
+      ]
+    },
     "unicode": {
       "title": "Unicode, Codepoints & UTF-8",
       "level": "Foundations",
@@ -1133,6 +1156,29 @@ window.CS336_EN = Object.freeze({
         "Strides determine which memory address a logical index denotes. If a kernel ignores them, transposed, sliced, or otherwise non-contiguous views cause it to read values different from the tensor's logical content. The same strides also determine whether neighboring lanes access memory coalescently, but correctness comes first."
       ]
     },
+    "kernel-contracts": {
+      "title": "2D Triton & FlashAttention Backward",
+      "level": "Systems",
+      "summary": "A2 requires explicit tile, mask, partial-buffer, and recomputation contracts for two-dimensional Triton kernels and FlashAttention backward, not merely a general idea of tiling.",
+      "mental": "A Triton program owns a rectangular tile, not automatically one full row or matrix. Two program IDs choose row and column tiles, and every memory address needs the corresponding boundary mask. Flash backward likewise does not store the large score matrix: Q, K, V, O, and the row-wise Log-Sum-Exp statistic suffice to regenerate probabilities block by block and assemble gradients.",
+      "details": [
+        "A two-dimensional launch grid may have shape (ceil_div(R,BR), ceil_div(C,BC)). program_id(0) and program_id(1) choose the two tile axes; offsets are pid·block_size plus arange. A Block Pointer records the base, full shape, strides, offsets, block shape, and memory order. Loads and stores at the boundary need the joint mask row<R and col<C so the final tile remains safe on both axes.",
+        "For the weighted row-sum kernel y_r=Σ_d X_rd·w_d, the gradients are dX_rd=g_r·w_d and dw_d=Σ_r X_rd·g_r. dX can be written independently per element. Several row tiles contribute to the same dw_d, however, so without atomics each row program produces a partial buffer of shape [n_row_tiles,D], followed by a second kernel that reduces its first axis. A barrier inside one program does not synchronize different programs.",
+        "FlashAttention backward stores Q, K, V, O, and L=logsumexp(S) for each Query row. It computes D_row=rowsum(O⊙dO), reconstructs S=QKᵀ/√d with the same causal mask and P=exp(S−L), then dV=PᵀdO, dP=dOVᵀ, dS=P⊙(dP−D_row), dQ=dSK/√d, and dK=dSᵀQ/√d. As a numerical invariant, every unmasked dS row sums approximately to zero."
+      ],
+      "pitfalls": [
+        "Checking only the column mask: in a genuine 2D grid, both the final row tile and the final column tile may extend beyond the matrix.",
+        "Using a different causal mask or Log-Sum-Exp axis during backward; reconstructed probabilities and gradients then become wrong despite plausible Shapes."
+      ],
+      "checks": [
+        "What grid and partial-buffer shapes result for R=37, D=70, BR=16, and BD=32?",
+        "Which tensors are stored for FlashAttention backward, and which row invariant should dS satisfy?"
+      ],
+      "answers": [
+        "The 2D grid has ceil(37/16)=3 row tiles and ceil(70/32)=3 column tiles. Without atomics, the row reduction for dw uses a partial buffer [3,70]; column tiles write disjoint D ranges within each partial row.",
+        "Q, K, V, O, and the row statistic L are stored. Scores and P are reconstructed with identical scaling and masking. Because Softmax is invariant to a common row offset, the sum of dS across each allowed Key row must be numerically close to zero."
+      ]
+    },
     "flash-attention": {
       "title": "FlashAttention as an IO-Aware Algorithm",
       "level": "Systems",
@@ -1181,6 +1227,29 @@ window.CS336_EN = Object.freeze({
       "answers": [
         "It reduces the activations and intermediate tensors stored for the Backward Pass. Model parameters, their gradients, and Optimizer state such as AdamW moments are not sharded or reduced by it.",
         "The Backward Pass should compute the derivative of exactly the function evaluated in the original Forward Pass. If a repeated Dropout operation creates a different mask, it reconstructs a different Computation Graph and the resulting gradient no longer belongs to the original output."
+      ]
+    },
+    "distributed-runtime": {
+      "title": "Distributed Runtime: Groups, Ordering & Critical Path",
+      "level": "Systems",
+      "summary": "Distributed Data Parallel (DDP) is correct only when Process Groups, tensor ordering, asynchronous lifetimes, and the Data-Parallel degree match explicitly; speedup then depends on the overlap-aware critical path.",
+      "mental": "Every Rank is a process, but World Size always belongs to a specific Process Group. All members must enter matching Collectives with compatible Shapes in the same order. An asynchronous handle means only that work was launched. A dependency or wait boundary is what makes the tensor safe to consume and permits a correct Optimizer Step.",
+      "details": [
+        "A Rank identifies a process inside a Process Group, and world_size is the number of members in that particular group. In a multidimensional layout, W_total=d·t·p for the Data-, Tensor-, and Pipeline-Parallel degrees. Only d enlarges the global data batch: B_global=B_micro·accum·d. Tensor- and Pipeline-Parallel Ranks split the same example or model and must not be counted again as independent data copies.",
+        "Collectives are distributed control-flow contracts. The same operation, compatible tensor shape, and compatible ordering must occur on every group member, or one Rank may wait for a message another never sends. async_op returns a handle, not completed gradients. Before reusing its buffer or performing the Optimizer Step, the program needs wait or a proven stream dependency.",
+        "DDP keeps parameters replicated, computes local Losses, and synchronizes gradient buckets when their parameters become ready during backward. Small buckets start early but pay latency more often; large buckets amortize latency but start later. In a ring, All-Reduce moves approximately 2(W−1)M/W bytes per Rank, while Reduce-Scatter or All-Gather moves (W−1)M/W. The critical path can be checked with T_step≈T_compute+max(0,T_comm−T_overlap)."
+      ],
+      "pitfalls": [
+        "Using total device count as World Size everywhere; Batch Size, Collective membership, and sharding may each be governed by a different Process Group.",
+        "Treating a returned async handle as completion and updating parameters before gradient synchronization has actually finished."
+      ],
+      "checks": [
+        "What are total World Size and global Batch Size for d=4, t=4, p=2, B_micro=2, and accumulation=4?",
+        "Which conditions prevent a Collective deadlock, and how does overlap appear in the critical path?"
+      ],
+      "answers": [
+        "The total Rank count is 4·4·2=32. The global data batch is only 2·4·4=32 examples per Optimizer Step because Tensor and Pipeline Parallelism process the same examples and do not multiply the data batch.",
+        "Every member of the group must call compatible Collectives with matching Shapes and in matching order; asynchronous work must complete before dependent use. Only T_overlap can hide communication, so uncovered time max(0,T_comm−T_overlap) is added to compute."
       ]
     },
     "collectives": {
@@ -1304,6 +1373,29 @@ window.CS336_EN = Object.freeze({
       "answers": [
         "C ≈ 6ND implies D ≈ C/(6N). If you double N while keeping C unchanged, this approximation allows only half as many training tokens.",
         "One profile provides N_opt and D_opt only for that specific budget. Minima across several budgets are needed to reveal how both optimal quantities scale with C, so a trend can be extrapolated to a larger target budget and its stability can be checked."
+      ]
+    },
+    "scaling-optima": {
+      "title": "Compute Optima, μP Roles & the WSD Contract",
+      "level": "Scaling",
+      "summary": "Lecture 11 connects three separate contracts: Compute optima are fitted with an offset and uncertainty, μP scales parameters by role, and WSD defines when a Checkpoint is actually complete.",
+      "mental": "Treat the fit, parameterization, and schedule as three tables. The fit table contains C, N_opt, D_opt, and L_opt with offset E. Maximum Update Parametrization (μP) assigns an initialization and Adam learning-rate scaling to each matrix role. Warmup-Stable-Decay (WSD) instead marks training phases; a Stable Checkpoint is a shared starting point and becomes a final comparison only after its defined Decay.",
+      "details": [
+        "Compute-optimal predictions can be modeled as N_opt=A_N·C^a, D_opt=A_D·C^b, and L_opt=E+A_L·C^(−γ). Fit log N_opt and log D_opt against log C; fit log(L_opt−E) for Loss. If E is unknown, use a constrained fit or a sensitivity analysis. a+b≈1 is only a consistency check when D was derived from the same C≈6ND relationship, not for independent or confounded fits.",
+        "In the specific Lecture 11 μP protocol, let r=M/M₀ be the ratio to base width. Embeddings retain initialization variance and Adam learning rate with factor 1. Hidden matrices use variance 1/r, hence standard deviation 1/√r, and Adam learning rate 1/r. Readout matrices use variance 1/r², hence standard deviation 1/r, and learning rate 1/r. This role table is protocol-specific rather than a universal μP definition for arbitrary architectures or Optimizers.",
+        "WSD consists of Warmup, Stable, and Decay. A Checkpoint from Stable can seed several defined Decay lengths and thereby save shared work. Before Decay, however, it is not a fair final endpoint against a fully completed schedule. Reports must include Token count, Compute, exact Decay length, Optimizer assumptions, and the limitation that the covered μP theory primarily explains width rather than depth transfer."
+      ],
+      "pitfalls": [
+        "Ignoring the irreducible offset E before taking logarithms; this forces a curved Loss relationship into a line and distorts the extrapolation.",
+        "Applying one global μP rule to every matrix or calling a Stable Checkpoint final while the Decay defined for that comparison has not run."
+      ],
+      "checks": [
+        "Which initialization and Adam factors apply at r=4 to Embedding, Hidden, and Readout roles in the lecture protocol?",
+        "When is a+b≈1 a useful check, and why is a Stable Checkpoint not automatically final?"
+      ],
+      "answers": [
+        "Embedding keeps variance, standard deviation, and learning rate at factor one. Hidden uses variance 1/4, standard deviation 1/2, and Adam learning rate 1/4. Readout uses variance 1/16, standard deviation 1/4, and Adam learning rate 1/4.",
+        "The exponent sum checks the shared Compute relationship only when D consistently comes from C/(6N). A Stable Checkpoint still uses the plateau learning rate; only its specified Decay produces the completed comparison point for that schedule."
       ]
     },
     "scaling-practice": {
@@ -1797,6 +1889,52 @@ window.CS336_EN = Object.freeze({
       "answers": [
         "Several Rollouts for the same Prompt provide a sample of the Rewards expected for that Prompt. Their mean serves as a local Baseline, so r_j−μ expresses whether a response is above or below the group level for exactly that task without a learned Value Function making a prediction.",
         "Dividing by the group standard deviation gives relatively larger normalized weights to groups with low Reward spread and relatively smaller weights to groups with high spread. Averaging over sequence length gives each response a similar total weight and therefore weakens individual tokens in long responses relative to tokens in short responses."
+      ]
+    },
+    "grpo-variants": {
+      "title": "GRPO Variants, Sequence Ratios & GSPO",
+      "level": "RL",
+      "summary": "A5 distinguishes GRPO variants by their baseline, Advantage normalization, and Loss denominator; Off-Policy variants additionally distinguish exact sequence weighting from more stable Surrogates.",
+      "mental": "Write every variant as three decisions: which baseline is subtracted from Reward, what scales the Advantage, and what divides the token Loss? Old Rollouts add a second axis: the product of all response-token Ratios is the exact sequence correction, while token-local Ratios and the geometric mean used by Group Sequence Policy Optimization (GSPO) are intentionally biased objectives.",
+      "details": [
+        "Standard GRPO uses the group mean as baseline, divides Advantages by the group standard deviation, and averages Loss per sequence. The Constant variant keeps the baseline and normalization but uses a fixed denominator. Dr. GRPO uses the mean baseline without Advantage normalization and with a fixed denominator. Rejection Fine-Tuning (RFT) uses only correct samples, no baseline, no normalization, and a fixed denominator. MaxRL uses the mean baseline, a mean normalizer, and a fixed denominator.",
+        "For a complete response y, the exact sequence Importance Weight is W(y)=exp(Σ_t∈response[log π_current(y_t|prefix_t)−log π_old(y_t|prefix_t)]). The product corrects the probability of the complete trajectory sampled under the old Policy. A token-local Ratio corrects only the current action under an already old Prefix and ignores the probability of the Prefix and later Suffix; it is therefore a biased Surrogate even when its variance is lower.",
+        "GSPO uses s(y)=exp((1/n_y)Σ_t log-ratio_t), the geometric mean of response-token Ratios, and applies the same scalar to every token in the response. This reduces the explosive length dependence of the sequence product but is not an exact Importance correction. Proximal Policy Optimization (PPO) additionally clips by Advantage sign: a too-large Ratio is capped for positive Advantage, while a too-small Ratio is capped for negative Advantage. Old Log-Probabilities and Response Masks must remain frozen from Rollout."
+      ],
+      "pitfalls": [
+        "Treating all variants as mere names; baseline, normalizer, and denominator deliberately change the weighting of difficulty and response length.",
+        "Calling GSPO or token-local Ratios mathematically exact sequence Importance Sampling; their improved stability is purchased with a different, biased estimator."
+      ],
+      "checks": [
+        "Which three design axes distinguish Standard GRPO, Dr. GRPO, RFT, and MaxRL?",
+        "Why is GSPO more stable than the sequence product but not an exact Off-Policy correction?"
+      ],
+      "answers": [
+        "The variants differ in Reward baseline, Advantage normalization, and Loss denominator. Standard uses mean, standard deviation, and sequence mean; Dr. GRPO uses mean, no Advantage normalization, and a fixed denominator; RFT uses correct samples without baseline or normalization and a fixed denominator; MaxRL uses mean, a mean normalizer, and a fixed denominator.",
+        "Averaging Log Ratios divides their scale by response length and dampens extreme products. Exact Importance Sampling requires the product, equivalently the sum of all response Log Ratios; dividing by n_y changes that factor and therefore the estimator."
+      ]
+    },
+    "rlvr-systems": {
+      "title": "RLVR System Cycle & the SFT→DPO Contract",
+      "level": "RL",
+      "summary": "Reinforcement Learning from Verifiable Rewards (RLVR) is a synchronized data and Policy cycle; the optional SFT→DPO path has a separate masking and Reference contract.",
+      "mental": "Draw RLVR as a version flow: trainer weights are distributed to Rollout workers, a frozen Old Policy produces responses and Log-Probabilities, a Verifier supplies Rewards, and only then does the Current Policy update against those exact stored data. Supervised Fine-Tuning (SFT) and Direct Preference Optimization (DPO) are a separate path with a Chat Template, response masks, and a fixed Reference Policy.",
+      "details": [
+        "A complete RLVR system contains the Current Policy, frozen Old Rollout Policy, fixed Reference Policy for Kullback-Leibler control, Verifier, optional Critic, Rollout workers, and trainer. Its cycle is: synchronize weights, roll out prompts and responses, verify Rewards, freeze old_logprobs and response_mask, compute Advantages, perform Policy updates, and log Reward, length, Entropy, KL, Ratios, Clip Fraction, and gradient norms. Without an explicit Policy version, a Ratio has no meaning.",
+        "R1-Zero starts the verifiable Reinforcement-Learning path without prior SFT; R1 adds, among other things, SFT initialization, language consistency, and a stage that is not fully verifiable. Kimi and Qwen recipes change data, model, stages, and infrastructure together. These system recipes are confounded case studies and do not support an isolated algorithm ranking from one final score.",
+        "In SFT, the Chat Template defines the exact tokens and only response tokens contribute to Loss; Prompt, Template, and Padding positions must be masked. DPO needs response-only sequence Log-Probabilities for chosen and rejected under both Current Policy and fixed Reference Policy, totaling four values per preference pair. The Reference stays frozen during DPO; recomputing it from a changed model or training it alongside the Policy changes the objective."
+      ],
+      "pitfalls": [
+        "Replacing Rollout old_logprobs with values recomputed after an update; this hides Policy Staleness and artificially pulls the Ratio toward one.",
+        "Comparing R1, R1-Zero, Kimi, or Qwen as controlled single-algorithm Ablations even though stages, data, starting models, and systems vary together."
+      ],
+      "checks": [
+        "Which Policy versions and artifacts must remain immutable between Rollout and update?",
+        "Which four sequence Log-Probabilities does DPO require, and which token positions contribute?"
+      ],
+      "answers": [
+        "The Old Policy, its stored per-response-token Log-Probabilities, Response Mask, sampled tokens, and Verifier Reward remain fixed for the update epoch. The Current Policy may change, while the fixed Reference separately anchors KL or DPO comparisons.",
+        "DPO requires log π_current(chosen|x), log π_current(rejected|x), log π_ref(chosen|x), and log π_ref(rejected|x). Every sum covers only response tokens under the same Chat Template; Prompt, Template, and Padding tokens carry no response Loss."
       ]
     },
     "off-policy": {
@@ -2416,6 +2554,21 @@ window.CS336_EN = Object.freeze({
       "check": "Why does D² dominate?",
       "answer": "The large weight matrices of a block connect dimensions that are both proportional to D, such as D×D or D×D_ff with D_ff proportional to D. Thus, each block mainly costs a constant factor times D² parameters."
     },
+    "transformer-ledger": {
+      "cat": "Resources",
+      "title": "Exact A1 Transformer Ledger",
+      "expr": "P=2VD+L(4D²+3DF+2D)+D   ·   F_fwd=L(8TD²+4T²D+6TDF)+2TDV",
+      "read": "Count two Vocabulary matrices, four Attention and three SwiGLU matrices per block, plus norm gains; apply each matrix to T tokens and add the two quadratic Attention products.",
+      "purpose": "Provides exact A1 parameter and forward-FLOP accounting with untied Embedding and LM Head, no Bias, and two FLOPs per multiply-add.",
+      "dims": "P counts scalar parameters; F_fwd counts matrix-multiplication FLOPs for one sequence of length T. V, D, F, L, and T are positive integer sizes.",
+      "vars": [["V","Vocabulary size"],["D","Model dimension"],["F","SwiGLU hidden width"],["L","Number of Transformer blocks"],["T","Sequence length"]],
+      "intuition": "Parameters depend on matrix shapes; runtime reuses those weights across tokens and Attention additionally mixes every Query-Key position pair.",
+      "pitfall": "Silently assuming Weight Tying, Biases, or a classic two-matrix MLP changes the architecture and therefore both formulas.",
+      "example": "V=1000,D=64,F=192,L=3,T=32,H=8 gives P=288192, F_block=3670016, and F_fwd=15106048; H cancels when H·d_head=D.",
+      "check": "Which matrix was probably omitted if the SwiGLU term is only 4TDF rather than 6TDF?",
+      "aliases": "exact transformer accounting forward flops swiglu untied head ledger",
+      "answer": "The missing term is the third SwiGLU matrix. Two D×F projections produce the gate and value branches, while the F×D output projection returns their product to the Residual Stream. Each costs 2TDF FLOPs, totaling 6TDF rather than 4TDF."
+    },
     "temperature": {
       "cat": "Sampling",
       "title": "Temperature",
@@ -2737,6 +2890,21 @@ window.CS336_EN = Object.freeze({
       "check": "Which two statistics suffice for normalization?",
       "answer": "Per query row, the previous maximum m and the correspondingly scaled exponential sum ℓ suffice. With these two quantities, new blocks can be included stably and correct normalization determined at the end; an output accumulator is additionally maintained for weighted values."
     },
+    "flash-backward": {
+      "cat": "GPU",
+      "title": "FlashAttention Backward Recomputation",
+      "expr": "D_row=rowsum(O⊙dO); P=exp(QKᵀ/√d−L); dS=P⊙(dOVᵀ−D_row); dQ=dSK/√d; dK=dSᵀQ/√d; dV=PᵀdO",
+      "read": "Reconstruct the masked Softmax probabilities from Q, K, and row-wise Log-Sum-Exp, then form dV, dS, dQ, and dK.",
+      "purpose": "Computes exact Attention backward without storing the complete T×T probability matrix in High Bandwidth Memory.",
+      "dims": "Q,K,dQ,dK have Head Shape [T,d], V,O,dV,dO use [T,d_v], L and D_row use [T], while P and dS exist only blockwise with logical Shape [T,T].",
+      "vars": [["L","stored row-wise Log-Sum-Exp statistic"],["D_row","row sum of O⊙dO"],["P","reconstructed masked Softmax probabilities"],["dS","gradient of scaled, masked scores"]],
+      "intuition": "Stored row statistics suffice to reconstruct P exactly tile by tile, exchanging additional Compute for avoided memory traffic.",
+      "pitfall": "Forward and backward masks must be identical; masked entries stay zero and every valid dS row should sum numerically to approximately zero.",
+      "example": "For a fully allowed row, rowsum(dS)≈0 because shifting all Softmax logits by one common offset does not change the Output.",
+      "check": "Why is rowsum(dS) a useful gradient invariant?",
+      "aliases": "flash attention backward recompute logsumexp drow ds dq dk dv",
+      "answer": "Softmax is invariant to a common shift of all logits in one row. The derivative along that offset direction must therefore be zero, so dS sums to approximately zero over allowed Keys. A clear deviation often reveals the wrong axis, mask, scaling, or D_row."
+    },
     "memory-state": {
       "cat": "Systems",
       "title": "Training State per Parameter",
@@ -2966,6 +3134,21 @@ window.CS336_EN = Object.freeze({
       "check": "Why doesn't it grow linearly with W?",
       "answer": "The tensor is split into W chunks, and each rank moves only W−1 chunks of size M/W in each of the two ring phases. The total volume 2(W−1)M/W therefore approaches the constant value 2M for large W, rather than growing linearly with W."
     },
+    "distributed-critical-path": {
+      "cat": "Parallelism",
+      "title": "Distributed Critical Path",
+      "expr": "W_total=d·t·p   ·   B_global=B_micro·accum·d   ·   T_step≈T_compute+max(0,T_comm−T_overlap)",
+      "read": "Multiply parallel degrees for Rank count but only the Data-Parallel degree for Batch Size; add only communication not hidden by Compute.",
+      "purpose": "Prevents World-Size factor errors and reveals which portion of communication actually lengthens the training step.",
+      "dims": "d, t, p, and accumulation are dimensionless; B counts examples; every T term is a duration expressed in the same unit.",
+      "vars": [["d,t,p","Data-, Tensor-, and Pipeline-Parallel degrees"],["B_micro","local Microbatch Size"],["accum","Gradient-Accumulation steps"],["T_overlap","communication time actually concurrent with Compute"]],
+      "intuition": "Model-Parallel Ranks split work on the same data batch; overlap saves time only when communication truly runs before its dependency becomes active.",
+      "pitfall": "Using total World Size as the Data-Parallel degree or counting launched asynchronous work automatically as fully overlapped.",
+      "example": "d=4,t=4,p=2,B_micro=2,accum=4 gives W_total=32 and B_global=32, not 256.",
+      "check": "When does communication disappear entirely from the modeled critical path?",
+      "aliases": "distributed world size global batch overlap critical path ddp process group",
+      "answer": "When T_overlap is at least T_comm, max(0,T_comm−T_overlap)=0 and communication does not lengthen the modeled step. This requires genuine concurrency and a dependency that occurs only after communication completes; merely launching an async operation does not prove such overlap."
+    },
     "pipeline-efficiency": {
       "cat": "Parallelism",
       "title": "Pipeline Bubble (Simplified 1F1B Model)",
@@ -3060,6 +3243,36 @@ window.CS336_EN = Object.freeze({
       "example": "C=[1,4,16] and N_opt=[10,20,40] million ⇒ a=0.5, b=log(10), so N_opt=10√C million.",
       "check": "Why should one tier be removed from the fit and then predicted?",
       "answer": "Leave-one-tier-out tests genuine interpolation or extrapolation: the fit does not see the removed minimum and must predict it from the remaining tiers. A small training error on the same fit points only demonstrates adaptation; it detects neither sensitive exponents nor systematic errors at new compute budgets."
+    },
+    "compute-optimal-predictions": {
+      "cat": "Scaling",
+      "title": "Compute-Optimal N, D & Loss Predictions",
+      "expr": "N_opt=A_NCᵃ   ·   D_opt=A_DCᵇ   ·   L_opt=E+A_LC^(−γ)",
+      "read": "Fit Model Size, Token count, and Loss remaining above E as separate Power Laws over Compute.",
+      "purpose": "Makes the complete A3 target prediction explicit, including the irreducible Loss offset and a consistency check.",
+      "dims": "N and D are counts, C is Compute in one fixed unit, L and E share a Loss scale, and the exponents are dimensionless.",
+      "vars": [["A_N,A_D,A_L","unit-dependent prefactors"],["a,b,γ","positive Scaling exponents"],["E","irreducible or asymptotic Loss offset"]],
+      "intuition": "N and D become linear directly in Log space; only the positive distance L_opt−E is logged for Loss.",
+      "pitfall": "Setting E to zero without evidence or treating a+b≈1 as a law when D was not consistently constructed from C/(6N).",
+      "example": "When D is derived and C≈6ND, a+b should be near one; for independent fits, a deviation is not automatically an accounting error.",
+      "check": "Why does an unknown offset E require a sensitivity analysis?",
+      "aliases": "n opt d opt l opt offset scaling predictions exponent sum",
+      "answer": "Different plausible values of E change the positive residual L_opt−E and therefore its logarithms, the fitted slope γ, and the extrapolated Loss curve. Because E and γ can be strongly coupled, E must be constrained or varied across a reported sensitivity range."
+    },
+    "mup-transfer": {
+      "cat": "Scaling",
+      "title": "Lecture 11 μP Role Scaling",
+      "expr": "r=M/M₀: Emb var×1, lr×1   ·   Hidden var×1/r, lr×1/r   ·   Readout var×1/r², lr×1/r",
+      "read": "Scale initialization variance and Adam learning rate by matrix role rather than applying one global width factor.",
+      "purpose": "Documents the exact Hyperparameter-transfer contract for the Maximum Update Parametrization protocol covered in Lecture 11.",
+      "dims": "r is dimensionless; variance factors multiply base variance and learning-rate factors multiply the base Adam learning rate. Standard deviation is the square root of the variance factor.",
+      "vars": [["M,M₀","target and base widths"],["r","width ratio"],["var","initialization-variance factor"],["lr","Adam learning-rate factor"]],
+      "intuition": "Hidden and Readout matrices sum different numbers of width-dependent contributions and therefore require different starting and update scales.",
+      "pitfall": "This table is protocol-specific, primarily covers width scaling, and must not be transferred blindly to other Optimizers, depths, or parameter roles.",
+      "example": "r=4 gives Hidden std×1/2 and lr×1/4, Readout std×1/4 and lr×1/4, while Embedding stays unchanged.",
+      "check": "Why is the Readout standard-deviation factor 1/r rather than 1/r²?",
+      "aliases": "mup maximum update parametrization width transfer initialization adam learning rate wsd",
+      "answer": "The formula specifies Readout variance with factor 1/r². Standard deviation is the square root of variance, so sqrt(1/r²)=1/r for positive width ratio r. Using 1/r² as the standard deviation would incorrectly scale variance by 1/r⁴."
     },
     "ngram-filter": {
       "cat": "Data",
@@ -3526,6 +3739,36 @@ window.CS336_EN = Object.freeze({
       "check": "What happens with [1,1,1]?",
       "answer": "For rewards [1,1,1], the group mean is one and each centered advantage is zero, so there is no relative learning signal. The standard deviation is also zero and must be safeguarded by ε or a defined special case during normalization."
     },
+    "grpo-variants": {
+      "cat": "RL",
+      "title": "GRPO Variant Contract",
+      "expr": "A=(R−b)/(c+ε)   ·   loss=−Σ mask·A·logπ / Z",
+      "read": "A variant is fully characterized by Reward baseline b, Advantage normalizer c, and token-Loss denominator Z.",
+      "purpose": "Separates Standard GRPO, Constant, Dr. GRPO, RFT, and MaxRL by the weighting mechanism each one actually changes.",
+      "dims": "R, b, and c use the Reward scale; A is dimensionless after normalization, while Z either counts tokens or is a fixed constant.",
+      "vars": [["b","group baseline or zero"],["c","group standard deviation, mean normalizer, or one"],["Z","sequence length, global token count, or fixed constant"],["mask","response-only mask"]],
+      "intuition": "Baseline controls comparison, normalizer controls Prompt weighting, and denominator controls length weighting, so identical Rollouts can produce different gradients.",
+      "pitfall": "Compare variants mechanically only on identical Rollouts with unchanged Sampling, Batch, token, and update budgets.",
+      "example": "Dr. GRPO uses the group mean, c=1, and fixed Z; RFT uses b=0, c=1, fixed Z, and only correct samples.",
+      "check": "Which design axis does a fixed denominator change relative to a sequence mean?",
+      "aliases": "dr grpo rft maxrl constant denominator advantage normalization variants",
+      "answer": "A sequence mean sets Z to the number of valid response tokens and therefore gives each response a similar outer weight regardless of length. A fixed denominator leaves the number of contributing tokens in the total weight, so longer responses exert more influence when token contributions are otherwise equal."
+    },
+    "gspo-ratio": {
+      "cat": "RL",
+      "title": "Sequence Importance & GSPO Ratio",
+      "expr": "W(y)=exp(Σ_t∈resp Δlogπ_t)   ·   s_GSPO(y)=exp((1/n_y)Σ_t∈resp Δlogπ_t)",
+      "read": "The exact sequence weight multiplies every response-token Ratio; GSPO uses their geometric mean as one shared response scalar.",
+      "purpose": "Exposes the Bias-variance trade-off between exact Off-Policy sequence correction and the more length-stable GSPO Surrogate.",
+      "dims": "Both Ratios are positive and dimensionless; n_y counts only unmasked response tokens, and Δlogπ compares Current with the exact Old Rollout Policy.",
+      "vars": [["W(y)","exact Importance Weight of the complete response"],["s_GSPO(y)","geometric mean of token Ratios"],["n_y","number of valid response tokens"],["Δlogπ_t","logπ_current−logπ_old for the stored token"]],
+      "intuition": "Summed Log Ratios form the sequence product; division by length dampens its growth but deliberately changes the estimator.",
+      "pitfall": "Token-local Ratios and GSPO are not exact sequence corrections; old_logprobs and the Response Mask must not be recomputed after Rollout.",
+      "example": "With token Ratios four and one, W=4 while GSPO applies the shared response scalar √4=2 to both tokens.",
+      "check": "When are W and s_GSPO both one despite their different definitions?",
+      "aliases": "gspo sequence importance weight geometric mean old logprobs response mask",
+      "answer": "Both factors are one when the sum of response Log Ratios is zero. This holds in particular when Current and Old Policy agree on every stored token, but it can also occur when positive and negative Log Ratios cancel exactly across the response."
+    },
     "importance-ratio": {
       "cat": "RL",
       "title": "Importance Ratio",
@@ -3597,10 +3840,12 @@ window.CS336_EN = Object.freeze({
     "gradient_clip": "A1 p. 33–34",
     "training_flops": "L2 p. 2, 9–11 · A3 p. 2",
     "online_softmax": "A2 p. 24–25 · L5 p. 46–50",
+    "flash_backward": "A2 p. 28–29 · L5 p. 46–50",
     "triton_grid_mask": "L6 p. 19–20 · A2 p. 17–20",
     "roofline": "L5 p. 20 · L6 p. 3",
     "mfu": "L2 p. 10",
     "ring_allreduce": "A2 p. 40",
+    "distributed_critical_path": "L8 p. 4–11 · A2 p. 40–44",
     "kv_cache": "L10 p. 6–7 · L3 p. 55–58",
     "inference_params_gqa": "L10 p. 6–7",
     "mlp_arithmetic_intensity": "L10 p. 5",
@@ -3614,8 +3859,11 @@ window.CS336_EN = Object.freeze({
     "moe_balance": "L4 p. 28–29",
     "pipeline_efficiency": "L7 p. 31",
     "transformer_params": "A3 p. 8",
+    "transformer_ledger": "A1 p. 27–28 · L2 p. 8–12",
     "isoflops": "A3 p. 2",
     "scaling_optimal_fit": "L9 p. 14–18 · L11 p. 4–9 · A3",
+    "compute_optimal_predictions": "L11 p. 17–36 · A3",
+    "mup_transfer": "L11 p. 42–45 · A3",
     "ngram_filter": "L14 p. 2–3",
     "fasttext_filter": "L14 p. 3–4",
     "importance_resampling": "L14 p. 4–5",
@@ -3628,6 +3876,8 @@ window.CS336_EN = Object.freeze({
     "advantage": "A5 p. 10 · L17 p. 2–3",
     "grpo_advantage": "A5 p. 11–13 · L16 p. 30–36",
     "importance_ratio": "A5 p. 32–34",
+    "grpo_variants": "A5 p. 16–31 · L16 p. 30–36",
+    "gspo_ratio": "A5 p. 32–35 · L16 p. 30–36",
     "ppo_clip": "A5 p. 34–35",
     "bradley_terry": "A5 Supplement p. 15",
     "dpo": "A5 Supplement p. 15–17 · L15 p. 55–58"
@@ -3701,8 +3951,8 @@ window.CS336_EN = Object.freeze({
           "derive": "Maintain a Shape Ledger from token_ids [B,T] to logits [B,T,V], marking exactly where positions are mixed, features are mixed, Heads are separated, and future positions are excluded.",
           "evidence": "You can derive non-square Query/Key lengths, mask Broadcasting, the QKV Head split, Residual paths, and parameter and FLOP terms without trial and error.",
           "failure": "First lead: Test causal invariance—a change to a future token must not alter earlier logits—and then isolate the first failing Block.",
-          "concepts": ["attention", "causal-mask", "transformer-block", "resource-accounting"],
-          "labs": ["attention", "shapes", "resources"]
+          "concepts": ["attention", "causal-mask", "transformer-block", "resource-accounting", "transformer-ledger"],
+          "labs": ["attention", "shapes", "resources", "transformer-ledger"]
         },
         {
           "id": "optimization",
@@ -3820,8 +4070,8 @@ window.CS336_EN = Object.freeze({
           "derive": "Derive Block-wise Online Softmax for two Key tiles: the running maximum, rescaled exponential sum, and rescaled Value accumulator. Record shapes and boundary masks.",
           "evidence": "You can explain how exact Attention is computed without materializing the full T×T matrix in High Bandwidth Memory (HBM), test non-square and boundary shapes, and isolate Forward and gradient errors.",
           "failure": "First lead: Check tile indices, Strides, boundary masks, causal masks, and the rescaling of maxima and sums before tuning performance parameters.",
-          "concepts": ["fusion-tiling", "triton-kernels", "flash-attention", "profiling", "pytorch-tensors"],
-          "labs": ["triton-tile", "online-softmax-kata", "attention", "roofline"]
+          "concepts": ["fusion-tiling", "triton-kernels", "kernel-contracts", "flash-attention", "profiling", "pytorch-tensors"],
+          "labs": ["triton-tile", "kernel-contracts", "online-softmax-kata", "attention", "roofline"]
         },
         {
           "id": "collectives-ddp",
@@ -3830,8 +4080,8 @@ window.CS336_EN = Object.freeze({
           "derive": "For two and four Ranks, draw a Timeline containing Forward, Backward, gradient-ready events, Collective start, handle wait, and Optimizer Step.",
           "evidence": "You can name the Rank, Process Group, World Size, tensor bytes, and critical path and prove that Overlap creates neither a race condition nor a premature Step.",
           "failure": "First lead: For hangs, compare the Collective order on every Rank; for incorrect gradients, check that every asynchronous handle finishes before the parameter update.",
-          "concepts": ["collectives", "ddp-zero-fsdp", "model-parallelism"],
-          "labs": ["parallelism"]
+          "concepts": ["distributed-runtime", "collectives", "ddp-zero-fsdp", "model-parallelism"],
+          "labs": ["distributed-runtime", "parallelism"]
         },
         {
           "id": "sharding-fsdp",
@@ -3947,8 +4197,8 @@ window.CS336_EN = Object.freeze({
           "derive": "Translate the continuous Fit prediction into valid discrete hyperparameters, then recalculate compute, tokens, runtime, and the deviation from the fitted curve.",
           "evidence": "The final configuration satisfies every constraint, has a justified uncertainty range, and remains a similar decision under plausible Fit variants.",
           "failure": "First lead: If rounding or constraint clipping moves the point substantially, treat the discrete configuration as a new candidate and recalculate it fully instead of quoting the continuous prediction.",
-          "concepts": ["scaling-practice", "isoflops"],
-          "labs": ["scaling", "scaling-fit"]
+          "concepts": ["scaling-optima", "scaling-practice", "isoflops"],
+          "labs": ["scaling", "scaling-fit", "scaling-transfer"]
         }
       ],
       "done": [
@@ -4179,8 +4429,8 @@ window.CS336_EN = Object.freeze({
           "derive": "For each variant, write down only the denominator or weighting factor changed relative to the Baseline and predict which Prompts, sequence lengths, or Reward groups gain influence.",
           "evidence": "You can compare variants numerically on identical Rollouts and then interpret Reward, length, Entropy, and held-out accuracy together across Multi-Seed Runs.",
           "failure": "First lead: If the variants seem unfair, check whether Sampling, Batch, tokens, or update count changed in addition to the intended objective weighting.",
-          "concepts": ["grpo", "benchmark-validity"],
-          "labs": ["grpo", "evaluation"]
+          "concepts": ["grpo", "grpo-variants", "benchmark-validity"],
+          "labs": ["grpo", "rlvr-system-transfer", "evaluation"]
         },
         {
           "id": "off-policy",
@@ -4189,8 +4439,8 @@ window.CS336_EN = Object.freeze({
           "derive": "Label the Behavior, Old, Current, and Reference Policies and calculate token- and sequence-level Importance Ratios in Log space for positive and negative Advantages, including Clipping cases.",
           "evidence": "You can explain which variant is exact and which is a Surrogate, how staleness changes Bias and variance, and why stored old Log-Probabilities must remain immutable.",
           "failure": "First lead: Ratios near one after many updates often indicate recomputed old_logprobs; extreme Ratios indicate Policy drift, mask or Shift errors, or products over long sequences.",
-          "concepts": ["off-policy", "policy-gradient", "rlhf"],
-          "labs": ["grpo"]
+          "concepts": ["off-policy", "grpo-variants", "rlvr-systems", "policy-gradient", "rlhf"],
+          "labs": ["grpo", "rlvr-system-transfer"]
         },
         {
           "id": "supplement",
@@ -4445,6 +4695,72 @@ window.CS336_EN = Object.freeze({
       "misconception": "A positive Reward can have a negative Advantage when it falls below the group mean. Equal rewards provide no signal. Sequence means, a global token mean, and a fixed denominator also reweight long responses differently.",
       "transferQuestion": "How does standard-deviation normalization change the weighting of easier and harder prompt groups?",
       "transferAnswer": "In Group Relative Policy Optimization, a reward difference within each prompt group is divided by its standard deviation. The same absolute distance thus receives greater weight in a group with small spread and lesser weight in a group with large spread, so prompt groups are reweighted according to their reward spread. If all answers in a group have the same reward, the centered numerator is zero and the group provides no relative learning signal despite the stabilization term."
+    },
+    "transformer-ledger": {
+      "title": "A1 Transformer Accounting Gate",
+      "desc": "Compute the complete parameter and forward-FLOP contract of a fixed A1 toy architecture without approximation factors.",
+      "mental": "Exact architecture accounting is a bill of materials. Count matrices and gains with their Shapes first, then repeat each matrix across T tokens, and finally add the two position-quadratic Attention products.",
+      "formula": "P=2VD+L(4D²+3DF+2D)+D  ·  F_block=8TD²+4T²D+6TDF  ·  F_fwd=L·F_block+2TDV",
+      "symbols": [["V,D,F,L,T","Vocabulary, Model Dimension, SwiGLU width, blocks, and Sequence Length."],["4D²","Q, K, V, and Output projections."],["3DF","SwiGLU gate, value, and output projections."],["4T²D","QKᵀ and PV together."]],
+      "observe": "Use V=1000, D=64, F=192, L=3, and T=32. Assign every number to one architecture component before summing.",
+      "misconception": "The rough 12LD² formula is not a substitute here. A1 specifies a concrete SwiGLU width, untied Vocabulary matrices, and norm gains.",
+      "transferQuestion": "Which terms react linearly or quadratically when only T doubles?",
+      "transferAnswer": "When T doubles, projection, SwiGLU, and LM-Head terms double because they process each additional token row once. The 4T²D term from QKᵀ and PV quadruples because both Query and Key position axes grow. Parameter counts remain completely unchanged."
+    },
+    "kernel-contracts": {
+      "title": "2D Triton & Flash Backward Gate",
+      "desc": "Check a 2D grid, boundary masks, partial buffer, and the central FlashAttention-backward invariant.",
+      "mental": "A 2D kernel has two independent boundary axes. A reduction across multiple programs requires explicit intermediate state or atomics. Flash backward instead reconstructs the same masked probabilities blockwise from saved row statistics.",
+      "formula": "grid=(ceil(R/BR),ceil(D/BD))  ·  partial_dw:[ceil(R/BR),D]  ·  dS=P⊙(dOVᵀ−rowsum(O⊙dO))",
+      "symbols": [["R,D","Rows and feature width."],["BR,BD","Tile sizes of the two grid axes."],["partial_dw","Disjoint partial reduction for each row tile."],["dS","Gradient of the scaled Attention scores."]],
+      "observe": "Use R=37, D=70, BR=16, and BD=32. Derive both grid axes, the partial Shape, and the dS row sum.",
+      "misconception": "A program barrier does not synchronize other programs, and the Forward and backward masks must not differ.",
+      "transferQuestion": "Why does dw need a second reduction step while dX does not?",
+      "transferAnswer": "dX_rd=g_r·w_d belongs to exactly one Output element and can be produced per tile without competing writers. In dw_d=Σ_r X_rd·g_r, every row tile contributes to the same feature d. Without atomics, each row tile therefore writes a partial value that is reduced across the tile axis afterward."
+    },
+    "distributed-runtime": {
+      "title": "Distributed Runtime Gate",
+      "desc": "Separate total World Size, data Batch Size, Collective ordering, async lifetime, and overlap.",
+      "mental": "Process Groups define who participates in each Collective. The parallelism product counts processes, but only the Data-Parallel degree counts independent examples. An asynchronously launched Collective is complete only after wait or a proven dependency.",
+      "formula": "W_total=d·t·p  ·  B_global=B_micro·accum·d  ·  T_step≈T_compute+max(0,T_comm−T_overlap)",
+      "symbols": [["d,t,p","Data-, Tensor-, and Pipeline-Parallel degrees."],["accum","Microbatches per update."],["async handle","Evidence of launch, not completion."],["T_overlap","Communication actually concurrent with Compute."]],
+      "observe": "Set d=4, t=4, p=2, B_micro=2, and accumulation=4. Then justify the last safe wait boundary before the Optimizer Step.",
+      "misconception": "Total World Size and Data-Parallel World Size are not interchangeable, and async_op=true does not automatically make a later tensor access safe.",
+      "transferQuestion": "How can a smaller DDP bucket enable earlier overlap while amortizing latency less effectively?",
+      "transferAnswer": "A smaller bucket can launch as soon as its few gradients are ready and thus overlap more Backward Compute. At the same time, more Collective calls move fewer bytes each, so the fixed latency term is paid more often and becomes relatively larger. The best size must be measured."
+    },
+    "scaling-transfer": {
+      "title": "μP, WSD & Scaling Fit Gate",
+      "desc": "Check offset fitting, Lecture 11 μP roles, and the finality boundary of a WSD Checkpoint.",
+      "mental": "Fit, parameterization, and schedule answer different questions. An offset belongs before the Loss logarithm, μP scales by matrix role, and Warmup-Stable-Decay (WSD) is completed only by a defined Decay.",
+      "formula": "N_opt=A_NCᵃ  ·  D_opt=A_DCᵇ  ·  L_opt=E+A_LC^(−γ)  ·  r=4: Hidden std×1/2, Readout std×1/4",
+      "symbols": [["E","Loss offset before taking log(L−E)."],["a,b","Compute exponents for Model and data."],["r","Width ratio M/M₀."],["WSD","Warmup, Stable, and Decay."]],
+      "observe": "Derive every initialization and Adam factor for Embedding, Hidden, and Readout at r=4. Then decide which Checkpoints are final and comparable.",
+      "misconception": "μP is not one global learning-rate factor, and a Stable Checkpoint before its defined Decay is not a completed WSD endpoint.",
+      "transferQuestion": "Why can a poorly chosen E change the extrapolated Loss slope?",
+      "transferAnswer": "The fit uses log(L_opt−E), not log L_opt. Changing E strongly shifts small residual distances and therefore changes the Log-space slope γ. Because coupled E and γ values can produce similarly plausible fits, the extrapolation needs constrained offsets or sensitivity intervals."
+    },
+    "moe-routing": {
+      "title": "MoE Routing & Capacity Gate",
+      "desc": "Separate Top-k normalization, Expert Capacity, overflow, Auxiliary Loss, and device utilization.",
+      "mental": "Sparse routing is both a probability and a systems contract. Top-k chooses active Experts, Capacity limits assignments, overflow needs a policy, and the Balance Loss combines hard dispatch frequency with differentiable Router probability.",
+      "formula": "capacity=ceil(c·T·k/E)  ·  L_balance=αEΣ_e f_eP_e",
+      "symbols": [["T,k,E","Tokens, selected Experts per token, and Expert count."],["c","Capacity Factor."],["f_e","Hard dispatch fraction."],["P_e","Mean Router probability."]],
+      "observe": "Use T=8, k=2, E=4, and c=1.0. Compute Capacity, overflow when Expert 0 receives six assignments, and Auxiliary Loss under uniform routing.",
+      "misconception": "The Balance Loss is not zero for uniform routing, although its gradient can promote balance. Expert Load and device load are not always identical.",
+      "transferQuestion": "Why can perfect Expert balance still produce a slow All-to-All step?",
+      "transferAnswer": "Perfect Expert balance counts assignments per Expert but does not automatically balance bytes, topology, or Expert-to-device placement. Several equally loaded Experts may share one device, token destinations may be uneven across links, and a slow Rank or unfavorable All-to-All route can still determine the straggler."
+    },
+    "rlvr-system-transfer": {
+      "title": "A5 Variants & RLVR System Gate",
+      "desc": "Correctly map GRPO variants, sequence Ratios, GSPO, Policy versions, and the SFT→DPO data flow.",
+      "mental": "An A5 experiment is interpretable only when its algebraic variant contract and system versions agree. Rollout data belong to the Old Policy; DPO additionally uses a fixed Reference and four response-only sequence Log-Probabilities.",
+      "formula": "variant=(baseline,normalizer,denominator)  ·  W=exp(ΣΔlogπ)  ·  s_GSPO=exp(mean Δlogπ)",
+      "symbols": [["Old","Policy that generated the Rollout."],["Current","Policy being updated."],["Reference","Fixed KL or DPO comparison Policy."],["response-only","Prompt, Template, and Padding are masked from sequence sums."]],
+      "observe": "Map Standard GRPO, Dr. GRPO, RFT, and MaxRL to their three design axes. Then identify which artifacts remain frozen between Rollout and update.",
+      "misconception": "GSPO is not the exact sequence Importance Weight; R1, R1-Zero, Kimi, and Qwen are not controlled single-algorithm Ablations.",
+      "transferQuestion": "Which four response-only Log-Probabilities does DPO require, and why does the Reference stay fixed?",
+      "transferAnswer": "DPO requires log π_current(chosen|x), log π_current(rejected|x), log π_ref(chosen|x), and log π_ref(rejected|x), each summed only across real response tokens. The fixed Reference defines the unchanged starting baseline; training it would let the comparison point move with the Policy and alter the stated DPO objective."
     }
   },
   "diagnostic": {
