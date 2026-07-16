@@ -2,15 +2,18 @@
 
 Inoffizielle, zweisprachige Lernplattform für Stanford CS336 „Language Models from Scratch“. Englisch ist die Standardsprache, Deutsch lässt sich jederzeit zuschalten. Das Projekt ist nicht mit Stanford verbunden und erzeugt keine Assignment-Lösungen.
 
-Der aktuelle Lernpfad umfasst 13 Module, 71 vertiefte Konzepte, 79 Formeln, 71 Symbole, 70 Glossarbegriffe und 26 interaktive Labs. Die Lecture Coverage Map zeigt für jede der 17 Vorlesungen getrennt Erklärung, Mechanik und Transfer samt Seitenanker; jedes Nachweisziel nennt dieselbe Lecture in seinen sichtbaren Quellen. 29 Assignment-Missions bilden alle 124 Problem-IDs der sechs Handouts ab.
+Der Lernpfad folgt direkt den 17 Lectures. Jede Lecture beginnt mit einer einfachen Einordnung: Worum geht es, warum ist das wichtig und welches Vorwissen wird vorausgesetzt? Danach folgen die wichtigsten Konzepte, Formeln mit erklärten Symbolen und Zahlenbeispielen, passende Experimente und der seitengenaue Link zur Originalquelle. Vertiefend stehen 72 Konzepte, 79 Formeln, 72 Symbole, 70 Glossarbegriffe und 26 interaktive Labs bereit.
 
 ## Empfohlener Lernfluss
 
-1. Grundlagen-Diagnose ohne Hilfsmittel durchführen und `I don't know` ehrlich nutzen.
-2. Den daraus priorisierten Prerequisite Sprint bearbeiten: Concept erklären, Selbstchecks erst selbst beantworten, dann Musterlösung vergleichen.
-3. Verknüpfte Labs mit einer Vorhersage beginnen und objektive Transfer-Gates bestehen.
-4. Assignment-Missions erst nach eigenem Entwurf öffnen; die Plattform liefert Invarianten, Tests und gestufte Hinweise, aber keinen Abgabecode.
-5. Retrieval-Karten jederzeit nach Lernbedarf abrufen. Für den höchsten Mastery-Level wird jede Concept-Frage in zwei selbst gestarteten Sitzungen erfolgreich abgerufen; zwischen den Sitzungen gibt es keine Mindestwartezeit. Der danach sichtbare Lernverlauf zeigt den tatsächlich beobachteten Abstand pro Selbstcheck nur als Information.
+1. Lecture 1 öffnen und zuerst Kontext, Nutzen und erklärte Voraussetzungen lesen.
+2. Die ausgewählten Kernkonzepte in der angegebenen Reihenfolge durcharbeiten; unbekannte Abkürzungen und Symbole werden bei ihrer ersten Verwendung erklärt.
+3. Formeln über Lesart, Variablen, Dimensionen und ein kleines Zahlenbeispiel nachvollziehen.
+4. Selbstchecks und Labs als Feedback nutzen. Nur fest auswertbare Fragen zeigen einen lokalen Bestanden-Status; dieser ist keine Kompetenzwertung.
+5. Im Assignment Coach nachlesen, was ein Handout-Block verlangt, wie die eigene Implementierung geprüft werden kann und wo typische Fehler liegen. Hinweise sind direkt zugänglich und enthalten keinen Abgabecode.
+6. Diagnose und Abrufkarten nur bei Bedarf verwenden. Sie sortieren Auffrischungen beziehungsweise Übungskarten, schalten aber nichts frei und erzeugen kein Mastery-Level.
+
+Freitext, Selbsteinstufungen, Seitenaufrufe und manuelle Haken zählen nirgends als Nachweis. Persönliche Notizen sind optional und bleiben getrennt vom Lernstatus.
 
 Die Plattform spart Lecture-Nacharbeit und Suchzeit, ersetzt aber nicht das eigenständige Implementieren, Testen, Profiling oder die exakten Schnittstellen und Regeln der Handouts.
 

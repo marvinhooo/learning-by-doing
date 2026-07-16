@@ -1,7 +1,7 @@
 window.CS336_EN = Object.freeze({
   "nav": {
     "dashboard": "Overview",
-    "path": "Learning Path",
+    "path": "Lectures",
     "labs": "Labs",
     "formulas": "Formulas & Symbols",
     "assignments": "Assignments",
@@ -6114,20 +6114,15 @@ window.CS336_EN = Object.freeze({
         "meaning": "Soft-cap bound in c·tanh(z/c): leaves small Logits nearly unchanged and smoothly saturates large magnitudes toward ±c",
         "context": "Logit stability",
         "dimension": "Positive scalar on the same scale as the Logit; bounds smoothly instead of hard clipping"
+    },
+    "s71": {
+        "meaning": "Strength of the deviation penalty or preference scaling; in RLHF β weights the KL divergence, while in DPO β scales the chosen-versus-rejected log ratio",
+        "context": "Alignment",
+        "dimension": "Positive dimensionless scalar; do not confuse it with the Adam factors β₁ and β₂"
     }
 },
   "ui": {
     "__patterns": [
-      {
-        "source": "^([\u2713\u25cb]) (\\d+)/(\\d+) verknüpfte Concepts ohne Vorlage erklärt · ([\u2713\u25cb]) (\\d+)/(\\d+) verknüpfte Labs angewandt ·\\s*$",
-        "flags": "u",
-        "target": "$1 $2/$3 linked concepts explained without notes · $4 $5/$6 linked labs applied · "
-      },
-      {
-        "source": "^([\u2713\u25cb]) (\\d+)/30 eigener Beleg$",
-        "flags": "u",
-        "target": "$1 $2/30 own evidence"
-      },
       {
         "source": "^(\\d+) Vorlesungen direkt mit Concepts, Formeln, Labs und Assignments verknüpft\\.$",
         "flags": "u",
@@ -6154,11 +6149,6 @@ window.CS336_EN = Object.freeze({
         "target": "Next module · $1"
       },
       {
-        "source": "^(\\d+)% Kompetenz$",
-        "flags": "u",
-        "target": "$1% mastery"
-      },
-      {
         "source": "^C=(\\d+) EFLOP: kleinstes Loss-N$",
         "flags": "u",
         "target": "C=$1 EFLOP: model size with lowest loss"
@@ -6174,29 +6164,9 @@ window.CS336_EN = Object.freeze({
         "target": "$1 min · $2 concepts · $3 labs"
       },
       {
-        "source": "^Stufe: (.+) · (\\d+) Formeln$",
-        "flags": "u",
-        "target": "Level: $1 · $2 formulas"
-      },
-      {
         "source": "^(.+) · (\\d+) Meilensteine · (\\d+) Selbstchecks$",
         "flags": "u",
         "target": "$1 · $2 milestones · $3 self-checks"
-      },
-      {
-        "source": "^(.+) · (\\d+)/(\\d+) Missions nachgewiesen · (\\d+) Selbstchecks$",
-        "flags": "u",
-        "target": "$1 · $2/$3 missions verified · $4 self-checks"
-      },
-      {
-        "source": "^(\\d+)/(\\d+) nachgewiesen$",
-        "flags": "u",
-        "target": "$1/$2 verified"
-      },
-      {
-        "source": "^Niedrigste Bereiche: (.+)\\. Transferchecks: (.+)\\.$",
-        "flags": "u",
-        "target": "Lowest-scoring areas: $1. Transfer checks: $2."
       },
       {
         "source": "^(\\d+)/(\\d+) Konzepte begonnen$",
@@ -6207,16 +6177,6 @@ window.CS336_EN = Object.freeze({
         "source": "^(\\d+) Lesezeichen$",
         "flags": "u",
         "target": "$1 bookmarks"
-      },
-      {
-        "source": "^(\\d+)/(\\d+) erklärte Concepts durch Abruf bestätigt$",
-        "flags": "u",
-        "target": "$1/$2 explained concepts confirmed by retrieval"
-      },
-      {
-        "source": "^(\\d+) Karten verfügbar · (\\d+)/(\\d+) erklärte Concepts durch Abruf bestätigt$",
-        "flags": "u",
-        "target": "$1 cards available · $2/$3 explained concepts confirmed by retrieval"
       },
       {
         "source": "^(\\d+) Karten nie abgerufen · (\\d+) zuletzt nicht gewusst · (\\d+) zuletzt schwer · (\\d+) zuletzt gewusst$",
@@ -6404,26 +6364,6 @@ window.CS336_EN = Object.freeze({
         "target": "Merge rules: $1"
       },
       {
-        "source": "Jedes Concept mindestens ohne Vorlage erklärt",
-        "flags": "gu",
-        "target": "Every concept explained without looking at a reference"
-      },
-      {
-        "source": "verknüpfte Labs angewandt",
-        "flags": "gu",
-        "target": "linked labs applied"
-      },
-      {
-        "source": "verknüpfte Concepts ohne Vorlage erklärt",
-        "flags": "gu",
-        "target": "linked concepts explained without notes"
-      },
-      {
-        "source": "eigener Transferbeleg",
-        "flags": "gu",
-        "target": "own transfer evidence"
-      },
-      {
         "source": "Transfer laut begründet",
         "flags": "gu",
         "target": "transfer justified aloud"
@@ -6594,39 +6534,9 @@ window.CS336_EN = Object.freeze({
         "target": "layer groups"
       },
       {
-        "source": "^(.+) · Stufe: (.+) · (\\d+) Formeln$",
-        "flags": "u",
-        "target": "$1 · Level: $2 · $3 formulas"
-      },
-      {
-        "source": "^(.+) · ✓ angewandt$",
-        "flags": "u",
-        "target": "$1 · ✓ applied"
-      },
-      {
         "source": "^(.+) · ○ offen$",
         "flags": "u",
         "target": "$1 · ○ open"
-      },
-      {
-        "source": "\\bAbruf bestätigt\\b",
-        "flags": "gu",
-        "target": "Retrieval confirmed"
-      },
-      {
-        "source": "\\bGesehen\\b",
-        "flags": "gu",
-        "target": "Seen"
-      },
-      {
-        "source": "\\bErklärt\\b",
-        "flags": "gu",
-        "target": "Explained"
-      },
-      {
-        "source": "\\bAngewandt\\b",
-        "flags": "gu",
-        "target": "Applied"
       },
       {
         "source": "\\bNeu\\b",
@@ -6639,6 +6549,8 @@ window.CS336_EN = Object.freeze({
     "Hauptnavigation": "Main navigation",
     "CS336 Lernwerk": "CS336 Learning Lab",
     "Verstehen durch Bauen": "Understand by building",
+    "Kursumfang": "Course scope",
+    "Keine künstliche Kompetenzwertung.": "No artificial competence score.",
     "Navigation schließen": "Close navigation",
     "Gesamtfortschritt": "Overall progress",
     "Navigation öffnen": "Open navigation",
@@ -6661,12 +6573,9 @@ window.CS336_EN = Object.freeze({
     "Neu": "New",
     "Gesehen": "Seen",
     "Erklärt": "Explained",
-    "Angewandt": "Applied",
-    "Abruf bestätigt": "Retrieval confirmed",
     "Gespeichert": "Saved",
     "Gespeichert.": "Saved.",
     "Lesezeichen entfernt": "Bookmark removed",
-    "Lab als angewandt markiert": "Lab marked as applied",
     "Lab-Markierung entfernt": "Lab marker removed",
     "--- Automatisch aus zwei Geräten zusammengeführt ---": "--- Automatically merged from two devices ---",
     "Lokales Speichern fehlgeschlagen": "Local save failed",
@@ -6716,12 +6625,10 @@ window.CS336_EN = Object.freeze({
     "Ende des Lernpfads": "End of the learning path",
     "Zur Lernpfadübersicht →": "Back to the learning path →",
     "Kompetenz": "Mastery",
-    "Stufe:": "Level:",
     "Formeln": "Formulas",
     "Lesezeichen entfernen": "Remove bookmark",
     "Konzept speichern": "Save concept",
     "Interaktiv": "Interactive",
-    "✓ angewandt": "✓ applied",
     "○ offen": "○ open",
     "Meilensteine": "Milestones",
     "Selbstchecks": "Self-checks",
@@ -6748,7 +6655,6 @@ window.CS336_EN = Object.freeze({
     "Diagnose wiederholen": "Retake diagnostic",
     "12-Minuten-Diagnose": "12-minute diagnostic",
     "15-Minuten-Diagnose": "15-minute diagnostic",
-    "Kompetenzfortschritt": "Mastery progress",
     "Konzepte begonnen": "concepts started",
     "Lesezeichen": "Bookmarks",
     "Diagnose vorhanden": "Diagnostic completed",
@@ -6756,7 +6662,6 @@ window.CS336_EN = Object.freeze({
     "Start hier": "Start here",
     "Deine Lücken sollen die Reihenfolge bestimmen.": "Let your knowledge gaps determine the order.",
     "Die Diagnose prüft Anwendung statt Begriffsabfrage und markiert Bereiche als bereit, auffrischen oder Blocker.": "The diagnostic tests application rather than vocabulary recall and marks areas as ready, review, or blockers.",
-    "Die Diagnose kombiniert gemischte Auswahlpositionen mit vier kurzen Transferchecks. „Ich weiß es nicht“ ist immer eine gültige Antwort; nur tatsächlich begründete Foundations verkürzen den Lernpfad.": "The diagnostic combines mixed answer positions with four short transfer checks. ‘I don't know’ is always a valid answer; only foundations you can actually justify shorten the learning path.",
     "Diagnose starten": "Start diagnostic",
     "Jetzt sinnvoll": "A useful next step",
     "Ein kleiner Mix aus Fundament, Kurs und Abruf.": "A short mix of foundations, course material, and retrieval practice.",
@@ -6808,13 +6713,11 @@ window.CS336_EN = Object.freeze({
     " · Ein Symbol kann je nach Kapitel etwas anderes bedeuten.": " · A symbol may mean different things in different chapters.",
     "Prüfe Schreibweise oder entferne einen Filter.": "Check the spelling or remove a filter.",
     "Selbst lösen, gezielt Unterstützung holen": "Solve it yourself, get targeted support",
-    "Die KI-Regeln des Kurses erlauben konzeptuelle Hilfe, nicht die Implementierung. Deshalb entsperrt eine eigene Hypothese nur allgemeine, gestufte Denkhinweise.": "The course AI policy permits conceptual help, not implementation. That is why your own hypothesis unlocks only general, staged reasoning hints.",
     "Lernmodus – keine Abgabelösungen.": "Learning mode – no ready-to-submit solutions.",
     "Der Coach liefert Voraussetzungen, Invarianten, Tests und Reflexionsfragen. Code und konkrete Deliverables bleiben deine Arbeit.": "The coach provides prerequisites, invariants, tests, and reflection questions. Code and concrete deliverables remain your work.",
     "Kannst du es ohne Vorlage erklären?": "Can you explain it without looking at a reference?",
     "Beantworte erst aus dem Gedächtnis. Feedback erklärt den Grund, nicht nur richtig oder falsch.": "Answer from memory first. The feedback explains why, not merely whether you were right or wrong.",
     "12 Kernfragen": "12 core questions",
-    "Die Fragen decken A1 bis A5 ab. Dein Resultat verändert nicht automatisch den Kompetenzstatus – entscheide danach bewusst.": "The questions cover A1 through A5. Your result does not change mastery levels automatically – decide deliberately afterward.",
     "Stattdessen Karteikarten": "Use flashcards instead",
     "Antworten prüfen": "Check answers",
     "Ich weiß es nicht": "I don't know",
@@ -6836,8 +6739,6 @@ window.CS336_EN = Object.freeze({
     "Freie Notizen": "Free-form notes",
     "Was kann ich noch nicht erklären? Welche Hypothese teste ich als Nächstes?": "What can I not explain yet? Which hypothesis will I test next?",
     "Notizen speichern": "Save notes",
-    "Fortschritt exportieren": "Export progress",
-    "Fortschritt importieren": "Import progress",
     "Gespeicherte Konzepte": "Saved concepts",
     "Noch keine.": "None yet.",
     "Gespeicherte Formeln": "Saved formulas",
@@ -6874,14 +6775,7 @@ window.CS336_EN = Object.freeze({
     "Typische Fehlannahmen": "Common misconceptions",
     "Aktiver Selbstcheck": "Active self-check",
     "Antworte zuerst selbst. Öffne danach die Musterlösung und vergleiche Begründung und Begriffe.": "Answer on your own first. Then open the model answer and compare the reasoning and terminology.",
-    "Deine Erklärung in eigenen Worten": "Your explanation in your own words",
-    "Ohne abzulesen: Ich erkläre es so …": "Without looking: I would explain it like this …",
-    "Zu Notizen hinzufügen": "Add to notes",
     "Verknüpfte Formeln": "Linked formulas",
-    "Kompetenzstufe": "Mastery level",
-    "Wähle nur, was du belegen kannst.": "Choose only what you can demonstrate.",
-    "Schreibe zuerst deinen Erklärversuch.": "Write your own explanation first.",
-    "Erklärversuch zu Notizen hinzugefügt": "Explanation added to notes",
     "Formelkarte": "Formula card",
     "Formel": "Formula",
     "So liest du sie:": "How to read it:",
@@ -6894,38 +6788,23 @@ window.CS336_EN = Object.freeze({
     "Lernmodus – keine Abgabelösungen": "Learning mode – no ready-to-submit solutions",
     "KI-Richtlinie:": "AI policy:",
     "Erst eigener Versuch, dann gestufte Konzept- und Testhinweise. Der Coach erzeugt weder Code noch abgabefertige Antworten.": "Try it yourself first, then use staged conceptual and testing hints. The coach produces neither code nor ready-to-submit answers.",
-    "Die Missions gruppieren die echten Problem-IDs aus dem Handout. Öffne genau den Cluster, an dem du arbeitest: erst herleiten, dann Nachweis erbringen, dann selbst implementieren.": "The missions group the actual problem IDs from the handout. Open only the cluster you are working on: derive first, provide evidence next, then implement independently.",
-    "✓ Nachweis": "✓ Evidence",
     "Original-Handout-Scope": "Original handout scope",
     "Vor dem Coding herleiten": "Derive before coding",
-    "Readiness-Nachweis": "Readiness evidence",
     "Diagnostisches Fehlersignal": "Diagnostic failure signal",
     "Gezielt vorbereiten": "Prepare deliberately",
-    "✓ Readiness belegt": "✓ Readiness verified",
-    "Readiness-Nachweis als erfüllt markieren": "Mark readiness evidence as complete",
-    "Readiness-Nachweis erfüllt": "Readiness evidence completed",
-    "Readiness-Markierung entfernt": "Readiness mark removed",
     "Mentale Modelle": "Mental models",
     "Arbeitsreihenfolge auf hoher Ebene": "High-level workflow",
-    "Readiness-Selbstcheck": "Readiness self-check",
     "Versuche jede Frage zuerst selbst. Die aufklappbaren Konzeptantworten helfen beim Lernen, enthalten aber keinen Assignment-Code.": "Try each question yourself first. The expandable conceptual answers help you learn but contain no assignment code.",
     "Konzeptantwort anzeigen": "Show conceptual answer",
-    "Deine Hypothese vor einem Hinweis": "Your hypothesis before a hint",
     "Aktuelle Mission": "Current mission",
     "Erste diagnostische Spur:": "First diagnostic lead:",
     "Was erwartest du, was beobachtest du, und welche Invariante könnte verletzt sein?": "What do you expect, what do you observe, and which invariant might be violated?",
     "Mindestens 20 Zeichen. Beispielstruktur: Ich erwarte …, beobachte …, mein kleinster trennender Test ist …": "At least 20 characters. Example structure: I expect …, observe …, and my smallest discriminating test is …",
-    "Hypothese speichern": "Save hypothesis",
-    "Hypothese für diese Mission speichern": "Save hypothesis for this mission",
-    "Hinweise werden nach einer eigenen, gespeicherten Hypothese entsperrt.": "Hints unlock after you save your own hypothesis.",
-    "Hinweise werden nach einer eigenen, gespeicherten Hypothese für die gewählte Mission entsperrt.": "Hints unlock after you save your own hypothesis for the selected mission.",
     "Hinweis": "Hint",
     "Definition of Done": "Definition of Done",
     "Voraussetzungen": "Prerequisites",
     "Verknüpfte Konzepte": "Linked concepts",
     "Originalquellen": "Original sources",
-    "Formuliere eine konkretere Hypothese (mindestens 20 Zeichen).": "Write a more specific hypothesis (at least 20 characters).",
-    "Hypothese gespeichert – Hinweise freigeschaltet": "Hypothesis saved – hints unlocked",
     "LaTeX kopiert": "LaTeX copied",
     "Kopieren nicht verfügbar": "Copying is unavailable",
     "Interaktives Lab": "Interactive lab",
@@ -6939,8 +6818,6 @@ window.CS336_EN = Object.freeze({
     "Transfer": "Transfer",
     "Formuliere zuerst selbst eine Begründung. Öffne danach die Lösungsidee und vergleiche die Ursache, nicht nur das Ergebnis.": "Formulate your own reasoning first. Then open the solution idea and compare the cause, not just the result.",
     "Lösungsidee anzeigen": "Show solution idea",
-    "✓ Als angewandt markiert": "✓ Marked as applied",
-    "Als angewandt markieren": "Mark as applied",
     "Welche Shapes ändern sich, wenn nur die Sequenzlänge verdoppelt wird – und welche Parameterzahlen bleiben gleich?": "Which shapes change when only the sequence length is doubled, and which parameter counts stay the same?",
     "Wie beeinflusst ein größeres Vokabular Sequenzlänge, Embeddingkosten und seltene Sprachen?": "How does a larger vocabulary affect sequence length, embedding cost, and low-resource languages?",
     "Konstruiere einen Scorevektor, bei dem Temperatur fast keine Wirkung hat. Warum?": "Construct a score vector for which temperature has almost no effect. Why?",
@@ -7363,15 +7240,10 @@ window.CS336_EN = Object.freeze({
     "Nutze die Diagnose nur zum Überspringen belegbar vorhandener Prerequisites.": "Use the diagnostic only to skip prerequisites you can demonstrably satisfy.",
     "Erkläre ein Concept ohne Vorlage und öffne erst danach die Musterlösung.": "Explain a concept without looking at a reference, then open the model answer.",
     "Im Lab: Vorhersage vor Regler; Formel und Ursache nach Beobachtung.": "In a lab: predict before using a control; explain the formula and cause after observing.",
-    "Wechsle in die passende Assignment Mission und implementiere erst nach ihrem Readiness-Nachweis selbst.": "Move to the relevant assignment mission and implement independently only after meeting its readiness evidence.",
-    "Bestätige Stufe 4 in zwei selbst gestarteten Abrufsitzungen; du bestimmst den Zeitpunkt.": "Confirm level 4 in two review sessions you start yourself; you choose the timing.",
     "Prerequisite-Blocker zuerst": "Prerequisite blockers first",
     "Prerequisite Sprint kann verkürzt werden": "You can shorten the prerequisite sprint",
     "Der nächste Fokus führt dich gezielt zum schwächsten Foundation-Vertrag. Danach gehst du in kausaler Kursreihenfolge weiter.": "Your next focus targets the weakest foundation contract. After that, continue in the course's causal order.",
     "Die Foundation-Fragen waren korrekt. Starte direkt im Kurs und nutze die Foundation-Seiten nur, wenn ein Selbstcheck oder Assignment-Fehler eine Lücke zeigt.": "Your foundation answers were correct. Start directly with the course and return to foundation pages only when a self-check or assignment error reveals a gap.",
-    "Die Auswahlfragen waren korrekt, aber mindestens ein angewandter Foundation-Check ist noch offen. Der Lernpfad beginnt dort, statt Voraussetzungen nur aus Recognition abzuleiten.": "The multiple-choice questions were correct, but at least one applied foundation check remains open. The learning path starts there instead of inferring prerequisites from recognition alone.",
-    "Auswahlfragen und vier kurze Transferchecks sind belegt. Starte direkt im Kurs und kehre zu Foundations zurück, sobald ein Selbstcheck oder Assignment-Fehler eine Lücke zeigt.": "The multiple-choice questions and four short transfer checks are evidenced. Start directly with the course and return to foundations as soon as a self-check or assignment error reveals a gap.",
-    "Angewandte Foundation-Checks": "Applied foundation checks",
     "Die Reihenfolge ist absichtlich kausal: Formen und Wahrscheinlichkeiten tragen den Transformer; dieser trägt Training, Systems, Daten, Evaluation, Inference und Reinforcement Learning.": "The order is intentionally causal: shapes and probability support the Transformer; the Transformer supports training, systems, data, evaluation, inference, and Reinforcement Learning.",
     "Ground-Truth-Vertrag:": "Ground-truth contract:",
     "Jede Concept-Seite nennt ihre Lecture-/Assignment-Quelle. Im Lernpfad findest du pro Modul die Original-PDFs; in den Assignment Missions zusätzlich die echten Problem-IDs. Die PDFs bleiben maßgeblich für administrative Regeln, exakte Interfaces und Abgabeanforderungen.": "Every concept page cites its lecture or assignment source. The learning path links each module's original PDFs, and assignment missions also list the real problem IDs. The PDFs remain authoritative for administrative rules, exact interfaces, and submission requirements.",
@@ -7383,19 +7255,9 @@ window.CS336_EN = Object.freeze({
     "Passende Experimente": "Relevant experiments",
     "Assignment-Bezug": "Assignment connection",
     "Belegbarer Abschluss": "Evidence-based completion",
-    "Das Exit Ticket wird erst verfügbar, wenn jedes Concept mindestens „erklärt“ und jedes verknüpfte Lab als angewandt markiert ist.": "The exit ticket becomes available only after every concept is at least ‘explained’ and every linked lab is marked as applied.",
-    "Das Exit Ticket wird erst verfügbar, wenn jedes Concept mindestens „erklärt“, jedes verknüpfte Lab angewandt und ein eigener Transferbeleg mit mindestens 40 Zeichen notiert ist. Wird eine Voraussetzung später zurückgenommen, verfällt der Abschluss automatisch.": "The exit ticket becomes available only after every concept is at least ‘explained’, every linked lab has been applied, and you have written at least 40 characters of your own transfer evidence. If a prerequisite is later withdrawn, completion expires automatically.",
     "Übertrage das Modulziel auf einen neuen Fall: Was würdest du vorhersagen, prüfen und mit welcher Invariante begründen?": "Transfer the module outcome to a new case: what would you predict, test, and justify with which invariant?",
-    "Mindestens 40 Zeichen in eigenen Worten.": "At least 40 characters in your own words.",
-    "Transferbeleg bestätigen": "Confirm transfer evidence",
-    "Begründe den Transfer zuerst in mindestens 40 Zeichen.": "First justify the transfer in at least 40 characters.",
-    "Dein Readiness-Beleg: Welche Herleitung, welcher Test und welche Invariante zeigen, dass du selbst implementieren kannst?": "Your readiness evidence: which derivation, test, and invariant show that you can implement it yourself?",
-    "Mindestens 30 Zeichen; kein Code, sondern dein überprüfbarer Beleg.": "At least 30 characters; no code, only your verifiable evidence.",
-    "Readiness-Beleg bestätigen": "Confirm readiness evidence",
-    "Notiere zuerst mindestens 30 Zeichen Readiness-Evidenz.": "First write at least 30 characters of readiness evidence.",
     "Die Concepts und Labs stehen in ihrer Lernreihenfolge direkt im Lernpfad. Nutze die Originalquellen für Abbildungen, genaue Assignment-Spezifikationen und gezielte Nachprüfung – nicht als Pflichtdopplung jeder Erklärung.": "Concepts and labs appear in learning order directly in the learning path. Use the original sources for figures, exact assignment specifications, and targeted verification—not as mandatory duplication of every explanation.",
     "Ground-Truth-Quellen": "Ground-truth sources",
-    "Die Fragen decken A1 bis A5 sowie Inference ab. Dein Resultat verändert nicht automatisch den Kompetenzstatus – entscheide danach bewusst.": "The questions cover A1 through A5 as well as inference. Your result does not change mastery levels automatically—decide deliberately afterward.",
     "Text inklusive Whitespace und Unicode": "Text including whitespace and Unicode",
     "Startrepräsentation": "Initial representation",
     "UTF-8 bytes · assignmentnah": "UTF-8 bytes · assignment-aligned",
@@ -7538,10 +7400,7 @@ window.CS336_EN = Object.freeze({
     "Das Budget enthält Modellgewichte und KV-Cache, aber noch keine temporären Aktivierungen, Runtime-Buffer, Fragmentierung oder mehrere Modellkopien. Quantization spart nur dann entsprechende Laufzeit, wenn geeignete Kernel und der gemessene Bottleneck dazu passen.": "The budget includes model weights and the KV Cache, but not temporary activations, runtime buffers, fragmentation, or multiple model copies. Quantization saves corresponding runtime only when suitable kernels and the measured bottleneck support it.",
     "Untere beziehungsweise obere Idealgrenze:": "Ideal lower or upper bound:",
     "Die Rechnung nimmt an, dass Gewichte und relevanter KV-Cache je Decode-Schritt genau einmal aus HBM gelesen werden. Compute, Kommunikation, Scheduling, temporäre Aktivierungen, Runtime-Buffer und Fragmentierung fehlen. Sie schätzt nicht die Time to First Token.": "The calculation assumes that weights and the relevant KV Cache are read from HBM exactly once per decode step. Compute, communication, scheduling, temporary activations, runtime buffers, and fragmentation are omitted. It does not estimate Time to First Token.",
-    "✓ Exit Ticket bestanden": "✓ Exit ticket passed",
     "Transfer belegen": "Provide transfer evidence",
-    "Erst Concepts erklären und verknüpfte Labs anwenden.": "First explain the concepts and apply the linked labs.",
-    "Module Exit Ticket bestanden": "Module exit ticket passed",
     "Exit-Ticket-Markierung entfernt": "Exit-ticket mark removed",
     "Grundlagen-Diagnose": "Foundations diagnostic",
     "12–15 Minuten · ohne Hilfsmittel": "12–15 minutes · closed book",
@@ -7549,51 +7408,12 @@ window.CS336_EN = Object.freeze({
     "12 Minuten · ohne Hilfsmittel": "12 minutes · closed book",
     "Beantworte aus deinem aktuellen Verständnis. Das Ergebnis priorisiert den Lernpfad, benotet dich aber nicht.": "Answer from your current understanding. The result prioritizes your learning path but does not grade you.",
     "Beantworte aus deinem aktuellen Verständnis. „Ich weiß es nicht“ ist wertvolle Information. Die vier kurzen Herleitungen verhindern, dass Recognition allein ganze Prerequisites überspringt.": "Answer from your current understanding. ‘I don't know’ is valuable information. The four short derivations prevent recognition alone from skipping entire prerequisites.",
-    "Erst selbst herleiten, danach Rubrik öffnen": "Derive it yourself first, then open the rubric",
-    "Wähle ehrlich „Ich weiß es noch nicht“, wenn du nur raten würdest. Die Rubriken erscheinen nach der Auswertung und dienen dann direkt als Lernhilfe.": "Choose ‘I don't know yet’ honestly if you would only be guessing. The rubrics appear after evaluation and then serve directly as learning aids.",
-    "Deine kurze Herleitung": "Your short derivation",
-    "Formuliere Achsen, Zustand oder Invariante in mindestens 20 Zeichen.": "State the axes, state, or invariant in at least 20 characters.",
-    "Ich kann es herleiten und erklären": "I can derive and explain it",
-    "Ich weiß es noch nicht": "I don't know yet",
-    "Bytes anwenden: Erkläre an einem mehrbyteigen Zeichen, warum Byte-Level BPE intern einzelne Bytes verarbeiten darf, aber nicht jedes Byte einzeln als UTF-8 dekodieren darf.": "Apply bytes: using a multi-byte character, explain why byte-level BPE may process individual bytes internally but must not decode each byte separately as UTF-8.",
-    "Eine starke Antwort trennt Unicode-Text, Codepoints und UTF-8-Bytes, nennt die erst vollständig zusammengesetzte Bytefolge als Decode-Grenze und formuliert die Roundtrip-Invariante decode(encode(text)) = text.": "A strong answer separates Unicode text, code points, and UTF-8 bytes; identifies the fully reassembled byte sequence as the decoding boundary; and states the round-trip invariant decode(encode(text)) = text.",
-    "Views anwenden: X hat Shape [2,3], Y = X.transpose(0,1). Warum kann Y.view(-1) scheitern, während Y.reshape(-1) funktionieren kann, und was musst du über Storage und Kopien prüfen?": "Apply views: X has shape [2,3] and Y = X.transpose(0,1). Why can Y.view(-1) fail while Y.reshape(-1) can work, and what must you check about storage and copies?",
-    "Transpose ändert Shape und Strides, nicht die zugrunde liegende Storage-Reihenfolge. view benötigt eine kompatible Stride-Struktur; reshape darf nötigenfalls eine zusammenhängende Kopie erzeugen. Prüfe Strides, Contiguity und ob geteilte Storage für die weitere Logik wichtig ist.": "Transpose changes shape and strides, not the underlying storage order. view requires a compatible stride layout; reshape may create a contiguous copy when necessary. Check strides, contiguity, and whether shared storage matters to subsequent logic.",
-    "Module anwenden: Du speicherst drei Linear Layers in einer normalen Python-Liste statt in nn.ModuleList. Welche Parameter sieht model.parameters() beziehungsweise state_dict(), und warum?": "Apply modules: you store three Linear layers in a regular Python list instead of nn.ModuleList. Which parameters are visible to model.parameters() and state_dict(), and why?",
-    "Eine normale Liste registriert enthaltene Module nicht beim Elternmodul. ModuleList, ModuleDict oder explizite Attribute machen sie für Parameteriteration, Device-Transfer, train/eval und state_dict sichtbar.": "A regular list does not register its modules with the parent module. ModuleList, ModuleDict, or explicit attributes make them visible to parameter iteration, device transfer, train/eval, and state_dict.",
-    "Resume anwenden: Welche Zustände müssen gespeichert sein, damit der nächste Batch und der nächste Optimizer-Step mit einem ununterbrochenen Training übereinstimmen?": "Apply resume: which state must be saved so the next batch and next optimizer step match uninterrupted training?",
-    "Mindestens Modell, Optimizer inklusive Momenten und Step, Scheduler/globaler Step, Datenposition oder Samplerzustand, CPU-/GPU-Zufallszustände und relevante Konfiguration; je nach Setup zusätzlich GradScaler und Gradient-Accumulation-Zwischenzustand.": "At minimum: model, optimizer including moments and step, scheduler/global step, data position or sampler state, CPU/GPU random states, and relevant configuration; depending on the setup, also the GradScaler and intermediate gradient-accumulation state.",
-    "Bitte beantworte alle Auswahlfragen.": "Please answer every multiple-choice question.",
-    "Bitte beantworte alle angewandten Checks.": "Please answer every applied check.",
-    "Begründete Transferantworten brauchen mindestens 20 Zeichen.": "Justified transfer answers require at least 20 characters.",
-    "offene Foundations werden priorisiert": "open foundations are prioritized",
-    "4/4 selbst begründet": "4/4 justified independently",
-    "Rubrik T1 anzeigen": "Show rubric T1",
-    "Rubrik T2 anzeigen": "Show rubric T2",
-    "Rubrik T3 anzeigen": "Show rubric T3",
-    "Rubrik T4 anzeigen": "Show rubric T4",
-    "Auswerten": "Evaluate",
     "Bitte beantworte alle Fragen.": "Please answer every question.",
-    "Niedrigste Bereiche:": "Lowest-scoring areas:",
-    "Schließe den Dialog für deinen aktualisierten Fokus.": "Close the dialog to see your updated focus.",
-    "Stufe 4 wird freigeschaltet, sobald jede Concept-Frage in zwei selbst gestarteten Sitzungen mit „Gewusst“ bewertet wurde. Es gibt keine Mindestwartezeit. Der Lernverlauf zeigt den beobachteten Abstand danach nur als Information.": "Level 4 unlocks once every concept question has been rated ‘Got it’ in two sessions you started yourself. There is no minimum wait. Learning history then shows the observed gap as information only.",
-    "Wähle nur, was du belegen kannst. Stufe 4 wird freigeschaltet, sobald jede Concept-Frage in zwei selbst gestarteten Sitzungen mit „Gewusst“ bewertet wurde. Die Sitzungen dürfen direkt nacheinander stattfinden. Nach der Bestätigung zeigt der Lernverlauf nur die beobachteten Abstände; sie entscheiden nie über Stufe 4.": "Choose only what you can demonstrate. Level 4 unlocks once every concept question has been rated ‘Got it’ in two sessions you started yourself. The sessions may be back to back. After confirmation, learning history shows only the observed gaps; they never control level 4.",
-    "Pull-basiertes Abrufen": "Pull-based retrieval",
-    "Das Deck entsteht automatisch aus allen Selbstchecks und verknüpften Formeln der Concepts, die du mindestens selbst erklärt hast. Jede Sitzung wählt höchstens zehn Karten nach Lernbedarf: zuerst nie abgerufene, dann zuletzt mit „Noch nicht“ bewertete und danach die am längsten nicht erfolgreich abgerufenen Karten. Du kannst jederzeit üben und Sitzungen direkt nacheinander starten. Stufe 4 wird freigeschaltet, sobald jede Concept-Frage in zwei selbst gestarteten Sitzungen mit „Gewusst“ bewertet wurde; es gibt keine Mindestwartezeit. Danach zeigt die Concept-Seite die beobachteten Sitzungsabstände als Lernverlauf. Du entscheidest unabhängig davon, wann du weiterübst.": "The deck is built automatically from every self-check and linked formula belonging to concepts you have at least explained yourself. Each session selects at most ten cards by learning need: never-reviewed cards first, then cards last rated ‘Again’, followed by cards with the longest time since a successful retrieval. You can practice at any time and start sessions back to back. Level 4 unlocks once every concept question has been rated ‘Got it’ in two sessions you started yourself; there is no minimum wait. The concept page then shows the observed gaps between sessions as learning history. You decide independently when to continue practicing.",
-    "Abrufsitzung noch nicht verfügbar": "Review session not available yet",
-    "Der Multiple-Choice-Block prüft breite Recognition von A1 bis A5 sowie Inference. Das aktive Abrufdeck darüber trainiert die tiefere freie Erklärung.": "The multiple-choice block tests broad recognition from A1 through A5 and inference. The active-retrieval deck above trains deeper free explanation.",
-    "Erkläre {{title}} ohne Vorlage und nenne die Einsatzgrenze.": "Explain {{title}} without notes and state its boundary of applicability.",
-    "Noch kein Deck freigeschaltet.": "No deck is unlocked yet.",
-    "Erkläre zuerst ein Concept ohne Vorlage. Dann entsteht dein Deck automatisch.": "First explain a concept without notes. Your deck will then be created automatically.",
-    "Zum nächsten offenen Concept": "Go to the next open concept",
-    "Karten erfolgreich bearbeitet": "cards reviewed successfully",
-    "Concepts durch Abruf bestätigt": "concepts confirmed by retrieval",
     "Abrufsitzung abgeschlossen": "Review session complete",
     "Abruf vor Wiederlesen": "Retrieve before rereading",
     "Gewusst": "Got it",
     "Schwer": "Hard",
     "Du entscheidest, wann du wieder übst.": "You decide when to practice again.",
-    "Alle Karten bleiben jederzeit verfügbar und werden nach Lernbedarf sortiert. Du kannst die nächste Sitzung sofort oder später starten. Für Stufe 4 braucht jede Concept-Frage zwei „Gewusst“-Bewertungen aus selbst gestarteten Sitzungen; es gibt keine Mindestwartezeit. Nach der Bestätigung zeigt die Concept-Seite die beobachteten Sitzungsabstände als Lernverlauf.": "All cards remain available at any time and are sorted by learning need. You can start the next session immediately or later. For level 4, every concept question needs two ‘Got it’ ratings from sessions you started yourself; there is no minimum wait. After confirmation, the concept page shows the observed gaps between sessions as learning history.",
     "Aktiver Abruf": "Active retrieval",
     "Musterantwort anzeigen": "Show model answer",
     "Bewerte die Qualität deiner eigenen Erklärung, nicht ob die Musterantwort vertraut aussieht.": "Rate the quality of your own explanation, not whether the model answer looks familiar.",
@@ -7663,13 +7483,6 @@ window.CS336_EN = Object.freeze({
       "Gathered log p und response_mask": "Gathered log p and response_mask",
       "Jaccard Similarity für jedes Dokumentpaar": "Jaccard Similarity for every document pair",
       "Dokument": "Document",
-      "Erkläre zuerst die verknüpften Concepts ohne Vorlage.": "First explain the linked concepts without notes.",
-      "Wende zuerst die verknüpften Labs an.": "Apply the linked labs first.",
-      "Readiness-Markierung entfernen": "Remove readiness mark",
-      "Learn → Recall → Apply Gate": "Learn → Recall → Apply gate",
-      "{{done}}/{{total}} verknüpfte Concepts ohne Vorlage erklärt": "{{done}}/{{total}} linked concepts explained without notes",
-      "{{done}}/{{total}} verknüpfte Labs angewandt": "{{done}}/{{total}} linked labs applied",
-      "eigener Beleg": "own evidence",
       "Fünf kleine Failure Traces": "Five small failure traces",
       "Jeder Fall ist ein unabhängiges Toy-Beispiel. Suche nicht die schönste Umformulierung, sondern den gebrochenen Vertrag und den kleinsten Test, der ihn beweist.": "Each case is an independent toy example. Do not search for the prettiest rewrite; identify the broken contract and the smallest test that proves it.",
       "Welche Diagnose plus kleinster Test passen?": "Which diagnosis and smallest test fit?",
