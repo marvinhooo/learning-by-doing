@@ -2,15 +2,15 @@
 
 Inoffizielle, zweisprachige Lernplattform für Stanford CS336 „Language Models from Scratch“. Englisch ist die Standardsprache, Deutsch lässt sich jederzeit zuschalten. Das Projekt ist nicht mit Stanford verbunden und erzeugt keine Assignment-Lösungen.
 
-Der Lernpfad folgt direkt den 17 Lectures. Jede Lecture beginnt mit einer einfachen Einordnung: Worum geht es, warum ist das wichtig und welches Vorwissen wird vorausgesetzt? Danach folgen die wichtigsten Konzepte, Formeln mit erklärten Symbolen und Zahlenbeispielen, passende Experimente und der seitengenaue Link zur Originalquelle. Vertiefend stehen 72 Konzepte, 79 Formeln, 72 Symbole, 70 Glossarbegriffe und 26 interaktive Labs bereit.
+Der Lernpfad folgt direkt den 17 Lectures. Jede Lecture beginnt mit einer einfachen Einordnung: Worum geht es, warum ist das wichtig und welches Vorwissen wird vorausgesetzt? Danach folgen die wichtigsten Konzepte, die für diese Lecture kuratierten Formeln, passende Experimente und der seitengenaue Link zur Originalquelle. Jede Formelerklärung beginnt mit einer konkreten Frage, erklärt Namen, Symbole und ungewohnte Operatoren in Alltagssprache, setzt einen kleinen Zahlenfall vollständig ein und rechnet ihn vor; erst danach erscheint die allgemeine Gleichung. Vertiefend stehen 72 Konzepte, 79 Formeln, 72 Symbole, 70 Glossarbegriffe und 26 interaktive Labs bereit.
 
 ## Empfohlener Lernfluss
 
 1. Lecture 1 öffnen und zuerst Kontext, Nutzen und erklärte Voraussetzungen lesen.
 2. Die ausgewählten Kernkonzepte in der angegebenen Reihenfolge durcharbeiten; unbekannte Abkürzungen und Symbole werden bei ihrer ersten Verwendung erklärt.
-3. Formeln über Lesart, Variablen, Dimensionen und ein kleines Zahlenbeispiel nachvollziehen.
+3. Formeln in der vorgegebenen Reihenfolge durcharbeiten: Problem und Zweck, Namen, Symbole und Operatoren, vollständig eingesetztes und gerechnetes kleines Beispiel, allgemeine Formel, Intuition und Fallstrick. Geschlossene Formelkarten zeigen bewusst noch keine Gleichung und schreiben alle dort benötigten erkannten Abkürzungen direkt aus.
 4. Selbstchecks und Labs als Feedback nutzen. Nur fest auswertbare Fragen zeigen einen lokalen Bestanden-Status; dieser ist keine Kompetenzwertung.
-5. Im Assignment Coach nachlesen, was ein Handout-Block verlangt, wie die eigene Implementierung geprüft werden kann und wo typische Fehler liegen. Hinweise sind direkt zugänglich und enthalten keinen Abgabecode.
+5. Im Assignment Coach zuerst die einfach erklärten Voraussetzungen samt Beispiel lesen. Danach folgen Konzepte, Formelwege, Prüfstrategie und typische Fehler; der rohe Scope-Wortlaut des Handouts steht zuletzt als Referenz. Hinweise sind direkt zugänglich und enthalten keinen Abgabecode.
 6. Diagnose und Abrufkarten nur bei Bedarf verwenden. Sie sortieren Auffrischungen beziehungsweise Übungskarten, schalten aber nichts frei und erzeugen kein Mastery-Level.
 
 Freitext, Selbsteinstufungen, Seitenaufrufe und manuelle Haken zählen nirgends als Nachweis. Persönliche Notizen sind optional und bleiben getrennt vom Lernstatus.
@@ -23,6 +23,7 @@ Die Plattform spart Lecture-Nacharbeit und Suchzeit, ersetzt aber nicht das eige
 - Supabase Auth schützt den persönlichen Lernstand und die privaten Kurs-PDFs.
 - `localStorage` speichert Änderungen sofort auf dem Gerät; Supabase synchronisiert sie nach dem Login.
 - Eine Progressive Web App (PWA) ermöglicht die Installation auf iPhone und iPad.
+- Service-Worker-Cache und Sprachbundle verwenden aktuell Version 41.
 - Die PDFs werden durch `.gitignore` vom öffentlichen Repository ausgeschlossen.
 - Auf iPhone und iPad besitzen zentrale Controls mindestens 44 Pixel große Touch-Ziele; Labs stapeln im Portrait-Modus für lesbare Erklärungen und Antwortoptionen.
 

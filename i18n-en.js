@@ -601,14 +601,25 @@ window.CS336_EN = Object.freeze({
       ]
     },
     "parameter-initialization": {
-      "title": "Parameter Initialization for A1",
+      "title": "Parameter Initialization for Assignment 1 (A1)",
       "level": "Core",
-      "summary": "A1 prescribes different starting values for Linear Layers, Embeddings, and RMSNorm so that signal and gradient scales remain controlled from the beginning.",
-      "mental": "Initialization is the starting state of the training dynamics. If many weights begin too large, activations and gradients can grow through repeated Layers; if they begin too small, distinguishable signals can vanish. A1 therefore derives the spread of a Linear Layer from its input and output widths, limits rare outliers, and starts the RMSNorm Gain at the neutral value one.",
+      "summary": "Before training starts, every learnable weight table needs starting numbers. Assignment 1 (A1) specifies three different starting rules for Linear Layers, Embeddings, and Root Mean Square Normalization (RMSNorm).",
+      "terms": [
+        ["Linear Layer", "A component that creates new output numbers from several input numbers by using weighted sums."],
+        ["d_in", "The number of input numbers read by one weighted sum."],
+        ["d_out", "The number of new output numbers produced by the Layer."],
+        ["W", "The table of learnable Linear-Layer weights; every cell needs a starting value before training."],
+        ["Mean μ", "The center of a distribution. μ=0 means positive and negative starting weights are centered around zero."],
+        ["Variance σ²", "The square of the standard deviation. It describes spread, but it is not the value PyTorch expects as std."],
+        ["Standard deviation σ", "The typical distance of random values from their mean. This is the value expected by the std argument."],
+        ["Truncated normal distribution", "A bell-shaped distribution that does not allow values beyond fixed limits; torch.nn.init.trunc_normal_ produces such values."]
+      ],
+      "mental": "Imagine one output as a sum of many small contributions. If many random weights of the same size are added, the sum can easily become too large. A wider Linear Layer therefore starts with smaller individual weights. Initialization only chooses this starting point; training changes the weights afterwards.",
       "details": [
-        "For a bias-free Linear Layer with d_in input and d_out output features, A1 requires W~N(μ=0,σ²=2/(d_in+d_out)), truncated to [−3σ,3σ]. The std argument passed to torch.nn.init.trunc_normal_ is therefore σ=sqrt(2/(d_in+d_out)); a and b are −3σ and 3σ. Width-dependent scaling keeps the typical size of a weighted sum usable across differently sized Layers and balances the Forward and Backward directions symmetrically through Fan-in and Fan-out.",
-        "The Embedding matrix follows its own A1 rule: E~N(0,1), truncated to [−3,3]. Here std is one rather than the Linear σ formula. Truncation removes rare large initial values that could dominate individual features or Token rows from the start. σ is the parameter of the underlying normal distribution; after truncation, the empirical variance of a finite matrix is not exactly σ² and should not be treated as an equality test.",
-        "The learnable RMSNorm Gain g [D] is initialized entirely to ones. RMSNorm then begins without extra feature-specific amplification or attenuation after its fixed normalization; training can learn such weighting later. All three rules belong directly in the constructors of their respective Modules after creating each nn.Parameter with the requested device and dtype. They are not a global post-processing pass that might skip Modules or overwrite loaded Checkpoint weights."
+        "The small numerical case above separates two quantities that are easy to confuse. The assignment rule first gives the variance, which is the square of the spread. PyTorch's std argument expects the standard deviation instead. You must therefore take a square root between those steps; the two truncation limits are then built from that result.",
+        "Only now use the general notation. For a Linear Layer, the prescribed variance is σ²=2/(d_in+d_out). Therefore torch.nn.init.trunc_normal_ receives std=√(2/(d_in+d_out)). mean=0 places the center at zero; a=−3σ and b=+3σ remove the rare larger values. The rule makes individual starting weights smaller when the Layer has more inputs or outputs.",
+        "Embeddings explicitly do not use this width rule. Their weight table uses mean=0, std=1, a=−3, and b=+3. The RMSNorm Gain is simpler still: every one of its D values starts at 1, so the Gain does not change the already normalized features at the beginning.",
+        "Put each rule in the constructor of the relevant Module. A test checks the arguments, limits, and Module type. It does not require a finite random matrix to have exactly the theoretical variance: randomness and truncation make the measured value only approximate. Loaded Checkpoint weights must not be initialized again."
       ],
       "pitfalls": [
         "Passing 2/(d_in+d_out) directly as std: the Handout formula specifies σ², while trunc_normal_ expects σ, its square root.",
@@ -2299,61 +2310,77 @@ window.CS336_EN = Object.freeze({
   "formulas": {
     "mean-var": {
       "cat": "Basics",
-      "title": "Mean & Variance",
-      "read": "The mean is the sum divided by n; variance is the expected squared deviation.",
-      "purpose": "Describes location and spread; central for initialization, normalization, and policy gradient variance.",
-      "dims": "xᵢ and μ have the same units; variance has squared units.",
+      "title": "Mean, Variance & Standard Deviation",
+      "read": "First calculate the mean. Then find each value's distance from the mean, square those distances, and average them.",
+      "purpose": "Answers two simple questions: where is a group of numbers centered, and how widely are its values spread?",
+      "dims": "xᵢ, μ, and standard deviation σ have the same units; variance has squared units.",
       "vars": [
-        [
-          "n",
-          "Number of observations"
-        ],
-        [
-          "xᵢ",
-          "Observation i"
-        ],
-        [
-          "μ",
-          "Mean"
-        ],
-        [
-          "E",
-          "Expectation"
-        ]
+        ["X","Random variable or group of numbers being studied"],
+        ["n","Number of observed values"],
+        ["xᵢ","Value number i"],
+        ["Σᵢ","Add across all values i"],
+        ["μ","Mean"],
+        ["Var(X)","Population variance: mean squared deviation"],
+        ["E","Expectation: a long-run probability-weighted mean"],
+        ["σ","Standard deviation √Var; spread in the original units"]
       ],
-      "intuition": "Squares prevent positive and negative deviations from canceling each other out.",
-      "pitfall": "Standard deviation σ is √Var and has the same unit as x again.",
-      "example": "For [1,3], μ=2, variance (with 1/n)=1.",
+      "intuition": "Distances with opposite signs should not cancel. Squaring makes them positive; the square root then returns spread to the original unit.",
+      "pitfall": "Do not mix population and sample conventions: population variance divides by n, while a sample estimate usually divides by n−1. A5 uses PyTorch's default sample standard deviation with G−1, while the lecture derivation also shows the population form with G.",
+      "example": "Values [1,3]: (1) μ=(1+3)/2=2. (2) Deviations are −1 and +1. (3) Squared deviations are 1 and 1. Population variance is (1+1)/2=1, so σ=1. As a sample, divide by 2−1: variance 2 and standard deviation √2≈1.414.",
       "check": "Why is variance never negative?",
       "answer": "Every squared deviation (x−μ)² is at least zero. Therefore, a mean or expectation of exclusively non-negative numbers cannot be negative either."
     },
     "matmul": {
       "cat": "Linear Algebra",
       "title": "Matrix Multiplication",
-      "read": "Each output is the dot product of an A-row with a B-column.",
-      "purpose": "Fundamental operation for Linear Layers, Attention, and MLPs.",
-      "dims": "Inner dimension k must match; outer dimensions m,n remain.",
+      "read": "Take one row from A and one column from B, multiply matching values, and add those products into one output value.",
+      "purpose": "Computes many weighted sums at once; Linear Layers, Attention, and MLPs all use this operation.",
+      "dims": "A has [m,k], B has [k,n], and C has [m,n]. The shared axis k must have the same length and is summed away.",
       "vars": [
         [
-          "m",
-          "Number of rows/objects"
+          "A",
+          "Left matrix with m rows and k values per row"
+        ],
+        [
+          "B",
+          "Right matrix with k rows and n columns"
+        ],
+        [
+          "C",
+          "Result matrix"
+        ],
+        [
+          "i",
+          "Row index in A and C"
+        ],
+        [
+          "j",
+          "Column index in B and C"
         ],
         [
           "k",
-          "Contracted feature axis"
+          "Shared inner axis whose contributions are added"
+        ],
+        [
+          "m",
+          "Number of rows in A and C"
         ],
         [
           "n",
-          "Output features"
+          "Number of columns in B and C"
         ],
         [
           "Cᵢⱼ",
-          "Output at row i, column j"
+          "Output at row i and column j"
+        ],
+        [
+          "Σₖ",
+          "Add every contribution along the k axis"
         ]
       ],
-      "intuition": "Many weighted sums simultaneously.",
-      "pitfall": "Do not confuse with element-wise A⊙B.",
-      "example": "(B·T×D) @ (D×D_out) → (B·T×D_out).",
+      "intuition": "Each column of B is a different mixing recipe; A applies every recipe to each of its rows.",
+      "pitfall": "Do not confuse it with element-wise A⊙B, where no shared axis is summed.",
+      "example": "Let A=[[1,2],[3,4]] and B=[[5],[6]]. Then C₁₁=1·5+2·6=17 and C₂₁=3·5+4·6=39. Therefore C=[[17],[39]] with Shape [2,1].",
       "check": "Which axis disappears and why?",
       "answer": "The common inner axis k disappears because contributions are summed over all k. The outer axes m and n still denote for which row and column a result is produced."
     },
@@ -2371,7 +2398,7 @@ window.CS336_EN = Object.freeze({
       ],
       "intuition": "Every column of W is a mixing recipe adjusted during training; the same recipes are applied independently to all tokens.",
       "pitfall": "With a Bias, y=xW+b is mathematically an affine mapping even though PyTorch calls the component a Linear Layer. PyTorch stores nn.Linear.weight as [D_out,D_in] and computes x @ weight.T. In LLMs, Projection usually does not mean an orthogonal geometric projection and may even increase dimension.",
-      "example": "x=[2,−1], W=[[1,0,2],[3,−1,1]], b=[0.5,1,−2] ⇒ y=[−0.5,2,1].",
+      "example": "Set x=[2,−1], W=[[1,0,2],[3,−1,1]], and b=[0.5,1,−2]. Then y₁=0.5+2·1+(−1)·3=−0.5, y₂=1+2·0+(−1)·(−1)=2, and y₃=−2+2·2+(−1)·1=1. Therefore y=[−0.5,2,1].",
       "check": "How is the first output feature produced in the example, and which axes would the Layer not mix for X [B,T,2]?",
       "answer": "The first output feature is y₁=2·1+(−1)·3+0.5=−0.5. For X [B,T,2], the same calculation runs separately at every [b,t]: only the final feature axis is mapped from 2 to 3; different Batch examples and Token positions are not mixed."
     },
@@ -2382,6 +2409,10 @@ window.CS336_EN = Object.freeze({
       "purpose": "Backpropagation uses this rule to trace backward how strongly an earlier activation or parameter influenced the Loss.",
       "dims": "∂L/∂x has the same Shape as x. For tensors, Autograd computes Vector-Jacobian Products without storing the usually enormous full Jacobian.",
       "vars": [
+        [
+          "∂",
+          "Read as partial derivative: a local change while other inputs are held fixed"
+        ],
         [
           "L",
           "Scalar Loss whose change we want to explain"
@@ -2401,6 +2432,10 @@ window.CS336_EN = Object.freeze({
         [
           "∂y/∂x",
           "Local derivative: the effect of x on this one operation"
+        ],
+        [
+          "∂L/∂x",
+          "Desired total effect of x on the Loss"
         ]
       ],
       "intuition": "Each factor answers one part: x changes y, and y changes L. Effects multiply along a chain; when several paths meet again at x, their contributions add.",
@@ -2412,153 +2447,283 @@ window.CS336_EN = Object.freeze({
     "softmax": {
       "cat": "Probability",
       "title": "Softmax",
-      "read": "Exponentiate relative Logit differences and divide every value by their sum to create a probability distribution.",
-      "purpose": "Turns unnormalized scores into comparable weights: across V Vocabulary Tokens in the LM Head or T_key positions in Attention.",
-      "dims": "z and p have the same Shape. Exactly one axis is normalized: V for Next-Token Logits and T_key for Attention scores; every row along that axis sums to one.",
+      "read": "Exponentiate relative score differences and divide each value by their sum; this creates positive weights that sum to one.",
+      "purpose": "How are the model's raw scores converted into probabilities or Attention weights without very large numbers breaking the calculation?",
+      "dims": "z and p have the same Shape. Exactly one axis is normalized: Vocabulary axis V for next-Token prediction and the offered Key-position axis T_key for Attention; every row along that axis sums to one.",
       "vars": [
         [
-          "zᵢ",
-          "Logit: relative score for category i, not yet a probability"
+          "pᵢ",
+          "Result on the left: probability or Attention weight of the selected category i"
         ],
         [
-          "pᵢ",
-          "Normalized probability or Attention weight"
+          "i",
+          "Index of the category whose result is currently being calculated"
+        ],
+        [
+          "zᵢ",
+          "Raw model score (Logit) of category i; not yet a probability"
+        ],
+        [
+          "j",
+          "Running index used by the denominator and maximum to visit every category in the same row"
+        ],
+        [
+          "zⱼ",
+          "Raw score of the category currently identified by j"
+        ],
+        [
+          "exp(u)",
+          "Exponential function e^u; makes every finite relative score positive"
+        ],
+        [
+          "Σⱼ",
+          "Summation operator: adds the exponential values of all categories j"
         ],
         [
           "m",
-          "Largest Logit in the same row, subtracted only for numerical stability"
+          "Largest score in the same row; subtracted from every score for numerical stability"
+        ],
+        [
+          "maxⱼ zⱼ",
+          "Maximum operator: selects the largest among all scores visited by j"
         ]
       ],
-      "intuition": "Differences directly control ratios: pᵢ/pⱼ=exp(zᵢ−zⱼ). A Logit lead of one makes a category e≈2.72 times as likely as the other; a shared offset changes nothing.",
+      "intuition": "Differences directly control ratios: pᵢ/pⱼ=exp(zᵢ−zⱼ). A score lead of one makes a category e≈2.72 times as likely as the other; a shared offset changes nothing.",
       "pitfall": "The wrong axis still produces numbers between zero and one, but answers a different question. In Attention, every Query must distribute weight over its allowed Keys; masked scores become −∞ before Softmax.",
-      "example": "z=[2,1,0] gives approximately p=[0.665,0.245,0.090]. The distribution after z+100 is identical because only differences matter.",
-      "check": "Which axis do you normalize for LM Logits [B,T,V] and Attention scores [B,H,T_q,T_k], and why does subtracting m not change the result?",
+      "example": "For z=[2,1,0], m=2. Then exp(z−m)=[exp(0),exp(−1),exp(−2)]≈[1,0.368,0.135]. Their sum is 1.503. Division gives p≈[1/1.503,0.368/1.503,0.135/1.503]=[0.665,0.245,0.090]; the weights sum to 1.000.",
+      "check": "Which axis do you normalize for model Logits [B,T,V] and Attention scores [B,H,T_q,T_k], and why does subtracting m not change the result?",
       "answer": "For LM Logits [B,T,V], normalize across V; for Attention scores [B,H,T_q,T_k], normalize across T_k so every Query gets weights over its Keys. Subtracting m multiplies numerator and denominator by the same exp(−m), which cancels and leaves the distribution unchanged."
     },
     "logsumexp": {
       "cat": "Numerics",
       "title": "Log-Sum-Exp",
-      "read": "Pull out the maximum, sum safe exponential values, and add it back.",
-      "purpose": "Stable normalization of logits and cross-entropy.",
-      "dims": "Scalar per normalized row; same log unit as z.",
+      "read": "First subtract the largest score, sum the resulting safe exponential values, take the logarithm of that sum, and add the maximum back.",
+      "purpose": "How can the logarithm of a sum of exponential values be computed reliably for very large model scores while keeping the result finite?",
+      "dims": "The result is one scalar per normalized row and uses the same logarithmic scale as the input scores z.",
       "vars": [
         [
+          "LSE(z)",
+          "Result on the left: Log-Sum-Exp of the complete score vector z"
+        ],
+        [
           "z",
-          "Logit vector"
+          "Complete vector of raw model scores"
+        ],
+        [
+          "zⱼ",
+          "Score at the position identified by j"
+        ],
+        [
+          "j",
+          "Running index over every score in the same row"
         ],
         [
           "m",
-          "max(z)"
+          "Largest value in z, namely maxⱼ zⱼ"
         ],
         [
-          "LSE",
-          "Logarithm of the exponential sum"
+          "Σⱼ",
+          "Summation operator: adds one contribution for every index j"
+        ],
+        [
+          "exp(u)",
+          "Exponential function e^u; after subtracting m, all its arguments are at most zero"
+        ],
+        [
+          "log(u)",
+          "Natural logarithm; maps the positive sum back to the Log scale"
+        ],
+        [
+          "+m",
+          "Adds the previously removed maximum back, preserving the mathematically correct value"
         ]
       ],
-      "intuition": "Avoids overflow for large and underflow for small logits.",
-      "pitfall": "Naive log(sum(exp(z))) can yield inf, even though the mathematical result is finite.",
-      "example": "z=[1000,1000] ⇒ LSE=1000+log 2.",
-      "check": "Which exp arguments arise after stabilization?",
+      "intuition": "Without stabilization, exp(1000) would have to be represented and would overflow. After subtracting the maximum, the largest exponent is zero and every exponential value is at most one.",
+      "pitfall": "The naive form log(sum(exp(z))) can produce infinity even though the mathematical result is finite. The maximum must be computed separately for each row that is actually normalized.",
+      "example": "For z=[1000,999], m=1000. The relative values are [0,−1], so exp(z−m)≈[1,0.368]. Their sum is 1.368 and log(1.368)≈0.313. Thus LSE(z)=1000+0.313=1000.313 without ever computing exp(1000).",
+      "check": "Which exponential arguments arise after stabilization, and why can they not overflow?",
       "answer": "After stabilization, the exponents are zⱼ−m and are all less than or equal to zero; at least one is exactly zero. Their exponential values thus lie in (0,1], avoiding overflow."
     },
     "autoregressive": {
       "cat": "Language Model",
       "title": "Autoregressive Factorization",
-      "read": "The sequence probability is the product of conditional next-token probabilities.",
-      "purpose": "Defines training and generation of a decoder language model.",
-      "dims": "One scalar per sequence; each conditional distribution has V categories.",
+      "read": "For every Token, compute its probability given the earlier Tokens and multiply these conditional probabilities to obtain the probability of the complete sequence.",
+      "purpose": "How can a decoder Language Model assemble the probability of an entire text from its individual predictions for the next Token?",
+      "dims": "The left side is one probability value per sequence; every local prediction distributes probability over V possible next Tokens.",
       "vars": [
         [
+          "p(x₁:ₜ)",
+          "Left side: probability of the complete Token sequence from position 1 through T"
+        ],
+        [
+          "x₁:ₜ",
+          "Complete ordered Token sequence x₁,…,xₜ"
+        ],
+        [
           "T",
-          "Sequence length"
+          "Number of Tokens in the sequence"
+        ],
+        [
+          "t",
+          "Running position index from 1 through T"
+        ],
+        [
+          "∏ₜ",
+          "Product operator: multiplies the conditional factor from every position t"
+        ],
+        [
+          "p(xₜ | x&lt;ₜ)",
+          "Probability of the actually observed Token xₜ under its preceding context"
         ],
         [
           "xₜ",
-          "Token at position t"
+          "Token at the current position t"
         ],
         [
           "x&lt;ₜ",
-          "All previous tokens"
+          "All Tokens before position t; for the first Token this context is empty or a start symbol"
+        ],
+        [
+          "|",
+          "Conditioning bar: the predicted event is on the left and already known information is on the right"
+        ],
+        [
+          "log p",
+          "Log Probability of the same complete sequence"
+        ],
+        [
+          "Σₜ",
+          "Summation operator over all Token positions; replaces the product in Log space"
         ]
       ],
-      "intuition": "Complex sequences are decomposed into local predictions.",
-      "pitfall": "The causal condition must not be violated during parallel training.",
-      "example": "p(a,b)=p(a)·p(b|a).",
+      "intuition": "Instead of learning one enormous table for all possible texts, the model repeatedly solves the same local task: what comes next after the text visible so far?",
+      "pitfall": "During parallel training, inputs at position t must not contain later Tokens. A causal mask preserves this condition even though all positions are calculated together.",
+      "example": "For three Tokens A,B,C, let p(A)=0.5, p(B|A)=0.4, and p(C|A,B)=0.25. Then p(A,B,C)=0.5·0.4·0.25=0.05. In Log space, log p≈−0.693−0.916−1.386=−2.995, while log(0.05)≈−2.996; the small difference is only rounding.",
       "check": "Why does the product become a sum in log space?",
       "answer": "The logarithm satisfies log(a·b)=log(a)+log(b). Therefore, the product of conditional token probabilities becomes the sum of their log-probabilities."
     },
     "next-token-batch": {
       "cat": "Training",
       "title": "Random Next-Token Batches from Token Arrays",
-      "read": "Draw one valid start for each batch example and slice m input tokens plus the same m targets shifted by exactly one position.",
-      "purpose": "Creates equally sized teacher-forcing examples without padding from one flat tokenized corpus and supports sampling without loading it all into memory through np.memmap or np.load(..., mmap_mode='r').",
+      "read": "Draw one valid start for each Batch example and slice m input Tokens plus m target Tokens shifted by exactly one position.",
+      "purpose": "How can a long array of Token IDs produce many equally sized training examples in which every input Token is paired with exactly the following target Token, without loading the entire file into memory?",
       "dims": "x has shape [n], the B start indices have [B], and X and Y each have [B,m]. n≥m+1 is required; the exclusive random upper bound is n−m.",
       "vars": [
-        ["x","Flat integer array containing n token IDs"],
-        ["B","Number of independently sampled windows in the batch"],
-        ["m","Context length and length of each input and target window"],
-        ["s_b","Start index satisfying 0≤s_b<n−m"],
-        ["X_b,Y_b","Input and its next-token target shifted by one position"]
+        ["x","Flat array of all Token IDs in the corpus"],
+        ["n","Number of Token IDs in x"],
+        ["B","Number of independently sampled windows in the Batch"],
+        ["b","Index of one Batch example from 1 through B"],
+        ["m","Context length: number of input and target Tokens in each window"],
+        ["s_b","Start index sampled for Batch example b"],
+        ["∈ {0,…,n−m−1}","Validity condition: s_b is an integer from the first through the last complete window start"],
+        ["X_b","Input sequence of Batch example b"],
+        ["Y_b","Target sequence of the same example, shifted one position to the right relative to X_b"],
+        ["x[a:b]","Slice from index a inclusive through b exclusive"],
+        ["+1","Shift by exactly one Token so every target is the immediate successor of its input"]
       ],
-      "intuition": "One window of length m+1 contains both tensors: the first m values are the input and the final m values are the target. Memory mapping loads only touched pages; the small slices can then be converted to torch.long tensors and moved to the target device.",
-      "pitfall": "Using n−m+1 as the exclusive upper bound permits s=n−m and creates a short target. A wrong dtype or byte order interprets the same file bytes differently; a storage type that cannot represent V−1 can wrap IDs before loading, while an immediate full copy removes the memory advantage.",
-      "example": "For n=10 and m=4, s∈{0,…,5}. At s=5, X_b=x[5:9] and Y_b=x[6:10], both length four, with Y_b[:-1]=X_b[1:].",
+      "intuition": "One window of length m+1 contains both tensors: the first m values are the input and the final m values are the target. NumPy's np.memmap maps a raw file into virtual memory and loads only the pages actually touched by a slice.",
+      "pitfall": "Using n−m+1 as the exclusive upper bound permits s=n−m and creates a short target. A wrong dtype (data type) interprets the same file bytes as different IDs, while an immediate full copy removes the memory-map advantage.",
+      "example": "Let x=[10,11,12,13,14,15,16,17,18,19], so n=10, and let m=4. The exclusive random bound is n−m=6, so s_b may range from 0 through 5. For B=1 and s₁=5, X₁=x[5:9]=[15,16,17,18] and Y₁=x[6:10]=[16,17,18,19]. Both have length 4 and Y₁[:-1]=[16,17,18]=X₁[1:].",
       "check": "Why is n−m the exclusive random upper bound, which slice invariant must hold, and what must be checked when opening a token memory map?",
       "answer": "The input needs indices s through s+m−1 and the target needs s+1 through s+m. Thus s+m≤n−1, or s<n−m, making n−m the exclusive upper bound. X and Y both have shape [B,m], and every batch example b satisfies Y_b[:-1]=X_b[1:]. Before writing, require V−1≤np.iinfo(dtype).max; when opening a memory map, verify file format, exact dtype, byte order, expected length, and 0≤token ID<V without copying the entire array."
     },
     "cross-entropy": {
       "cat": "Loss",
-      "title": "Cross-Entropy / NLL",
-      "read": "Select the Log Probability of the correct next Token at every position, negate it, and average only over valid targets.",
-      "purpose": "Turns the V Output Logits per position into one scalar training Loss. The subsequent Gradient-Descent Step along the negative gradient raises the target Logit relative to every competitor.",
+      "title": "Cross-Entropy / Negative Log-Likelihood",
+      "read": "At every valid position, take the model's probability of the correct next Token, apply the logarithm and a minus sign, and then average the results.",
+      "purpose": "Which single number measures how much probability the model assigned to the Tokens that actually followed, so training can tell whether its predictions are improving?",
       "dims": "Logits z: [B,T,V], target IDs y and unreduced Loss: [B,T], reduced Loss L: scalar. M counts only unmasked target Tokens.",
       "vars": [
         [
-          "zᵢ",
-          "V Logits at one evaluated Token position i"
+          "L",
+          "Result on the left: mean Cross-Entropy Loss over all valid target positions"
         ],
         [
-          "yᵢ",
-          "Index of the actual next Token at position i"
+          "−",
+          "Negation: a high Log Probability becomes a small positive error and a very negative Log Probability becomes a large error"
         ],
         [
           "M",
-          "Number of valid targets after a Padding or Response Mask"
+          "Number of valid target Tokens; division by M turns the sum into a mean"
         ],
         [
-          "p−onehot(y)",
-          "Gradient with respect to Logits: target component p_y−1 is negative and every non-target component p_j is positive; only z←z−η∇L moves the Logits in the opposite direction"
+          "i",
+          "Running index over the valid evaluated Token positions"
+        ],
+        [
+          "Σᵢ",
+          "Summation operator: adds the Loss contribution from every valid position i"
+        ],
+        [
+          "zᵢ",
+          "Vector of all V raw model scores at position i"
+        ],
+        [
+          "softmax(zᵢ)",
+          "Probability distribution over the V possible next Tokens at position i"
+        ],
+        [
+          "yᵢ",
+          "Index of the Token that actually follows at position i"
+        ],
+        [
+          "softmax(zᵢ)ᵧᵢ",
+          "Selection operation: takes exactly the probability at target index yᵢ from the distribution"
+        ],
+        [
+          "log",
+          "Natural logarithm of the selected target probability"
         ]
       ],
-      "intuition": "−log p_y is small when the model gives the target high mass and grows without bound as p_y approaches zero. The logarithm turns sequence products into sums and heavily penalizes confident mistakes.",
+      "intuition": "−log p is near zero when the target receives probability close to one and grows sharply when the target probability approaches zero. Confidently wrong predictions are therefore penalized especially strongly.",
       "pitfall": "Inputs and targets must be shifted by one position for Next-Token training. Padding must disappear from both sum and denominator; averaging over sequences would otherwise weight different lengths incorrectly.",
-      "example": "p_y=0.5 gives Loss≈0.693; p_y=0.01 gives Loss≈4.605. For a uniform distribution over V categories, p_y=1/V and L=log V.",
+      "example": "Take M=2 valid positions. At position 1, let z₁=[0,0] and y₁ be the second category; Softmax assigns it 0.5. At position 2, let z₂=[log 3,0]≈[1.099,0] and again select the second category; it receives 1/(3+1)=0.25. Thus L=−(log 0.5+log 0.25)/2=−(−0.693−1.386)/2=1.040.",
       "check": "What Loss results from a uniform distribution over V Tokens, and how do the gradient and the Gradient-Descent Update differ for target and non-target Logits?",
       "answer": "A uniform distribution gives every Token probability 1/V, so the Loss is −log(1/V)=log(V). The Logit gradient is p−onehot(y): p_y−1 is negative for the target, so Gradient Descent raises that Logit, while positive p_j values make non-target Logits fall relative to it."
     },
     "perplexity": {
       "cat": "Evaluation",
       "title": "Perplexity",
-      "read": "Exponentiate the average token NLL.",
-      "purpose": "Likelihood-based model quality on a fixed corpus and tokenizer.",
-      "dims": "Dimensionless positive number, at least 1.",
+      "read": "For every actual next Token, compute its negative natural Log-Probability, take the mean L, and then apply exp.",
+      "purpose": "On average, how surprised is the model by the Tokens that actually follow in one fixed text corpus?",
+      "dims": "PPL and L are values per Token, while M is a Token count. With the natural logarithm, L is reported in nats per Token and exp is the matching inverse operation.",
       "vars": [
         [
-          "M",
-          "Number of evaluated tokens"
+          "PPL",
+          "Perplexity: the exponentiated average surprise per Token"
         ],
         [
-          "p",
-          "Target token probability"
+          "M",
+          "number of target Tokens that are actually evaluated"
+        ],
+        [
+          "i",
+          "running index of one evaluated target Token"
+        ],
+        [
+          "yᵢ",
+          "the Token that actually follows at position i"
+        ],
+        [
+          "x<ᵢ",
+          "all Tokens visible as context before yᵢ"
+        ],
+        [
+          "p(yᵢ|x<ᵢ)",
+          "probability the model assigns to exactly that target Token in the given context"
         ],
         [
           "L",
-          "average Cross-Entropy"
+          "mean negative natural Log-Probability"
+        ],
+        [
+          "log / exp",
+          "the natural logarithm and its inverse operation"
         ]
       ],
-      "intuition": "Effective branching factor per token.",
-      "pitfall": "Not directly comparable between different tokenizers.",
-      "example": "Loss log(10) ⇒ PPL 10.",
+      "intuition": "A likely target creates little surprise, while an unlikely target creates much more. Taking the mean makes texts of different lengths comparable; exp maps the result back to a more readable positive scale.",
+      "pitfall": "Count only valid target Tokens and always take the mean before exponentiating. Values from different Tokenizers or context rules are not directly comparable. KenLM's score API uses base-10 logarithms and therefore needs the matching inverse conversion.",
+      "example": "Two target Tokens receive probabilities 0.5 and 0.125. Their surprises are −log(0.5)=0.693 and −log(0.125)=2.079. The mean is L=(0.693+2.079)/2=1.386. Then PPL=exp(1.386)=4.",
       "check": "Why is PPL equal to 1 when Loss is 0?",
       "answer": "Perplexity is exp(Loss), and exp(0)=1. A loss of zero also means that probability one is assigned to each correct token, leaving effectively only one possibility."
     },
@@ -2569,53 +2734,90 @@ window.CS336_EN = Object.freeze({
       "purpose": "Turns discrete Token IDs into continuous D-dimensional activations that Linear Layers, Attention, and MLPs can process.",
       "dims": "token_ids: [B,T] integers, E: [V,D] learnable parameters, X: [B,T,D] activations. B and T remain; a new feature axis D is added.",
       "vars": [
-        ["token_ids[b,t]","Vocabulary index of the Token at Batch position b and Sequence position t"],
-        ["E","Learned table with one D-dimensional row per Vocabulary Token"],
-        ["X[b,t,:]","Starting activation of this Token occurrence before the Transformer Blocks"],
-        ["V,D","Vocabulary size and Model Dimension"]
+        ["B","Number of sequences in the Batch"],
+        ["T","Number of Token positions per sequence"],
+        ["V","Number of entries in the Vocabulary"],
+        ["D","Number of learned features per Token"],
+        ["b,t","A particular Batch and position index"],
+        ["token_ids[b,t]","Vocabulary index at position [b,t]"],
+        ["E","Learned table with Shape [V,D]"],
+        ["E[id,:]","Complete D-dimensional table row for one ID; : means all features"],
+        ["X[b,t,:]","Selected starting activation of this Token occurrence"]
       ],
       "intuition": "The ID is only an address. The same Token starts from the same table row, but position and context change its state in every later Transformer Block.",
       "pitfall": "A lookup is not a weighted average, and ID 101 is not automatically more similar to 102 than to 900. The LM Head uses the same matrix only with Weight Tying; otherwise it has separate learned weights.",
-      "example": "token_ids=[[2,0,2]] and E with Shape [5,4] produce X [1,3,4]. X[0,0] and X[0,2] begin as the same row E[2] but may later become different contextual states.",
+      "example": "Let E[0]=[0.1,0.2], E[1]=[1.0,−1.0], and E[2]=[2.0,0.5]. For token_ids=[[2,0,2]], the lookup selects exactly those rows: X=[[[2.0,0.5],[0.1,0.2],[2.0,0.5]]]. Thus [B,T]=[1,3] becomes [B,T,D]=[1,3,2].",
       "check": "Which axis is added by the lookup, and why can two occurrences of the same Token ID differ after several Transformer Blocks?",
       "answer": "The lookup replaces each scalar ID with the selected D-dimensional table row, so [B,T] becomes [B,T,D]. Equal IDs start from the same row, but receive different position signals and exchange information with different contexts through Attention; their later contextual states can therefore differ."
     },
     "embedding-params": {
       "cat": "Resources",
       "title": "Embedding Parameters",
-      "read": "Vocabulary size times model dimension.",
-      "purpose": "Parameter and memory calculation for token embedding; with Weight Tying, the Output Head can use the same matrix.",
-      "dims": "Number of parameters; Bytes = N_embed×Bytes per element.",
+      "read": "Multiply the number of Vocabulary entries by the number of stored features in each entry.",
+      "purpose": "How many learned numbers and how much memory does the table need that translates each Token ID into a feature vector?",
+      "dims": "N_embed is a pure parameter count. Memory in Bytes is then N_embed multiplied by the number of Bytes used for each stored number.",
       "vars": [
         [
+          "N_embed",
+          "Result on the left: total number of learnable values in the Embedding table"
+        ],
+        [
           "V",
-          "Vocabulary size"
+          "Vocabulary size: number of different addressable Token IDs"
         ],
         [
           "D",
-          "Model dimension"
+          "Model dimension: number of learned features in each table row"
+        ],
+        [
+          "·",
+          "Multiplication: D values are stored for every one of the V entries"
         ]
       ],
-      "intuition": "A D-dimensional row for each token.",
-      "pitfall": "Without Weight Tying, remember to count the LM Head separately.",
-      "example": "V=32k, D=4096 ⇒ approx. 131M parameters.",
+      "intuition": "The table has one row per Vocabulary entry and D columns per row. Its number of cells is therefore rows times columns.",
+      "pitfall": "Weight Tying means that the output layer reuses the same matrix. Without this reuse, the Language Model's output matrix must be counted separately.",
+      "example": "For V=1,000 Tokens and D=64 features, N_embed=1,000·64=64,000 parameters. At 4 Bytes per parameter, the table needs 64,000·4=256,000 Bytes, or about 250 KiB.",
       "check": "How does doubling V affect sequence and parameter costs?",
       "answer": "With fixed D, doubling V doubles the V·D embedding parameters and also the number of output logits per position. Sequences may become shorter through additional longer tokens, but neither the extent nor the occurrence of this shortening is guaranteed and depends on the learned vocabulary."
     },
     "linear-params": {
       "cat": "Resources",
-      "title": "Linear Layer: Parameters & FLOPs",
-      "read": "W contains one learned weight for every input-output feature pair; the optional Bias contains one value per output feature.",
-      "purpose": "Estimates parameters and compute for Q/K/V and Output Layers, MLP matrices, and the LM Head.",
-      "dims": "W: [d_in,d_out], b: [d_out]; N counts stored values, while FLOPs count reuse of the same mapping at B·T positions.",
+      "title": "Linear Layer: Parameters & Compute Operations",
+      "read": "Count one weight for every input-output feature pair and optionally one Bias per output feature; for compute, the same matrix is applied at every Batch and Token position.",
+      "purpose": "How many learned values does a Linear mapping store, and approximately how many floating-point operations does its Forward Pass need for a complete Token Batch?",
+      "dims": "Weight matrix W has [d_in,d_out] and optional Bias b has [d_out]. N counts stored values; FLOPs means Floating-Point Operations and counts operations across all B·T applications.",
       "vars": [
         [
+          "N",
+          "Result of the first equation: total number of learnable parameters"
+        ],
+        [
           "d_in",
-          "Input features per token"
+          "Number of input features read for each Token"
         ],
         [
           "d_out",
-          "Newly produced output features per token"
+          "Number of output features produced for each Token"
+        ],
+        [
+          "d_in·d_out",
+          "Number of weights in the rectangular weight matrix"
+        ],
+        [
+          "(+ d_out)",
+          "Optional addition: exactly one Bias value for each output feature"
+        ],
+        [
+          "FLOPs",
+          "Floating-Point Operations counted for the Forward Pass"
+        ],
+        [
+          "≈",
+          "Approximation sign: bookkeeping operations and Bias addition are omitted from the rough FLOP count"
+        ],
+        [
+          "2",
+          "Approximately one multiplication plus one addition for each matrix contribution"
         ],
         [
           "B",
@@ -2624,30 +2826,36 @@ window.CS336_EN = Object.freeze({
         [
           "T",
           "Token positions per sequence"
+        ],
+        [
+          "·",
+          "Multiplication of factors; the same mapping runs at B·T positions"
         ]
       ],
-      "intuition": "The learned mixing recipes exist only once in W, but are executed again for every one of the B·T tokens.",
-      "pitfall": "Do not equate forward-pass and training FLOPs; PyTorch stores W transposed relative to the row-vector convention used here.",
-      "example": "A bias-free D×D Layer has D² parameters; X [B,T,D] produces [B,T,D] without mixing B or T.",
+      "intuition": "The learned mixing recipes exist only once in W, but are executed again for every one of the B·T Tokens. Therefore B and T change compute, not parameter count.",
+      "pitfall": "A Forward Pass and full training do not have the same FLOP count because the Backward Pass adds work. PyTorch stores W transposed relative to the row-vector convention used here.",
+      "example": "Set d_in=4, d_out=5, B=2, and T=3, and include a Bias. Then N=4·5+5=25 parameters. The Forward Pass costs approximately 2·2·3·4·5=240 floating-point operations.",
       "check": "Why does T not appear in the parameter count even though compute grows with T?",
       "answer": "The same Linear-Layer weight matrix is reused at every one of the T Token positions and is not stored again per position. T therefore changes how often the learned mapping is executed and thus the forward-pass compute, but not the parameter count stored once."
     },
     "parameter-init": {
       "cat": "Transformer",
       "title": "A1 Parameter Initialization",
-      "read": "For Linear weights, first take the square root of the prescribed variance and truncate at three standard deviations; use std one for Embeddings instead and initialize the RMSNorm Gain to ones.",
-      "purpose": "Defines the A1-exact starting state of learnable Linear, Embedding, and RMSNorm parameters so unsuitable scales do not destabilize activations and gradients before the first update.",
-      "dims": "W has Shape [d_out,d_in], or its documented equivalent orientation; E has [V,D], and g_RMS has [D]. d_in and d_out determine only σ_linear; every bound uses the same unit as its parameter.",
+      "read": "For Linear weights, add the input and output widths, divide 2 by that sum, and take the square root. The result is std. The limits are three times that value. Embeddings and RMSNorm use the two separate rules shown beside it.",
+      "purpose": "Answers the practical question: which random numbers should three different weight tables contain before the first training step?",
+      "dims": "W is the Linear-Layer weight table, E is the Embedding table, and g_RMS is the RMSNorm Gain list. Their Shapes are [d_out,d_in], [V,D], and [D]; the calculation chooses starting values, not these Shapes.",
       "vars": [
-        ["d_in,d_out","Input and output widths of the particular Linear Layer"],
-        ["σ_linear","Standard deviation sqrt(2/(d_in+d_out)) passed to trunc_normal_ as std"],
-        ["W","Linear weights sampled from the normal distribution truncated at ±3σ"],
-        ["E","Embedding matrix with its separate std=1 and [−3,3] rule"],
-        ["g_RMS","Learnable RMSNorm Gain initialized entirely to ones"]
+        ["d_in","Number of input values read by the Linear Layer for one example"],
+        ["d_out","Number of output values produced by the Linear Layer for one example"],
+        ["σ","Standard deviation: the typical distance of a random starting weight from zero; this is the value passed as std"],
+        ["σ²","Variance: the square of σ; A1 states this value first"],
+        ["W","The Linear-Layer weight table"],
+        ["E","The Embedding table; it uses std=1 regardless of Layer width"],
+        ["g_RMS","The list of learnable RMSNorm scaling values; every entry starts at 1"]
       ],
-      "intuition": "Fan-in and Fan-out determine how many contributions mix signals forward and collect gradients backward. The symmetric width rule keeps both directions at a usable scale, Truncation removes rare initial outliers, and g=1 lets RMSNorm begin without extra feature weighting.",
-      "pitfall": "trunc_normal_ expects std, not a variance, so 2/(d_in+d_out) must first be square-rooted. Embeddings do not use σ_linear. Because of Truncation and finite sampling, the empirical variance is not exactly the supplied σ².",
-      "example": "d_in=64 and d_out=192 give σ=sqrt(2/256)≈0.0884 and bounds around ±0.265. An Embedding in the same model still uses std=1 and bounds ±3; every RMSNorm Gain begins at one.",
+      "intuition": "One output adds many weighted contributions. The more inputs and outputs a Layer has, the smaller its individual random starting weights should be so their sum is not needlessly large before training. The limits only remove rare extreme starting values.",
+      "pitfall": "2/(d_in+d_out) is the variance σ², not PyTorch's std argument. Take the square root before the call. Embeddings do not use the Linear rule.",
+      "example": "Small numerical case: d_in=2 and d_out=6. Substitute the numbers visibly into the variance rule: 2/(d_in+d_out)=2/(2+6)=2/8=0.25. The standard deviation passed as std is then √0.25=0.5. The limits are −3·0.5=−1.5 and +3·0.5=+1.5. Embeddings still use std=1 and limits −3 to +3; the RMSNorm Gain starts at 1.",
       "check": "Which three initialization rules does A1 require, which arguments are passed to trunc_normal_, and why is an exact empirical-variance comparison not a valid test?",
       "answer": "Linear: σ=sqrt(2/(d_in+d_out)); trunc_normal_ receives mean=0, std=σ, a=−3σ, and b=3σ. Embedding: mean=0, std=1, a=−3, and b=3. RMSNorm: the Gain starts entirely at one. Tests should verify the formula, bounds, and Module types rather than exact empirical variance after Truncation."
     },
@@ -2663,21 +2871,41 @@ window.CS336_EN = Object.freeze({
           "D-dimensional activation vector of one Token"
         ],
         [
-          "D",
-          "Feature width and the only normalization axis"
+          "xⱼ",
+          "Feature value at coordinate j"
         ],
         [
-          "g",
-          "Learnable scale per feature, applied after normalization"
+          "j",
+          "Feature index; the formula sums over every j"
+        ],
+        [
+          "D",
+          "Number of features and the only normalization axis"
+        ],
+        [
+          "Σⱼ",
+          "Add the squared values of all D features"
         ],
         [
           "ε",
           "Small fixed constant that prevents division by zero"
+        ],
+        [
+          "g",
+          "Learnable scale with one value per feature"
+        ],
+        [
+          "⊙",
+          "Element-wise multiplication: every feature receives its own Gain"
+        ],
+        [
+          "RMSNorm(x)",
+          "Normalized Output with the same Shape as x"
         ]
       ],
       "intuition": "RMSNorm mainly changes the vector's length rather than its direction; g can then amplify or damp individual coordinates. In a Pre-Norm Block, only the Side Branch is normalized while the Residual Path remains direct.",
       "pitfall": "Do not average over Batch B or Tokens T and do not subtract the mean. With low precision, squaring and averaging are often done in FP32; ε belongs under the square root in this definition.",
-      "example": "For x=[3,4], D=2, and g=[1,1], RMS=√12.5≈3.536 and the Output is approximately [0.849,1.131]; Shape remains [2].",
+      "example": "For x=[3,4], D=2, g=[1,1], and negligible ε: square → [9,16], average → 12.5, square root → 3.536. Division gives [3/3.536,4/3.536]≈[0.849,1.131]; Gain [1,1] leaves those values unchanged.",
       "check": "Which axis is reduced for X [B,T,D], what Shape does g have, and why does RMSNorm not change Sequence length?",
       "answer": "For X [B,T,D], the quadratic mean runs only over D; g has Shape [D] and is broadcast over B and T. Sequence length stays unchanged because RMSNorm scales every Token separately and neither combines nor creates positions."
     },
@@ -2689,93 +2917,153 @@ window.CS336_EN = Object.freeze({
       "dims": "X [B,T,D] → W₁ and W₃ branches [B,T,F] → elementwise product [B,T,F] → W₂ Output [B,T,D]. B and T are not mixed.",
       "vars": [
         [
-          "W₁,W₃",
-          "Two learned D→F Linear Layers for Gate and content branches"
+          "x",
+          "Feature vector of one Token"
+        ],
+        [
+          "FFN(x)",
+          "Output of the Feed-Forward Network for this Token"
+        ],
+        [
+          "W₁",
+          "Learned D→F mapping for the Gate branch"
+        ],
+        [
+          "W₃",
+          "Learned D→F mapping for the content branch"
         ],
         [
           "W₂",
-          "Learned F→D Down Linear Layer for Residual compatibility"
+          "Learned F→D mapping back to the Residual Stream"
         ],
         [
           "⊙",
-          "Elementwise multiplication of two x-dependent [B,T,F] tensors; it already creates a multiplicative nonlinearity"
+          "Element-wise multiplication of matching features"
         ],
         [
           "SiLU(z)",
-          "Fixed smooth function z·sigmoid(z) that additionally shapes the Gate branch"
+          "Fixed function z·sigmoid(z); sigmoid produces a smooth value between 0 and 1"
+        ],
+        [
+          "D,F",
+          "Input and Output width D and expanded inner width F"
         ]
       ],
       "intuition": "W₃x creates candidate features while SiLU(W₁x) creates a smooth input-dependent Gate for the same Token. The product of two x-dependent branches is already nonlinear; SiLU is not the only source of nonlinearity but additionally shapes, suppresses, and amplifies the Gate branch.",
       "pitfall": "Only a pure composition of Linear Layers without an activation and without a multiplicative Gate collapses into one Linear Map. SwiGLU has three large weight matrices, mixes no Token positions, and applies SiLU to exactly one Up branch before the elementwise product.",
-      "example": "For X [3,11,256] and F=704, both Up branches are [3,11,704], their gated product is [3,11,704], and W₂ returns [3,11,256] for Residual addition.",
+      "example": "Suppose W₁x=[1,−1] and W₃x=[4,2]. Then SiLU(W₁x)≈[0.731,−0.269], and their element-wise product is [2.924,−0.538]. If W₂ maps this vector to one output with weights [0.5,−1], the result is 0.5·2.924+(−1)·(−0.538)≈2.0.",
       "check": "What roles do the elementwise product and SiLU play, which axis is not mixed, and why must W₂ map back to D?",
       "answer": "The elementwise product of two x-dependent branches already creates a multiplicative nonlinearity; SiLU additionally shapes the Gate smoothly and can suppress or amplify features. T is not mixed. W₂ must map F back to D so the Output has the same [B,T,D] Shape as the Residual Stream."
     },
     "rope": {
       "cat": "Transformer",
       "title": "RoPE Rotation",
-      "read": "Divide Token position i by Θ raised to the normalized pair index, then rotate exactly the adjacent coordinates 2k−1 and 2k of Q or K.",
+      "read": "For every Token position and adjacent feature pair, calculate an angle and rotate that two-dimensional pair by exactly this angle.",
       "purpose": "Adds A1-conforming position information to Query-Key comparisons so their Dot Product can depend on relative Token distance in a controlled way.",
       "dims": "Q and K remain [...,T,d], and d must be even. k counts d/2 adjacent feature pairs along the final axis; any number of leading batch-like axes and T remain unchanged.",
       "vars": [
         [
           "i",
-          "Token position that scales the angle linearly"
+          "Zero-based Token position"
         ],
         [
           "k",
           "One-based index of the adjacent feature pair"
         ],
         [
+          "θᵢ,ₖ",
+          "Rotation angle for position i and pair k, measured in radians"
+        ],
+        [
           "Θ",
-          "Positive RoPE base; higher pair indices divide i by a larger power"
+          "Positive RoPE base controlling how much more slowly later pairs rotate"
         ],
         [
           "d",
-          "Even Query/Key width and denominator in the exponent"
+          "Even width of one Query or Key Head"
+        ],
+        [
+          "q₂ₖ₋₁,q₂ₖ",
+          "Original values of the adjacent feature pair"
+        ],
+        [
+          "q′₂ₖ₋₁,q′₂ₖ",
+          "The same two values after rotation"
         ],
         [
           "R(θ)",
-          "Fixed matrix [[cosθ,−sinθ],[sinθ,cosθ]] acting on pair (2k−1,2k)"
+          "Fixed matrix [[cosθ,−sinθ],[sinθ,cosθ]]"
+        ],
+        [
+          "ᵀ",
+          "Transpose: the row pair is written as a column for matrix notation"
         ]
       ],
-      "intuition": "For two positions, R_iᵀR_j is a rotation by their angle difference. One shared Module can precompute the fixed sine and cosine values as a non-persistent Buffer and reuse them across all Layers.",
+      "intuition": "A rotation changes a feature pair's direction but not its length. When Attention compares differently rotated pairs, their positional distance affects the comparison.",
       "pitfall": "A1 requires adjacent zero-based pairs [0,1],[2,3],…. Half-Split pairing is a different convention and breaks the tests. The angle is i divided by Θ^((2k−2)/d), not multiplied by it; the tables are Buffers, not Parameters.",
-      "example": "For d=4, Θ=100, and i=2: k=1 gives θ=2 for pair [0,1], while k=2 gives θ=0.2 for pair [2,3]. R rotates both pairs without changing their Shape or pairwise norm.",
+      "example": "Set d=4, Θ=100, and i=2. For k=1, θ=2 and the pair [1,0] becomes [cos(2),sin(2)]≈[−0.416,0.909]. For k=2, θ=0.2; the same starting pair would become [cos(0.2),sin(0.2)]≈[0.980,0.199]. Both pairs keep length 1.",
       "check": "Which angle formula and Pairing convention does A1 test, where does RoPE sit in the Attention flow, and why does the shared table belong in register_buffer(..., persistent=False)?",
       "answer": "A1 uses θ_i,k=i/Θ^((2k−2)/d) and adjacent one-based pairs (2k−1,2k), or zero-based [0,1],[2,3],…. R(θ) computes x′₀=x₀cosθ−x₁sinθ and x′₁=x₀sinθ+x₁cosθ. RoPE acts after Q/K and before QKᵀ; V remains unchanged. The fixed shared table is a non-persistent Buffer rather than a Parameter."
     },
     "attention": {
       "cat": "Transformer",
       "title": "Scaled Dot-Product Attention",
-      "read": "Compare every Query with all allowed Keys, normalize those Compatibility Scores into weights, and use them to form a weighted sum of Values.",
+      "read": "Compare every Query with all allowed Keys, turn the comparison scores into weights summing to one, and mix the Values with those weights.",
       "purpose": "Lets each Token position selectively read information from other allowed positions according to its current content.",
       "dims": "Q [B,H,T_q,d_k], K [B,H,T_k,d_k], V [B,H,T_k,d_v] → Scores and weights [B,H,T_q,T_k] → Output [B,H,T_q,d_v]. Softmax preserves Shape and normalizes T_k.",
       "vars": [
         [
-          "Q",
-          "Query activations: learned search description of every reading position"
+          "B",
+          "Number of sequences in the Batch"
         ],
         [
-          "K",
-          "Key activations: learned comparison description of every offered position"
+          "H",
+          "Number of Attention Heads"
         ],
         [
-          "V",
-          "Value activations: content transferred when its position receives high weight"
+          "T_q",
+          "Number of Query positions requesting information"
+        ],
+        [
+          "T_k",
+          "Number of Key and Value positions available to read"
         ],
         [
           "dₖ",
-          "Width of one Query/Key Head; √dₖ stabilizes score scale"
+          "Feature width of one Query and Key Head"
         ],
         [
-          "W_Q,W_K,W_V",
-          "Learned Linear-Layer weights that produce Q,K,V from X; Q,K,V themselves are not parameters"
+          "d_v",
+          "Feature width of one Value Head"
+        ],
+        [
+          "Q",
+          "Query activations: search description of every reading position"
+        ],
+        [
+          "K",
+          "Key activations: comparison description of every offered position"
+        ],
+        [
+          "Kᵀ",
+          "K with position and feature axes exchanged so every Query is compared with every Key"
+        ],
+        [
+          "V",
+          "Value activations: content transferred from each position"
+        ],
+        [
+          "softmax",
+          "Turns each Query's scores into positive weights summing to one"
+        ],
+        [
+          "Attention(Q,K,V)",
+          "Weighted Value mixture for every Query"
         ]
       ],
       "intuition": "Q and K decide where to read; V decides what is read. Every Head learns its own feature views, so the same Token states can be encoded differently for comparison and transferable content.",
       "pitfall": "Softmax runs over T_k for each fixed Query. Masks act on Scores before Softmax; Q, K, and V are Batch activations, while only their producing Linear Layers are learned.",
-      "example": "If one Query has Softmax weights [0.25,0.75] and Values v₁=[2,0], v₂=[0,4], its Output is 0.25v₁+0.75v₂=[0.5,3]. Equal Scores would average the Values uniformly.",
+      "example": "For one Head with dₖ=1, let q=1 and let the two Keys be k₁=0 and k₂=ln(3)≈1.099; ln(3) is exactly the value whose exponential is 3. The scores are [0,1.099]. Their exponential values are [1,3], and division by their sum 4 gives Softmax weights [0.25,0.75]. With v₁=[2,0] and v₂=[0,4], the Output is 0.25v₁+0.75v₂=[0.5,3].",
       "check": "What roles do Q/K play versus V, what Score Shape is produced, which axis does Softmax normalize, and why divide by √dₖ?",
       "answer": "Q and K create Compatibility Scores that determine where to read, while V supplies the content to mix. [B,H,T_q,d_k] and [B,H,T_k,d_k] produce [B,H,T_q,T_k], normalized over T_k. Dividing by √d_k keeps typical score scale stable as Head width grows."
     },
@@ -2783,26 +3071,62 @@ window.CS336_EN = Object.freeze({
       "cat": "Transformer",
       "title": "Causal Attention Mask",
       "expr": "Sᵢⱼ = (qᵢ·kⱼ)/√dₖ + Mᵢⱼ,   Mᵢⱼ=0 for j≤i, otherwise −∞",
-      "read": "Future key positions receive impossible scores before softmax.",
-      "purpose": "Prevents information leakage during next-token training.",
-      "dims": "M and S: T_q×T_k, broadcasted over batch and attention heads.",
+      "read": "Compute the comparison between the current Query and every Key, then add zero for allowed positions or minus infinity for future positions before Softmax.",
+      "purpose": "When predicting the next Token, how does the model prevent a position from secretly reading later Tokens in the training sequence?",
+      "dims": "M and S have Shape T_q×T_k in each Attention Head and are applied to every sequence and Head. Rows are Query positions and columns are Key positions.",
       "vars": [
         [
+          "Sᵢⱼ",
+          "Result on the left: masked Attention score from Query position i to Key position j"
+        ],
+        [
           "i",
-          "Query position"
+          "Row index of the Query position requesting information"
         ],
         [
           "j",
-          "Key position"
+          "Column index of the Key position being considered as an information source"
         ],
         [
-          "M",
-          "Additive mask"
+          "qᵢ",
+          "Query vector at position i"
+        ],
+        [
+          "kⱼ",
+          "Key vector at position j"
+        ],
+        [
+          "qᵢ·kⱼ",
+          "Dot Product: multiply matching features and add them to one comparison score"
+        ],
+        [
+          "dₖ",
+          "Number of features in one Query or Key vector"
+        ],
+        [
+          "√dₖ",
+          "Scale factor that compensates for the typical score size of wider vectors"
+        ],
+        [
+          "Mᵢⱼ",
+          "Additive mask value for exactly the position pair i,j"
+        ],
+        [
+          "j≤i",
+          "Allowed case: Key j is in the present or past, so Mᵢⱼ=0"
+        ],
+        [
+          "j>i",
+          "Forbidden case: Key j is in the future, so Mᵢⱼ=−∞"
+        ],
+        [
+          "−∞",
+          "Exactly zero weight after Softmax because exp(−∞)=0"
         ]
       ],
-      "intuition": "Row i can only see the past and present.",
-      "pitfall": "Masking with 0 after softmax is incorrect.",
-      "example": "Row 0 allows only column 0.",
+      "intuition": "Row i may only see columns up to and including i. The mask leaves allowed scores unchanged but makes every future score impossible before probabilities are formed.",
+      "pitfall": "Multiplying by zero after Softmax is incorrect because the remaining weights no longer sum to one. Apply the mask to scores before Softmax.",
+      "example": "Take Query position i=1, dₖ=1, q₁=2, and Keys k₀=1, k₁=3, k₂=4. The unmasked scores are [2·1,2·3,2·4]=[2,6,8]. Since j=2>i, M₁=[0,0,−∞] and S₁=[2,6,−∞]. Softmax gives approximately [0.018,0.982,0]; the future position receives exactly no weight.",
       "check": "Which triangle contains −∞?",
       "answer": "The strictly upper triangle contains −∞, meaning all entries where the column index j is greater than the row index i. These entries represent future key positions that a query must not see yet."
     },
@@ -2832,59 +3156,96 @@ window.CS336_EN = Object.freeze({
       ],
       "intuition": "The Sub-Layer need not recreate the whole state; it learns a correction Δx. Since ∂x′/∂x contains an Identity term, a short gradient path exists even through many Blocks.",
       "pitfall": "A Pre-Norm Block adds the original x, not Norm(x). Its two updates are sequential: the MLP receives the state that Attention has already updated.",
-      "example": "x=[1,−2] and F(Norm(x))=[0.1,0.5] give x′=[1.1,−1.5]. A decoder Block performs first an Attention correction and then an MLP correction.",
+      "example": "Set x=[1,−2] and F(Norm(x))=[0.1,0.5]. Add coordinate by coordinate: x′=[1+0.1,−2+0.5]=[1.1,−1.5]. A decoder Block performs first an Attention correction and then an MLP correction.",
       "check": "Where is the direct gradient path, why must both addends share a Shape, and which state does the second Residual update see?",
       "answer": "The direct path is the unchanged addend x, whose derivative contains the Identity regardless of F. Elementwise addition requires equal Shapes. In a serial Transformer Block, the second Residual base is already x plus the Attention correction."
     },
     "z-loss": {
       "cat": "Architecture",
       "title": "z-loss for Logit Stability",
-      "read": "Penalize the squared log-partition for each token and average it over T target positions.",
-      "purpose": "Constrains a shared drift of all output or Router Logits that Cross-Entropy alone barely determines.",
-      "dims": "z has shape T×V or T×E; logsumexp returns one scalar per row and L_z one scalar.",
-      "vars": [["z_tv","Logit for token position t and vocabulary entry or Expert v"],["α_z","Small auxiliary-loss weight"],["T","Number of evaluated token positions"]],
-      "intuition": "Softmax sees only differences; z-loss anchors their common shift.",
-      "pitfall": "Do not treat it as a replacement for stable logsumexp or as a load-balancing loss.",
-      "example": "z→z+a leaves Softmax unchanged but shifts logsumexp by a.",
+      "read": "For each Token row, calculate Log-Sum-Exp of all scores, square it, average across Token positions, and weight the result by α_z.",
+      "purpose": "Which additional penalty keeps the shared numerical level of all output or Router scores in a controlled range even when their relative differences already yield good predictions?",
+      "dims": "z has Shape T×V for Vocabulary scores or T×E for Expert scores. The inner calculation gives one value per Token position; L_z is one scalar auxiliary Loss.",
+      "vars": [
+        ["L_z","Result on the left: scalar z-loss added to the main Loss"],
+        ["α_z","Nonnegative weight that sets the strength of this auxiliary Loss"],
+        ["T","Number of Token positions evaluated in this mean"],
+        ["t","Running index over these Token positions"],
+        ["Σ_t","Outer summation operator: adds one squared contribution for each position t"],
+        ["v","Running index over all Vocabulary entries or all Router Experts in the same row"],
+        ["z_tv","Raw score at Token position t for category or Expert v"],
+        ["exp(z_tv)","Exponential function applied to one score"],
+        ["Σ_v","Inner summation operator: adds the exponential values of the complete score row t"],
+        ["log","Natural logarithm of the positive inner sum; together with Σ_v exp this forms Log-Sum-Exp"],
+        ["[ … ]²","Square of Log-Sum-Exp; penalizes positive and negative displacement from zero"],
+        ["1/T","Division by the number of positions; turns the outer sum into a mean"]
+      ],
+      "intuition": "Softmax sees only score differences. Shifting every score in one row by the same number leaves the prediction unchanged, but z-loss detects and penalizes that shared shift.",
+      "pitfall": "z-loss replaces neither a numerically stable Log-Sum-Exp calculation nor an Expert load-balancing penalty. It controls shared score level, not the distribution of selected Experts.",
+      "example": "Set T=2, α_z=0.1, and z_t=[0,0] for both Token rows. In each row, log(exp(0)+exp(0))=log 2≈0.693 and its square is 0.480. Therefore L_z=0.1·(1/2)·(0.480+0.480)=0.048.",
       "check": "Why can z-loss change while Cross-Entropy remains exactly the same?",
       "answer": "Softmax and Cross-Entropy depend only on differences between Logits. A shared shift z→z+a therefore leaves them unchanged, but logsumexp(z+a)=logsumexp(z)+a. z-loss measures that log-partition and consequently changes with the otherwise weakly constrained shared offset."
     },
     "logit-soft-cap": {
       "cat": "Architecture",
       "title": "Logit Soft-Capping",
-      "read": "Scale the Logit, apply tanh, and scale it back so large magnitudes saturate smoothly.",
-      "purpose": "Constrains extreme Attention or output Logits without hard-clipping small values.",
-      "dims": "Input and output have the same shape; c is a positive scalar in the same Logit scale.",
-      "vars": [["z","Original Logit"],["c","Soft-cap bound"]],
-      "intuition": "Near zero, tanh(z/c)≈z/c; at large magnitude, the result approaches ±c.",
-      "pitfall": "Soft-capping is not normalization and replaces neither QK Norm nor stable Softmax.",
-      "example": "With c=10, z=1 changes little while z=100 saturates near 10.",
+      "read": "Divide the score by a positive bound c, apply the hyperbolic tangent, and multiply by c again; large magnitudes then smoothly approach ±c.",
+      "purpose": "How can individual extreme Attention or output scores be constrained while small scores remain almost unchanged?",
+      "dims": "Input z and output cap_c(z) have the same Shape. c is a positive number on the same scale as z.",
+      "vars": [
+        ["cap_c(z)","Result on the left: softly bounded version of the original score z"],
+        ["z","Original unbounded score (Logit)"],
+        ["c","Positive soft-cap bound that sets the approached maximum magnitude"],
+        ["z/c","Dimensionless ratio of the score to the bound"],
+        ["tanh(u)","Hyperbolic tangent: a smooth function between −1 and +1"],
+        ["c·","Multiplication by c that restores the original score scale after tanh"],
+        ["c>0","Required condition: prevents division by zero and defines a positive bound"]
+      ],
+      "intuition": "Near zero, tanh(z/c) is approximately z/c, so multiplication returns z. At very large magnitude, tanh approaches the sign ±1 and the result approaches ±c.",
+      "pitfall": "Soft-capping is not normalization. It replaces neither separate Query-Key normalization nor numerically stable Softmax.",
+      "example": "Set c=2 and z=2. Then z/c=1, tanh(1)≈0.762, and cap₂(2)=2·0.762=1.523. For z=10, tanh(5)≈0.99991 and cap₂(10)≈1.9998: the value approaches 2 without exceeding the bound.",
       "check": "What happens when |z|≪c and when |z|≫c?",
       "answer": "For |z| much smaller than c, tanh(z/c)≈z/c and cap_c(z)≈z. For |z| much larger than c, tanh approaches the sign ±1 and the result smoothly saturates at ±c."
     },
     "transformer-params": {
       "cat": "Resources",
       "title": "Rough Transformer Parameter Count",
-      "read": "Twelve times the number of layers times the model dimension squared.",
-      "purpose": "Napkin math for a dense decoder with attention and an MLP of roughly 4D width.",
-      "dims": "Parameter count; architectural details change the factor.",
+      "read": "Square model width D, multiply by the number of Transformer Blocks L, and then by the architectural approximation factor 12.",
+      "purpose": "How can the non-Embedding parameter count of a typical dense decoder Transformer be estimated quickly before every individual matrix is counted exactly?",
+      "dims": "N_non-embed is a parameter count. The estimate assumes a standard Block with four D² Attention parameters and roughly eight D² Feed-Forward parameters.",
       "vars": [
         [
-          "L",
-          "Number of blocks"
+          "N_non-embed",
+          "Result on the left: estimated parameter count excluding Token Embedding and output matrix"
         ],
         [
-          "D",
-          "Model dimension"
+          "≈",
+          "Approximation sign: the value applies only to the assumed standard architecture"
         ],
         [
           "12",
-          "Approx. 4D² Attention + 8D² MLP"
+          "Approximation factor per Block: roughly 4 for Attention plus 8 for a Feed-Forward Network of inner width 4D"
+        ],
+        [
+          "L",
+          "Number of sequentially stacked Transformer Blocks"
+        ],
+        [
+          "D",
+          "Model dimension: width of the Residual and Token state"
+        ],
+        [
+          "D²",
+          "D times D; arises because large matrices connect an input and output width proportional to D"
+        ],
+        [
+          "·",
+          "Multiplication: the same rough matrix cost occurs in each of the L Blocks"
         ]
       ],
-      "intuition": "Width costs quadratically, depth linearly.",
-      "pitfall": "Embeddings, GQA, SwiGLU width, and bias can change the approximation.",
-      "example": "Doubling L ⇒ N roughly doubles; doubling D ⇒ quadruples.",
+      "intuition": "Each additional Block adds approximately the same set of matrices, so cost grows linearly with L. Increasing width enlarges both matrix axes, so cost grows quadratically with D.",
+      "pitfall": "Token Embeddings and an untied output matrix are absent. Grouped-Query Attention (GQA), exact SwiGLU Gate width, Bias values, and other architectural details change the factor 12.",
+      "example": "For a tiny estimate with L=2 Blocks and D=4, D²=4²=16. Thus N_non-embed≈12·2·16=384 parameters. At the same L and D=8, the estimate is 12·2·64=1,536, four times as many.",
       "check": "Why does D² dominate?",
       "answer": "The large weight matrices of a block connect dimensions that are both proportional to D, such as D×D or D×D_ff with D_ff proportional to D. Thus, each block mainly costs a constant factor times D² parameters."
     },
@@ -2892,13 +3253,13 @@ window.CS336_EN = Object.freeze({
       "cat": "Resources",
       "title": "Exact A1 Transformer Ledger",
       "expr": "P=2VD+L(4D²+3DF+2D)+D   ·   F_fwd=L(8TD²+4T²D+6TDF)+2TDV",
-      "read": "Count two Vocabulary matrices, four Attention and three SwiGLU matrices per block, plus norm gains; apply each matrix to T tokens and add the two quadratic Attention products.",
+      "read": "First make a bill of materials for every matrix and Gain. Add those stored values to obtain P; then count how often the matrices run for T Tokens to obtain F_fwd.",
       "purpose": "Provides exact A1 parameter and forward-FLOP accounting with untied Embedding and LM Head, no Bias, and two FLOPs per multiply-add.",
       "dims": "P counts scalar parameters; F_fwd counts matrix-multiplication FLOPs for one sequence of length T. V, D, F, L, and T are positive integer sizes.",
-      "vars": [["V","Vocabulary size"],["D","Model dimension"],["F","SwiGLU hidden width"],["L","Number of Transformer blocks"],["T","Sequence length"]],
-      "intuition": "Parameters depend on matrix shapes; runtime reuses those weights across tokens and Attention additionally mixes every Query-Key position pair.",
+      "vars": [["P","Total number of stored parameters in the stated A1 model"],["F_fwd","Matrix-multiplication FLOPs for one sequence's Forward Pass"],["V","Number of Vocabulary Tokens"],["D","Model feature width"],["F","Inner SwiGLU feature width"],["L","Number of Transformer Blocks"],["T","Number of Token positions in the sequence"],["2VD","Separate Input Embedding and separate LM Head"],["4D²+3DF+2D","Four Attention matrices, three SwiGLU matrices, and two Norm Gains per Block"],["4T²D","The two position-mixing Attention matrix multiplications"]],
+      "intuition": "Parameters follow matrix Shapes; Forward work reuses those weights at every Token and additionally compares Token positions in Attention.",
       "pitfall": "Silently assuming Weight Tying, Biases, or a classic two-matrix MLP changes the architecture and therefore both formulas.",
-      "example": "V=1000,D=64,F=192,L=3,T=32,H=8 gives P=288192, F_block=3670016, and F_fwd=15106048; H cancels when H·d_head=D.",
+      "example": "Small case V=10,D=2,F=4,L=1,T=3. Parameters: 2VD=40; one Block has 4D²=16, 3DF=24, and 2D=4, totaling 44; the final Norm Gain adds D=2. Thus P=40+44+2=86. Forward: 8TD²=96, 4T²D=72, and 6TDF=144 total 312 in the Block; the LM Head costs 2TDV=120. Therefore F_fwd=312+120=432 FLOPs.",
       "check": "Which matrix was probably omitted if the SwiGLU term is only 4TDF rather than 6TDF?",
       "aliases": "exact transformer accounting forward flops swiglu untied head ledger",
       "answer": "The missing term is the third SwiGLU matrix. Two D×F projections produce the gate and value branches, while the F×D output projection returns their product to the Residual Stream. Each costs 2TDF FLOPs, totaling 6TDF rather than 4TDF."
@@ -2906,26 +3267,38 @@ window.CS336_EN = Object.freeze({
     "temperature": {
       "cat": "Sampling",
       "title": "Temperature",
-      "read": "Divide logits by a positive temperature before softmax.",
-      "purpose": "Controls sharpness and diversity during sampling.",
-      "dims": "T is a dimensionless scalar.",
+      "read": "First divide every raw score for the possible next Tokens by the same positive number; Softmax then turns the results into probabilities.",
+      "purpose": "How can the next-Token choice become more cautious or more diverse without retraining the model?",
+      "dims": "pᵢ(T) and T are dimensionless numbers; all zᵢ use the same unit or scale.",
       "vars": [
         [
+          "pᵢ(T)",
+          "Probability of the Token at position i after applying temperature T"
+        ],
+        [
+          "i",
+          "Index of one possible next Token; the same calculation is performed for every index"
+        ],
+        [
           "zᵢ",
-          "Logit"
+          "Raw score emitted by the model for Token i; this raw score is called a Logit"
         ],
         [
           "T",
-          "Temperature"
+          "Positive temperature: below 1 it sharpens the choice, above 1 it smooths the choice"
         ],
         [
-          "pᵢ",
-          "Adjusted probability"
+          "softmax(·)",
+          "Operator that jointly turns all divided raw scores into positive probabilities whose sum is 1"
+        ],
+        [
+          "T>0",
+          "Condition that prevents division by zero or by a negative temperature"
         ]
       ],
       "intuition": "T<1 amplifies differences, T>1 smooths them.",
       "pitfall": "Do not use T=0 numerically; handle greedy separately.",
-      "example": "T→∞ approaches uniform distribution, T→0 concentrates on maxima.",
+      "example": "Two Tokens have z=[2,1] and T=2. First z/T=[2/2,1/2]=[1,0.5]. Then p₁=e¹/(e¹+e⁰·⁵)≈2.718/(2.718+1.649)=0.622 and p₂=1.649/(2.718+1.649)=0.378. The probabilities sum to 1; the original 2-versus-1 choice has been smoothed.",
       "check": "Which direction increases diversity?",
       "answer": "A higher temperature T>1 smooths the distribution and typically increases sampling diversity. A lower positive temperature sharpens it and concentrates more mass on the largest logits."
     },
@@ -2936,6 +3309,14 @@ window.CS336_EN = Object.freeze({
       "purpose": "AdamW changes the learned model parameters at every Optimizer Step despite noisy gradients whose scales differ across coordinates. It is used in the Training Loop after Backward and optional Gradient Clipping.",
       "dims": "θ, g, m, and v each have exactly the Shape of the associated parameter, for example [D_in,D_out], and every operation is element-wise. β₁, β₂, η, λ, and ε are scalars; m and v are persistent Optimizer State rather than model activations.",
       "vars": [
+        [
+          "t",
+          "Number of the current Optimizer update; the first update uses t=1"
+        ],
+        [
+          "θₜ₋₁,θₜ",
+          "Parameter value before and after this update"
+        ],
         [
           "gₜ",
           "current gradient computed by Backpropagation and, if configured, already clipped"
@@ -2978,26 +3359,42 @@ window.CS336_EN = Object.freeze({
     "cosine-lr": {
       "cat": "Optimization",
       "title": "Warmup + Cosine Decay",
-      "read": "After linear warmup, the learning rate decays cosinusoidally from maximum to minimum.",
-      "purpose": "Stable early steps and gentle late decay.",
-      "dims": "t, T, T_w in optimizer steps; η is learning rate.",
+      "read": "This equation describes only the time after linear Warmup: it smoothly lowers the Learning Rate from η_max at Step T_w to η_min at Step T.",
+      "purpose": "After cautious Warmup, which Learning Rate should the Optimizer use at one particular training Step?",
+      "dims": "t, T_w, and T count Optimizer Steps; η(t), η_max, and η_min are Learning Rates. The equation applies for T_w≤t≤T.",
       "vars": [
         [
+          "η(t)",
+          "Learning Rate used at the current Optimizer Step"
+        ],
+        [
+          "t",
+          "current Optimizer Step"
+        ],
+        [
           "T_w",
-          "warmup steps"
+          "last Warmup Step and start of Cosine Decay"
         ],
         [
           "T",
-          "total steps"
+          "last Step of the Decay"
         ],
         [
-          "η_max/min",
-          "boundary learning rate"
+          "η_max",
+          "largest Learning Rate, reached at the end of Warmup"
+        ],
+        [
+          "η_min",
+          "smallest Learning Rate, reached at the end of Decay"
+        ],
+        [
+          "π",
+          "pi; it makes the half-cosine curve end exactly at both boundaries"
         ]
       ],
-      "intuition": "No hard edge in decay; slope is zero at both ends.",
-      "pitfall": "For t<T_w, a separate linear formula applies.",
-      "example": "In the middle of the decay, η lies exactly midway between min and max.",
+      "intuition": "Larger Steps are allowed immediately after Warmup. Toward the end of training, the Steps become progressively smaller without an abrupt jump at either end of the Decay.",
+      "pitfall": "The displayed equation does not contain linear Warmup. For t<T_w, its separate rule applies. The Scheduler counts Optimizer updates, not individual Microbatches.",
+      "example": "Let T_w=100, T=1000, η_max=0.001, and η_min=0.0001. At t=100 the cosine is 1 and η=0.001. At the midpoint t=550 the cosine is 0, so η=0.0001+0.5·0.0009=0.00055. At t=1000 the cosine is −1 and η=0.0001.",
       "check": "Which η applies at t=T?",
       "answer": "At the defined end of the decay t=T, η=η_min. The cosine term reaches its final value there, provided T is used as the last scheduler step and not as a count with different indexing."
     },
@@ -3034,52 +3431,60 @@ window.CS336_EN = Object.freeze({
     "global-batch": {
       "cat": "Training",
       "title": "Global Batch Size",
-      "read": "Microbatch per rank times accumulation steps times world size.",
-      "purpose": "Connects data volume per optimizer step with distributed setup.",
-      "dims": "Number of sequences; tokens per step additionally ×T.",
+      "read": "Multiply Sequences per Forward Pass and Data-Parallel Rank by the number of accumulated Forward Passes and by the number of independent Data-Parallel Ranks.",
+      "purpose": "How many different Sequences contribute to exactly one shared Optimizer update?",
+      "dims": "Every quantity counts Sequences or repetitions. For Tokens per Optimizer Step, multiply the result by Sequence length as an additional step.",
       "vars": [
         [
+          "B_global",
+          "total number of different Sequences whose gradients are combined in one Optimizer update"
+        ],
+        [
           "B_micro",
-          "sequences per forward pass and rank"
+          "Sequences in one Forward Pass on one Data-Parallel Rank"
         ],
         [
           "G_accum",
-          "gradient accumulation"
+          "number of Forward/Backward passes whose gradients are accumulated before the update"
         ],
         [
           "W",
-          "number of data-parallel ranks"
+          "only the number of Data-Parallel Ranks processing different data, not automatically the total World Size"
         ]
       ],
-      "intuition": "All contributions are merged before a joint update.",
-      "pitfall": "With tensor parallelism, not every rank increases the data batch size.",
-      "example": "2×8×16=256 sequences globally.",
+      "intuition": "Each Data-Parallel Rank sees different Sequences. Gradient Accumulation additionally combines several local Microbatches before all contributions produce one shared update.",
+      "pitfall": "Tensor- and Pipeline-Parallel Ranks work on the same examples and must not enlarge W. World Size and Data-Parallel degree are different in mixed setups.",
+      "example": "One Data-Parallel Rank processes B_micro=2 Sequences per Forward Pass. It accumulates G_accum=8 such passes: 2·8=16 Sequences per Rank. With W=16 Data-Parallel Ranks, 16·16=256 different Sequences contribute to one Optimizer update.",
       "check": "Which parallelism axis belongs in W?",
       "answer": "W includes only data-parallel ranks that process different data examples and aggregate their gradients for a joint update. Pure tensor or pipeline-parallel ranks, however, share the same examples or model and do not automatically increase the global data batch."
     },
     "training-flops": {
       "cat": "Resources",
       "title": "Training Compute",
-      "read": "Approximately six FLOPs per parameter and training token.",
-      "purpose": "Rough compute and scaling calculation for dense Transformers.",
-      "dims": "C in FLOPs, N parameters, D_tokens number of tokens.",
+      "read": "Multiply the model parameters counted under one fixed convention by the number of processed training Tokens, then multiply by the approximation factor six.",
+      "purpose": "Approximately how many Floating-Point Operations does a planned dense Transformer training run cost?",
+      "dims": "C counts Floating-Point Operations (FLOPs), N counts parameters, and D_tokens counts processed Tokens. The factor 6 is a rough dimensionless approximation.",
       "vars": [
         [
           "C",
-          "total training compute"
+          "approximate total number of arithmetic operations in the training run"
+        ],
+        [
+          "6",
+          "approximation: about 2 operations per parameter and Token in the Forward Pass and about 4 more in the Backward Pass"
         ],
         [
           "N",
-          "non-embedding or model parameters per convention"
+          "model parameters counted under one explicitly stated convention"
         ],
         [
           "D_tokens",
-          "processed tokens"
+          "total number of Token positions processed during training"
         ]
       ],
-      "intuition": "Forward roughly 2N, backward roughly double that additionally.",
-      "pitfall": "State the convention used for N and any additional Attention costs.",
-      "example": "Double tokens ⇒ roughly double compute.",
+      "intuition": "The same weights are used once forward and then again to compute gradients for every training Token. Compute therefore grows approximately linearly with both parameters and Tokens.",
+      "pitfall": "This is not an exact Kernel accounting. State whether N includes Embeddings, and name any additional Attention, sparsity, or hardware assumptions.",
+      "example": "A toy model has N=10 million parameters and processes D_tokens=100 million Tokens. First N·D=10,000,000·100,000,000=10¹⁵. Multiplying by six gives C≈6·10¹⁵ FLOPs.",
       "check": "Where does the factor 6 come from roughly?",
       "answer": "For dense matrix weights, the forward pass costs roughly 2 FLOPs per parameter and token. The backward pass computes both activation and parameter gradients and costs approximately another 4, resulting in about 6ND_tokens in total."
     },
@@ -3102,7 +3507,7 @@ window.CS336_EN = Object.freeze({
       ],
       "intuition": "How much of the idealized compute ceiling is realized as model work?",
       "pitfall": "Different FLOP conventions or sparsity skew comparisons.",
-      "example": "400 TFLOP/s at 1000 peak ⇒ 40% MFU.",
+      "example": "The modeled rate is 400 TFLOP/s and the hardware peak is 1000 TFLOP/s. Therefore MFU=400/1000=0.4=40%.",
       "check": "Why can a poor data pipeline lower MFU?",
       "answer": "If the data pipeline does not deliver batches in time, the GPU waits and performs no model operations during this time. The measured model FLOP/s decrease, while the theoretical hardware peak remains constant, so Model FLOPs Utilization drops."
     },
@@ -3111,7 +3516,7 @@ window.CS336_EN = Object.freeze({
       "title": "Speedup & Scaling Efficiency",
       "read": "Speedup compares runtime; efficiency additionally divides by the number of resources p.",
       "purpose": "Evaluates parallel acceleration.",
-      "dims": "Both dimensionless; T in the same time unit.",
+      "dims": "S and E are dimensionless; T₁ and Tₚ must use the same time unit.",
       "vars": [
         [
           "p",
@@ -3124,11 +3529,19 @@ window.CS336_EN = Object.freeze({
         [
           "Tₚ",
           "Runtime on p resources"
+        ],
+        [
+          "S(p)",
+          "Speedup: how many times faster is the run with p resources?"
+        ],
+        [
+          "E(p)",
+          "Efficiency: what fraction of the ideal p-fold speedup is achieved?"
         ]
       ],
-      "intuition": "Linear speedup p means 100% scaling efficiency.",
+      "intuition": "Linear speedup S(p)=p means E(p)=1, or 100% scaling efficiency.",
       "pitfall": "Do not mix up strong and weak scaling.",
-      "example": "1 GPU 8s, 4 GPUs 2.5s ⇒ S=3.2,E=80%.",
+      "example": "One GPU needs T₁=8 s and four GPUs need T₄=2.5 s. Therefore S(4)=8/2.5=3.2 and E(4)=3.2/4=0.8=80%.",
       "check": "Why can E decrease with p?",
       "answer": "With more resources, communication, synchronization, and scheduling overhead grow, while serial work is not accelerated. As a result, T_p usually decreases slower than 1/p, causing S(p)/p and thus efficiency to drop."
     },
@@ -3138,89 +3551,125 @@ window.CS336_EN = Object.freeze({
       "expr": "AI = FLOPs / Bytes from slow memory",
       "read": "Useful compute operations per transferred byte.",
       "purpose": "Classifies whether a kernel needs more bandwidth or compute power.",
-      "dims": "FLOPs/Byte.",
+      "dims": "AI is measured in FLOPs per Byte.",
       "vars": [
         [
+          "AI",
+          "Arithmetic Intensity: number of compute operations per transferred Byte"
+        ],
+        [
           "FLOPs",
-          "Operations"
+          "Floating-point operations performed by the Kernel"
         ],
         [
           "Bytes",
-          "Relevant memory traffic, usually HBM"
+          "Relevant memory traffic, usually to and from High Bandwidth Memory (HBM)"
         ]
       ],
       "intuition": "Reuse data often before sending it back to slow HBM.",
       "pitfall": "The cache level being counted must be specified.",
-      "example": "200 FLOPs with 100 Bytes ⇒ AI=2 FLOPs/Byte.",
+      "example": "A Kernel performs 200 FLOPs and moves 100 Bytes from the slow memory level being counted. Therefore AI=200/100=2 FLOPs per Byte.",
       "check": "Why does fusion usually increase AI?",
       "answer": "Fusion keeps intermediate values between multiple operations on the chip and avoids writing them to and re-reading from High Bandwidth Memory. With nearly the same compute work, the transferred byte count decreases, thus increasing FLOPs per Byte."
     },
     "triton-grid-mask": {
       "cat": "GPU",
       "title": "Triton Grid, Offsets & Boundary Mask",
-      "read": "Launch enough Programs for all N elements, map local lanes to global offsets, and predicate every boundary access.",
+      "read": "Launch enough Programs for all N elements, map local lanes to global offsets, and mask every boundary access.",
       "purpose": "Core contract of a one-dimensional Triton Kernel with no missing or multiply owned elements.",
       "dims": "P, N, BLOCK_SIZE, and offsets are integers; m is a Boolean vector per Program.",
-      "vars": [["P","Number of launched Programs"],["N","Number of valid elements"],["p","program_id"],["r","local lane 0…BLOCK_SIZE−1"],["oₚᵣ","global memory position"],["mₚᵣ","validity mask for the memory access"]],
-      "intuition": "ceil_div guarantees complete coverage; the mask makes the intentionally overhanging last tile safe.",
+      "vars": [["N","Number of valid elements"],["BLOCK_SIZE","Number of lanes or elements covered by one Program"],["P","Number of launched Programs; rounding up guarantees complete coverage"],["p","program_id, the index of the current Program"],["r","Local lane from 0 through BLOCK_SIZE−1"],["oₚᵣ","Global offset handled by lane r in Program p"],["mₚᵣ","Boolean validity mask: true exactly when the offset is smaller than N"],["[condition]","1 or true when the condition holds, otherwise 0 or false"]],
+      "intuition": "The rounded-up Program count covers every real element; the mask makes the deliberately overhanging lanes in the final tile safe.",
       "pitfall": "False masks do not remove lanes. Loads need an operation-neutral other value, and stores must be masked separately.",
-      "example": "N=17, BLOCK_SIZE=8 ⇒ P=3; p=2 owns offsets 16…23, of which only 16 is valid.",
+      "example": "N=17 and BLOCK_SIZE=8 give P=⌈17/8⌉=3. Program p=2 owns offsets 16…23. Its mask is [true,false,false,false,false,false,false,false], because only offset 16 is smaller than 17.",
       "check": "What is lost with floor(N/BLOCK_SIZE), and how many tail lanes are created?",
       "answer": "Floor division would launch only fully filled tiles. Every index from P·BLOCK_SIZE through N−1 would have no owner; with N=17 and BLOCK_SIZE=8 this is index 16. Ceil division instead launches a third Program with seven tail lanes. Those lanes exist, but their memory accesses are masked by offsets<N."
     },
     "roofline": {
       "cat": "GPU",
       "title": "Roofline Limit",
-      "read": "Achievable performance is at most the smaller of compute peak and bandwidth roof.",
+      "read": "Calculate the compute roof and the bandwidth roof; the smaller one limits achievable performance.",
       "purpose": "Simple bottleneck model for GPU kernels.",
-      "dims": "P in FLOP/s; BW Byte/s; AI FLOP/Byte.",
+      "dims": "Performance and P_peak use FLOP/s, BW uses Byte/s, and AI uses FLOP/Byte. BW·AI therefore also has unit FLOP/s.",
       "vars": [
         [
+          "Performance",
+          "Actually achievable compute rate of the Kernel"
+        ],
+        [
           "P_peak",
-          "Theoretical compute power"
+          "Theoretical hardware compute roof"
         ],
         [
           "BW",
-          "Memory bandwidth"
+          "Maximum Bytes per second delivered from the memory level being considered"
         ],
         [
           "AI",
-          "Arithmetic Intensity"
+          "Arithmetic Intensity: FLOPs per transferred Byte"
+        ],
+        [
+          "BW·AI",
+          "Bandwidth roof in FLOP/s"
+        ],
+        [
+          "min(a,b)",
+          "The smaller of values a and b"
         ]
       ],
-      "intuition": "Left side counts data delivery, right side counts compute units.",
-      "pitfall": "A roof is not a guaranteed measured performance.",
-      "example": "BW=1 TB/s, AI=10 ⇒ Bandwidth roof 10 TFLOP/s.",
+      "intuition": "A Kernel needing many Bytes per calculation is limited by data delivery. If it reuses loaded data often, the compute roof can become the bottleneck.",
+      "pitfall": "A roof is not guaranteed measured performance; launch overhead and poor utilization can lower the result further.",
+      "example": "Let P_peak=100 TFLOP/s, BW=1 TB/s, and AI=10 FLOP/Byte. The bandwidth roof is 1·10=10 TFLOP/s. The minimum of 100 and 10 is 10 TFLOP/s, so this Kernel is memory-bound in the Roofline model.",
       "check": "How is the Ridge Point calculated?",
       "answer": "At the Ridge Point, the compute roof and bandwidth roof are equal: P_peak=BW·AI. Therefore, AI_ridge=P_peak/BW with the unit FLOPs per Byte."
     },
     "online-softmax": {
       "cat": "GPU",
       "title": "Online Softmax Update",
-      "read": "Update running maximum and rescale previous normalization before adding a new block.",
+      "read": "Take the larger of the previous and new maxima, convert the old exponential sum to that new scale, and add the new Block's contributions.",
       "purpose": "Enables exact block-wise softmax in FlashAttention.",
-      "dims": "m,ℓ scalar per query row; s_j block scores.",
+      "dims": "m, m_b, m′, ℓ, and ℓ′ are scalars per Query row; sⱼ are the scores in one new Block.",
       "vars": [
         [
           "m",
-          "Previous maximum"
+          "Largest score processed so far in this Query row"
         ],
         [
           "m_b",
-          "Block maximum"
+          "Largest score in the new Block"
+        ],
+        [
+          "m′",
+          "New shared maximum max(m,m_b)"
         ],
         [
           "ℓ",
-          "Previous exponential sum"
+          "Previous exponential sum expressed relative to m"
+        ],
+        [
+          "ℓ′",
+          "Updated exponential sum expressed relative to m′"
         ],
         [
           "sⱼ",
-          "New scores"
+          "New score with index j"
+        ],
+        [
+          "j",
+          "Index of one score in the new Block"
+        ],
+        [
+          "e^x",
+          "Exponential function turning a Logit difference into a positive weight contribution"
+        ],
+        [
+          "Σⱼ",
+          "Add the contributions of every score in the new Block"
         ]
       ],
-      "intuition": "If a larger maximum appears, old contributions must be converted to the new scale.",
-      "pitfall": "Output accumulator must be rescaled with the same factor.",
-      "example": "New maximum +2 ⇒ old exp-sum ×e⁻².",
+      "intuition": "When a larger maximum appears, previous contributions must be converted to the new scale before old and new sums can be combined.",
+      "pitfall": "The weighted Value accumulator must be rescaled by the same factor e^(m−m′); otherwise the maximum and denominator are correct but the Attention Output is not.",
+      "example": "Suppose the processed scores are [1,2]. Then m=2 and ℓ=e^(1−2)+e^(2−2)=e⁻¹+1≈1.368. The new Block is [3], so m_b=3 and m′=3. Thus ℓ′=e^(2−3)·1.368+e^(3−3)≈0.368·1.368+1≈1.503. This is the same stable sum obtained from [1,2,3] at once.",
       "check": "Which two statistics suffice for normalization?",
       "answer": "Per query row, the previous maximum m and the correspondingly scaled exponential sum ℓ suffice. With these two quantities, new blocks can be included stably and correct normalization determined at the end; an output accumulator is additionally maintained for weighted values."
     },
@@ -3228,13 +3677,13 @@ window.CS336_EN = Object.freeze({
       "cat": "GPU",
       "title": "FlashAttention Backward Recomputation",
       "expr": "D_row=rowsum(O⊙dO); P=exp(QKᵀ/√d−L); dS=P⊙(dOVᵀ−D_row); dQ=dSK/√d; dK=dSᵀQ/√d; dV=PᵀdO",
-      "read": "Reconstruct the masked Softmax probabilities from Q, K, and row-wise Log-Sum-Exp, then form dV, dS, dQ, and dK.",
-      "purpose": "Computes exact Attention backward without storing the complete T×T probability matrix in High Bandwidth Memory.",
-      "dims": "Q,K,dQ,dK have Head Shape [T,d], V,O,dV,dO use [T,d_v], L and D_row use [T], while P and dS exist only blockwise with logical Shape [T,T].",
-      "vars": [["L","stored row-wise Log-Sum-Exp statistic"],["D_row","row sum of O⊙dO"],["P","reconstructed masked Softmax probabilities"],["dS","gradient of scaled, masked scores"]],
+      "read": "Reconstruct the Attention weights used during the Forward Pass one block at a time, then calculate the derivatives from them.",
+      "purpose": "How can exact gradients be calculated without retaining the complete square probability matrix in fast graphics memory, called High Bandwidth Memory (HBM)?",
+      "dims": "Q,K,dQ,dK have Shape [number of Tokens,d] per Attention Head; V,O,dV,dO have Shape [number of Tokens,d_v]. L and D_row contain one number per Query row. P and dS logically have one row per Query and one column per Key but exist only blockwise.",
+      "vars": [["d before a name","Marks the derivative of the training loss with respect to that quantity, such as dO for the incoming Output gradient"],["O and dO","Attention Output from the Forward Pass and its gradient arriving from the next Layer"],["rowsum(·)","Adds all entries in each Query row, producing one number per row"],["⊙","Element-wise multiplication of equally shaped arrays, not matrix multiplication"],["D_row","For each Query row, the number rowsum(O⊙dO), subtracted from every Key column of that row"],["Q and K","Query and Key matrices; QKᵀ forms one raw score for every allowed Query-Key pair"],["ᵀ","Transpose: swaps the rows and columns of the matrix immediately before it"],["d and √d","Feature width of one Attention Head and its square root used to scale scores"],["L","Logarithm of the sum of score exponentials saved during the Forward Pass, separately for every Query row"],["exp(·)","Applies the exponential function element by element"],["P","Softmax probabilities thereby reconstructed for allowed Query-Key pairs"],["V","Value matrix whose rows are weighted by P to produce Output O"],["dS","Gradient with respect to scaled Attention scores; P element-wise weights dOVᵀ−D_row"],["dQ, dK, and dV","Desired gradients with respect to Query, Key, and Value"],["−, /, and matrix products","− removes D_row per row, /√d preserves Forward scaling, and adjacent matrices are multiplied"]],
       "intuition": "Stored row statistics suffice to reconstruct P exactly tile by tile, exchanging additional Compute for avoided memory traffic.",
       "pitfall": "Forward and backward masks must be identical; masked entries stay zero and every valid dS row should sum numerically to approximately zero.",
-      "example": "For a fully allowed row, rowsum(dS)≈0 because shifting all Softmax logits by one common offset does not change the Output.",
+      "example": "Small case with one Query, two Keys, and d=1: Q=[1], K=[0,ln2]ᵀ, V=[1,2]ᵀ. The scores are [0,ln2], L=ln(e⁰+eˡⁿ²)=ln3, and P=[1/3,2/3]. Output O=(1/3)·1+(2/3)·2=5/3. For dO=3, D_row=(5/3)·3=5. Thus dS=[1/3,2/3]⊙([3,6]−5)=[−2/3,2/3]. Next, dQ=(−2/3)·0+(2/3)·ln2≈0.462; dK=[−2/3,2/3]ᵀ·1; and dV=[1/3,2/3]ᵀ·3=[1,2]ᵀ. As a check, dS sums to 0.",
       "check": "Why is rowsum(dS) a useful gradient invariant?",
       "aliases": "flash attention backward recompute logsumexp drow ds dq dk dv",
       "answer": "Softmax is invariant to a common shift of all logits in one row. The derivative along that offset direction must therefore be zero, so dS sums to approximately zero over allowed Keys. A clear deviation often reveals the wrong axis, mask, scaling, or D_row."
@@ -3242,202 +3691,242 @@ window.CS336_EN = Object.freeze({
     "memory-state": {
       "cat": "Systems",
       "title": "Training State per Parameter",
-      "read": "Add weight, gradient, optional master weight, and two Adam moments.",
-      "purpose": "Memory budget and sharding analysis.",
-      "dims": "Bytes per parameter × N.",
+      "read": "Add memory for weights, gradients, an optional calculation copy of the weights, and the two states maintained by the Adam optimizer.",
+      "purpose": "How much memory does model training occupy even before the additional intermediate results of the Forward Pass?",
+      "dims": "Every M term is measured in Bytes. For N parameters, each term is its Bytes per parameter multiplied by N.",
       "vars": [
         [
-          "param",
-          "Model weight, often BF16"
+          "M",
+          "Estimated total memory for the persistent training state listed here"
         ],
         [
-          "grad",
-          "Gradient"
+          "M_param",
+          "Memory for the model weights actually used, commonly 2 Bytes per parameter in bfloat16 (BF16) format"
         ],
         [
-          "master",
-          "FP32 copy, setup-dependent"
+          "M_grad",
+          "Memory for the gradients calculated for every trainable weight"
         ],
         [
-          "m,v",
-          "FP32 Adam state"
+          "M_master",
+          "Optional 32-bit floating-point copy of the weights for more precise updates"
+        ],
+        [
+          "M_m",
+          "Memory for Adam's first moment, the smoothed gradient"
+        ],
+        [
+          "M_v",
+          "Memory for Adam's second moment, the smoothed squared gradient"
+        ],
+        [
+          "≈",
+          "Approximate equality because activations, temporary buffers, and Framework bookkeeping are omitted"
+        ],
+        [
+          "N",
+          "Number of model parameters by which the Bytes per parameter are multiplied"
         ]
       ],
       "intuition": "The visible model is only part of the training memory.",
       "pitfall": "Framework details change the exact byte count; activations are additional.",
-      "example": "2+2+4+4+4=16 Bytes/parameter in a common mixed-precision model.",
+      "example": "For N=1,000,000 parameters, BF16 weights use 2·N=2 MB, BF16 gradients use 2 MB, the 32-bit master copy uses 4 MB, and the two Adam moments use 4 MB each. Therefore M≈2+2+4+4+4=16 MB, equal to 16 Bytes per parameter.",
       "check": "Which parts does ZeRO-1/2/3 shard?",
       "answer": "ZeRO-1 shards optimizer states, ZeRO-2 additionally shards gradients, and ZeRO-3 additionally shards model parameters across data parallel ranks. With ZeRO-3, required parameters are temporarily gathered for computation but remain sharded outside these phases."
     },
     "kv-cache": {
       "cat": "Inference",
       "title": "KV Cache Size",
-      "read": "For every Layer, Sequence, and earlier position, count one stored Key and Value vector for each Key-Value Head.",
-      "purpose": "Estimates persistent Attention memory during autoregressive Decoding and explains why long contexts, large Batches, and many KV Heads cost memory bandwidth.",
+      "read": "In every Layer, count one Key and one Value vector for every active Sequence and stored Token position; then multiply by their element count and Bytes per element.",
+      "purpose": "How much device memory do previously computed Attention Keys and Values occupy while the next Token is generated?",
       "dims": "K and V each have Shape [B,H_kv,S,d_head] per Layer; multiplying by L, factor 2, and b_KV Bytes per element gives M_KV in Bytes.",
       "vars": [
         [
+          "M_KV",
+          "total Key-Value Cache memory in Bytes"
+        ],
+        [
           "2",
-          "Two separate activation tensors: Keys and Values"
+          "two equally sized stored tensors: Keys and Values"
         ],
         [
           "L",
-          "Transformer Layers, each with its own Cache"
+          "number of Transformer Layers; each keeps its own Cache"
         ],
         [
           "B",
-          "Sequences decoded concurrently"
+          "number of Sequences decoded concurrently"
         ],
         [
           "S",
-          "Already processed and stored Token positions"
+          "number of Token positions already stored per Sequence"
         ],
         [
           "H_kv",
-          "Key-Value Heads, often fewer than H_q under GQA"
+          "number of Key-Value Heads; Grouped-Query Attention can use fewer of these than Query Heads"
         ],
         [
           "d_head",
-          "Feature width of one Head, usually D/H_q"
+          "number of Features in one Head"
         ],
         [
           "b_KV",
-          "Bytes per stored Cache element"
+          "Bytes per stored numeric value, for example 2 under BF16"
+        ],
+        [
+          "H_q",
+          "number of Query Heads; it often determines d_head=D/H_q but is not itself the Cache Head count"
         ]
       ],
-      "intuition": "During Prefill, each Layer computes K and V for the full Prompt. Every Decode Step creates only the new Token's K and V, appends them along S, and reads them again later; Q is needed only for the current position and is therefore not stored as history.",
-      "pitfall": "The KV Cache contains runtime activations, not model parameters or Attention weights. Using H_q instead of H_kv overestimates GQA; S is Cache history and must not be confused with the number of Query positions computed now.",
-      "example": "Reducing H_kv from 16 to 4 at fixed other dimensions quarters the Cache. Every generated Token increments S by one and adds exactly one K and V vector per KV Head in every Layer.",
+      "intuition": "The Cache avoids recomputation: earlier Keys and Values are written once and read again during later Decode Steps. It therefore grows linearly with Layers, active Sequences, and context length.",
+      "pitfall": "The KV Cache is request-dependent activation state, not a model parameter. Under Grouped-Query Attention, use H_kv rather than H_q; Queries from earlier positions are not stored as history.",
+      "example": "Toy case: L=2 Layers, B=3 Sequences, S=4 stored positions, H_kv=2 Heads, d_head=2 Features, and b_KV=2 Bytes. Keys and Values first contribute factor 2. Then M_KV=2·2·3·4·2·2·2=384 Bytes.",
       "check": "Where do factor 2 and axis S come from, why is Q not stored as history, and which quantity does GQA reduce?",
       "answer": "Factor two counts Keys and Values as equally shaped tensors. S counts every previous position whose K and V will be read again. Q is relevant only to the currently computed position and is not needed as history. GQA reduces H_kv and therefore Cache size and memory traffic."
     },
     "inference-params-gqa": {
       "cat": "Inference",
       "title": "GQA Transformer: Matrix-Parameter Breakdown",
-      "read": "Count Embedding and LM Head, three gated-MLP matrices, and Query, Key, Value, and Output projections in every layer.",
-      "purpose": "Lecture 10 calculation of the dominant matrix parameters for a gated MLP and Grouped-Query Attention (GQA).",
+      "read": "Count Embedding and Output Head first. Then add three MLP matrices, Query plus Output, and the narrower Key plus Value projections for every Layer.",
+      "purpose": "How many dominant matrix parameters does a Transformer with a gated MLP and Grouped-Query Attention contain?",
       "dims": "Every summand is a parameter count. Norm scales, biases, and other small parameters are omitted, matching the Lecture 10 approximation.",
-      "vars": [["c_tie","1 with Weight Tying, otherwise 2"],["V","Vocabulary size"],["D","Model width"],["L","Layers"],["F","MLP intermediate width"],["H_kv","Key-Value Heads"],["d_head","Head width; D=H_q·d_head"]],
-      "intuition": "Q and Output remain D×D; only K and V become narrower with fewer KV Heads.",
-      "pitfall": "Using the rough 12LD² approximation even though gated MLP, F=4D, and GQA are specified—or using H for both Head count and Head width.",
-      "example": "With F=4D, the layer term becomes LD²(14+2H_kv/H_q).",
+      "vars": [["P","total matrix parameters counted here"],["c_tie","1 when Embedding and Output Head share one weight table, otherwise 2"],["V","number of Tokens in the Vocabulary"],["D","model width, or Feature width of the main stream"],["L","number of Transformer Layers"],["F","intermediate width of the gated Multi-Layer Perceptron (MLP)"],["H_kv","number of Key-Value Heads under Grouped-Query Attention (GQA)"],["d_head","Feature width of one Attention Head"],["H_q","number of Query Heads; D=H_q·d_head"],["3DF","three D-by-F matrices in the gated MLP per Layer"],["2D²","one D-by-D matrix for Query and another for Output"],["2D·H_kv·d_head","the narrower Key and Value matrices together"]],
+      "intuition": "Query and Output still use full width D. Only Key and Value become narrower when several Query Heads share the same Key-Value Heads.",
+      "pitfall": "Do not immediately use the rough 12LD² rule: gated MLP, the actual F, Weight Tying, and GQA change the terms. Head count and Head width are different quantities.",
+      "example": "Toy model: V=100, D=8, L=2, F=32, H_q=4, H_kv=2, d_head=2, with Weight Tying so c_tie=1. Vocabulary part: 1·100·8=800. Per Layer: 3·8·32=768, 2·8²=128, and 2·8·2·2=64; total 960. Two Layers give 1,920. Overall P=800+1,920=2,720 parameters.",
       "check": "Why do fewer KV Heads change Attention parameters but not the Q or Output terms?",
       "answer": "The Query projection maps D to H_q·d_head=D and therefore stays D×D; the Output projection maps the concatenated H_q Heads back to D and also stays D×D. Only K and V map to H_kv·d_head, so their two terms shrink with H_kv."
     },
     "mlp-arithmetic-intensity": {
       "cat": "Inference",
       "title": "Gated-MLP Arithmetic Intensity",
-      "read": "Divide modeled gated-MLP FLOPs by the HBM bytes assumed under BF16.",
-      "purpose": "Explains why prefill reuses the same weights across many token rows while decode has little reuse.",
-      "dims": "FLOPs per byte.",
-      "vars": [["B","Batch size"],["T_q","Query positions processed now: S in prefill, 1 in decode"],["D","Input and output width"],["F","gated-MLP intermediate width"]],
+      "read": "Divide the arithmetic operations of the Feed-Forward Block by the approximate Bytes read from and written to fast graphics memory.",
+      "purpose": "How much arithmetic work is performed per transferred Byte, and why does processing many Tokens in parallel reuse the same weights better than producing one Token?",
+      "dims": "AI_MLP is measured in floating-point operations per Byte. Byte terms assume 2-Byte bfloat16 (BF16) numbers and traffic to High Bandwidth Memory (HBM).",
+      "vars": [["AI_MLP","Arithmetic Intensity of the Multi-Layer Perceptron (MLP): arithmetic operations divided by transferred Bytes"],["B","Number of Sequences processed together as one Batch"],["T_q","Number of Token positions processed together now; subscript q recalls Query positions"],["D","Width of the Block's Input and Output"],["F","Wider inner Feature count of the gated Feed-Forward Block"],["6BT_qDF","Numerator: three matrix multiplications with approximately 2BT_qDF operations each"],["4BT_qD","Bytes for reading and writing D-wide Inputs and Outputs in this simplified model"],["4BT_qF","Bytes for two F-wide intermediate arrays"],["6DF","Bytes for three D-by-F weight matrices at 2 Bytes per weight"],["/ and +","The fraction divides total operations by total Bytes; plus signs add the three kinds of data traffic"]],
       "intuition": "When B·T_q is small relative to D and F, reading the three weight matrices dominates and AI approaches B·T_q.",
       "pitfall": "Treating the equation as a complete hardware model; nonlinearities, caches, and extra reads are simplified.",
-      "example": "Decode with B=8 and a wide model gives about 8 FLOPs/byte; prefill with large S can be far higher.",
+      "example": "Insert B=1, T_q=2, D=4, and F=8. Arithmetic work: 6·1·2·4·8=384 operations. Data: 4·1·2·4 + 4·1·2·8 + 6·4·8 = 32+64+192=288 Bytes. Therefore AI_MLP=384/288≈1.33 operations per Byte.",
       "check": "Which term lets AI grow during prefill without changing parameter count?",
       "answer": "T_q increases the number of token rows sent through the same three MLP weight matrices. During prefill T_q=S, so computation per weight read grows even though the matrices and parameter count remain unchanged."
     },
     "attention-arithmetic-intensity": {
       "cat": "Inference",
       "title": "Attention Arithmetic Intensity",
-      "read": "Compare QKᵀ and AV FLOPs with reading Q, K, and V under Lecture 10's MHA approximation.",
-      "purpose": "Shows the fundamental difference between long parallel prefill and a single decode Query.",
-      "dims": "FLOPs per byte under BF16 without materializing the score matrix in HBM.",
-      "vars": [["S","Key-Value length or cached context"],["T_q","Query positions processed now"]],
+      "read": "Compare operations for matching Queries with Keys and weighting Values with the associated data traffic in the simplified Multi-Head Attention (MHA) model.",
+      "purpose": "How much arithmetic work per Byte results from processing many Tokens together compared with producing exactly one new Token?",
+      "dims": "AI_attn is measured in floating-point operations per Byte, assuming 2-Byte numbers and no complete score matrix stored in graphics memory.",
+      "vars": [["AI_attn","Arithmetic Intensity of Attention: arithmetic operations per transferred Byte; attn abbreviates Attention"],["S","Number of available Key-Value positions, or length of the context being considered"],["T_q","Number of Query positions calculated together in the current call; q stands for Query"],["S·T_q","Arithmetic work grows with every pair of a Query position and a Key position"],["S+T_q","Simplified data traffic for S stored positions and T_q current Queries"],["⇒","Means that the two substituted special cases on the right follow from the general equation"],["Prefill: T_q=S","When the whole context is first processed in parallel, there are as many Queries as context positions; this gives S²/(2S)=S/2"],["Decode: T_q=1","When exactly one new Token is produced, there is one Query; this gives S/(S+1)"],["· and /","· multiplies quantities; the fraction divides modeled arithmetic work by modeled data traffic"]],
       "intuition": "Prefill compares many Queries with many Keys; decode reads the entire cache for one new Query.",
       "pitfall": "Multiplying B into the equation: each request has different Keys and Values, so batch does not automatically improve core-Attention reuse.",
-      "example": "S=2048 gives prefill AI=1024 and decode AI≈1 in the MHA model.",
+      "example": "Insert S=8. For prefill, T_q=8: AI_attn=8·8/(8+8)=64/16=4 operations per Byte. For decode, T_q=1: AI_attn=8·1/(8+1)=8/9≈0.889 operations per Byte.",
       "check": "Why does decode stay just below 1 for very large S instead of growing with S?",
       "answer": "For decode T_q=1, so AI=S/(S+1). Numerator and denominator grow almost equally with S; their ratio approaches one from below rather than continuing to grow proportionally to S."
     },
     "decode-bandwidth": {
       "cat": "Inference",
       "title": "Bandwidth Limit for Decode",
-      "read": "Add weights and KV Cache read at least once, divide by HBM bandwidth, and derive an ideal token rate.",
-      "purpose": "Provides a latency lower bound and throughput upper bound for memory-bound decode.",
-      "dims": "M_step in bytes, bandwidth in bytes/s, t in seconds, throughput in tokens/s.",
-      "vars": [["P","Parameter count"],["b_w","Bytes per weight"],["M_KV","KV Cache bytes"],["BW_HBM","High Bandwidth Memory bandwidth"],["B","tokens generated per step with B active sequences"]],
-      "intuition": "Even with zero compute time, moving unavoidable bytes takes finite time.",
-      "pitfall": "Reporting the ideal bound as measured latency or Time to First Token; runtime, compute, communication, and queueing are omitted.",
-      "example": "5.38 GB per step at 3.35 TB/s takes at least about 1.6 ms.",
+      "read": "First estimate the minimum Bytes read from weights and Cache. Divide that data volume by memory bandwidth, then spread the B Tokens produced per Step over this ideal time.",
+      "purpose": "What best-case Decode latency and Token rate are allowed by moving the unavoidable data alone?",
+      "dims": "M_step and M_KV are Bytes, BW_HBM is Bytes per second, t_ideal is seconds per Decode Step, and throughput_ideal is Tokens per second.",
+      "vars": [["M_step","minimum number of Bytes read from fast device memory per Decode Step"],["P","number of model parameters"],["b_w","Bytes per stored weight"],["M_KV","Cache Bytes read in this simplified Step"],["BW_HBM","High Bandwidth Memory (HBM) bandwidth in Bytes per second"],["t_ideal","ideal lower bound on one Decode Step's duration"],["B","number of active Sequences and therefore new Tokens produced per Step"],["throughput_ideal","ideal upper bound on generated Tokens per second"]],
+      "intuition": "Even a computation that took zero time would still need to move weights and Cache data first. Any real extra work can only increase time and reduce throughput.",
+      "pitfall": "This is a hardware lower bound, not measured latency and not Time to First Token. Compute, Runtime, communication, Cache reuse, and queueing are absent or idealized.",
+      "example": "Let P=2.5 billion weights and b_w=2 Bytes, so P·b_w=5.00 GB. With M_KV=0.38 GB, M_step=5.38 GB. At BW_HBM=3.35 TB/s, t_ideal=5.38/3,350 s≈0.0016 s=1.6 ms. With B=16 active Sequences, throughput_ideal≈16/0.0016=10,000 Tokens/s.",
       "check": "Why is t_ideal a lower bound but throughput_ideal an upper bound?",
       "answer": "Dividing by ideal bandwidth accounts only for unavoidable transfer and omits every additional cost, so real latency can only be larger. Since throughput is B/t, any larger real time yields a smaller token rate, making the ideal value an upper bound."
     },
     "ssm-recurrence": {
       "cat": "Inference",
       "title": "State-Space Recurrence",
-      "read": "Update fixed state from old state and current input, then read out the output.",
-      "purpose": "Core model of a discrete State-Space Model (SSM) for sequences.",
-      "dims": "u_t, h_t, and y_t may have different feature widths; the matrices map between them.",
-      "vars": [["u_t","Input at step t"],["h_t","compressed recurrent state"],["y_t","Output"],["Ā,B̄,C,D_s","learned state, input, output, and direct-path matrices"]],
+      "read": "Summarize the previous Sequence in a fixed state, update it with the current Input, and calculate the current Output from it.",
+      "purpose": "How can a Sequence model carry earlier information forward without retaining one separate entry for every previous position?",
+      "dims": "u_t, h_t, and y_t may have different Feature widths. Ā maps state to state, B̄ maps Input to state, C maps state to Output, and D_s maps Input directly to Output.",
+      "vars": [["t","Index of the current time step or Token position"],["u_t","Input vector at step t"],["h_{t−1}","Stored state from the immediately preceding step t−1"],["h_t","New state after combining old information with the current Input"],["Ā","Discretized state matrix controlling how much of h_{t−1} continues"],["B̄","Discretized Input matrix mapping u_t into state space"],["bar over A and B","Marks the matrix versions used for discrete Sequence steps here"],["y_t","Output vector at step t"],["C","Output matrix translating new state h_t into y_t"],["D_s","Direct-path matrix carrying part of u_t to the Output without passing through state"],["adjacent symbols","Āh, B̄u, Ch, and D_su each mean matrix times vector"],["+","Adds two contributions with the same destination width"]],
       "intuition": "The whole past acts only through h_{t−1}, so decode state does not grow with context S.",
       "pitfall": "Confusing O(1) in S with unlimited memory: fixed state can compress or forget details.",
-      "example": "Without the input term B̄u_t, new information could never change the state.",
+      "example": "One-dimensional case: h₀=2, u₁=3, Ā=0.5, and B̄=1. Then h₁=0.5·2+1·3=1+3=4. With C=2 and D_s=0.1, y₁=2·4+0.1·3=8+0.3=8.3.",
       "check": "Which information path replaces direct access to individual earlier KV entries?",
       "answer": "The path runs through fixed state h_{t−1}: earlier inputs changed it through repeated updates, and C reads out the information that remains. Unlike Full Attention, there is no separately addressable KV entry for every earlier position."
     },
     "diffusion-generation": {
       "cat": "Inference",
       "title": "Diffusion Generation Loop",
-      "read": "Start with noise and refine the whole sequence step by step into a decodable representation.",
-      "purpose": "Schematizes non-autoregressive text generation through repeated denoising.",
-      "dims": "x_k represents a complete sequence at noise level k.",
-      "vars": [["K","Number of denoising steps"],["x_k","Sequence state at step k"],["p_θ","learned reverse-transition model"]],
+      "read": "First draw a completely noisy Sequence, then replace it through several dependent steps with progressively less noisy Sequence states.",
+      "purpose": "How can a model generate a whole Sequence by starting with noise and removing that noise one step at a time?",
+      "dims": "Every x_k represents the complete Sequence at noise level k; k decreases from K to 0.",
+      "vars": [["K","Fixed number of denoising steps"],["k","Current step index, taking the values K,K−1,…,1 in sequence"],["x_K","Starting state of the full Sequence drawn from the noise distribution"],["p_noise","Fixed probability distribution from which the initial noise is drawn"],["~","Means ‘is randomly drawn from the distribution on the right,’ not ‘equals’"],["x_k","Current Sequence state at noise level k"],["x_{k−1}","Next, slightly less noisy state"],["p_θ","Learned conditional distribution used for the next denoising step"],["θ","All learned parameters of this model"],["|","Means ‘conditioned on’: the distribution for x_{k−1} receives x_k as its Input"],["k=K,…,1","Runs transitions in descending order; every step needs the preceding result"],["x₀","Final state after the last denoising step"],["decode(x₀)","Turns the numerical final state into readable Tokens"],["· between statements","Separates successive phases here; it is not multiplication"]],
       "intuition": "Positions are parallel within a step; the K state transitions remain sequential.",
       "pitfall": "Confusing parallel token positions with one-pass generation.",
-      "example": "K=20 requires at least 20 dependent model transitions even when each processes all positions together.",
+      "example": "One-dimensional toy example with K=3: p_noise returns x₃=8. For illustration, suppose p_θ certainly selects half the current value at every step. Then x₂=8/2=4, x₁=4/2=2, and x₀=2/2=1. In the example, decode(1) returns Token ID 1. Although positions may be parallel, three dependent transitions were required.",
       "check": "What is parallel and what remains sequential?",
       "answer": "All sequence positions can be computed in parallel within one transition x_k→x_{k−1}. Transitions over k remain sequential because step k−1 needs the complete result of the previous step as input."
     },
     "moe-output": {
       "cat": "Architecture",
       "title": "MoE Output",
-      "read": "Mix outputs of selected experts with router weights.",
-      "purpose": "Sparse activation of many feed-forward experts.",
-      "dims": "Each E_e(x) and y have the same model shape; g_e is scalar per token/expert.",
+      "read": "Run only the selected Experts for this Token, multiply their Outputs by the Router weights, and add the weighted Outputs.",
+      "purpose": "Increases stored model capacity without running every Feed-Forward Expert for every Token.",
+      "dims": "x, every E_e(x), and y(x) have the same model width D; g_e(x) is one scalar weight for Token x and Expert e.",
       "vars": [
         [
-          "Eₑ",
-          "Expert MLP"
+          "x",
+          "State vector of one Token"
         ],
         [
-          "gₑ",
-          "Router weight"
+          "e",
+          "Index of one Expert"
         ],
         [
-          "TopK",
-          "Set of active experts"
+          "Eₑ(x)",
+          "Output produced by Expert e for Token x"
+        ],
+        [
+          "TopK(x)",
+          "Small set of Experts selected by the Router for x"
+        ],
+        [
+          "gₑ(x)",
+          "Router weight of selected Expert e for x"
+        ],
+        [
+          "Σ",
+          "Add the weighted Outputs of all selected Experts"
+        ],
+        [
+          "y(x)",
+          "Combined MoE Output for this Token"
         ]
       ],
-      "intuition": "Each token uses only a few specialists.",
-      "pitfall": "Router weighting and capacity/load-balancing rules are part of the system.",
-      "example": "K=2 activates two out of 64 experts.",
+      "intuition": "The Router decides which specialists work and how strongly each proposal contributes to the result.",
+      "pitfall": "Router weighting and capacity or load-balancing rules are part of the system; Top-k alone is not the complete contract.",
+      "example": "For a scalar toy Output, Expert 1 returns E₁(x)=2 and Expert 2 returns E₂(x)=8. The Router selects both with g₁=0.75 and g₂=0.25. Therefore y(x)=0.75·2+0.25·8=1.5+2=3.5.",
       "check": "What scales with total vs. active experts?",
       "answer": "The number of stored parameters and model capacity grow mainly with the total number of experts. Compute work per token and the immediately used expert activations scale primarily with TopK, i.e., the number of actually active experts; communication and load balancing add additional system costs."
     },
     "moe-capacity": {
       "cat": "Architecture",
       "title": "MoE Expert Capacity",
-      "read": "Multiply the uniform average number of Expert assignments by the Capacity Factor and round up.",
+      "read": "Spread all Token-to-Expert assignments evenly across the Experts, multiply by the desired reserve, and round up to whole slots.",
       "purpose": "Defines an explicit slot budget for every Expert and routing group.",
       "dims": "T, k, E, and C_expert are counts; c_f is dimensionless.",
-      "vars": [["T","Tokens in the routing group"],["k","Experts selected per token"],["E","Total number of Experts"],["c_f","Capacity Factor"]],
+      "vars": [["C_expert","Maximum number of reserved Token slots per Expert in this routing group"],["T","Number of Tokens in the routing group"],["k","Number of Experts selected per Token"],["E","Total number of Experts"],["c_f","Capacity Factor: reserve multiplier above the uniform average load"],["⌈·⌉","Round upward to the next whole number"]],
       "intuition": "T·k assignments are ideally spread uniformly across E Experts; reserve capacity absorbs load variation.",
       "pitfall": "Do not silently discard overflow or confuse it with parameter capacity; the concrete overflow rule belongs to the semantics.",
-      "example": "T=12,k=2,E=4,c_f=1 ⇒ C_expert=6.",
+      "example": "T=12 Tokens each select k=2 Experts, creating 24 assignments. With E=4 Experts, the uniform average is 24/4=6 per Expert. For c_f=1, C_expert=⌈1·12·2/4⌉=⌈6⌉=6 slots.",
       "check": "With eight assignments and capacity six, how many enter overflow?",
       "answer": "With capacity six and eight incoming assignments, two are in overflow. The implementation must explicitly define whether it drops them, reroutes them, or processes them with a variable-capacity sparse operation."
     },
     "moe-balance": {
       "cat": "Architecture",
       "title": "MoE Auxiliary Balance Loss",
-      "read": "Couple each Expert's hard-assignment fraction with its average soft Router probability.",
+      "read": "For every Expert, multiply its actual assignment fraction by its average Router probability, add those products, and weight the sum.",
       "purpose": "Provides gradient pressure against persistently over- or under-utilized Experts.",
       "dims": "f_i and P_i are fractions or probabilities; L_bal is a scalar auxiliary loss.",
-      "vars": [["f_i","Fraction of tokens hard-routed to Expert i"],["P_i","Mean Router probability for Expert i"],["E","Number of Experts"],["α_bal","Weight relative to the Language-Model loss"]],
-      "intuition": "An Expert with both high hard load and high soft probability contributes especially strongly to the auxiliary loss.",
+      "vars": [["L_bal","Additional scalar load-balancing Loss"],["i","Index of one Expert"],["f_i","Fraction of Tokens hard-routed to Expert i"],["P_i","Mean soft Router probability for Expert i"],["E","Total number of Experts"],["α_bal","Weight of this auxiliary Loss relative to the Language-Model Loss"],["Σ_i","Add the contribution from every Expert"]],
+      "intuition": "When the same Expert receives both many hard assignments and consistently high Router probability, its product f_iP_i and therefore the auxiliary Loss increase.",
       "pitfall": "The displayed equation is the Top-1 variant; do not confuse it with Router z-loss or a guarantee of perfect uniformity.",
-      "example": "Under ideal uniform Top-1 routing, f_i=P_i=1/E.",
+      "example": "Two Experts have f=[0.75,0.25] and P=[0.60,0.40], with α_bal=0.01. The sum is 0.75·0.60+0.25·0.40=0.55. Thus L_bal=0.01·2·0.55=0.011. Uniform f=P=[0.5,0.5] would give 0.010.",
       "check": "What trade-off does an excessively large α_bal create?",
       "answer": "An excessively large α_bal can make the Router optimize primarily for even utilization although uneven specialization might improve the Language-Model loss. The coefficient trades systems utilization against routing quality and the primary objective."
     },
@@ -3445,26 +3934,34 @@ window.CS336_EN = Object.freeze({
       "cat": "Parallelism",
       "title": "Ring All-Reduce Volume",
       "expr": "Bytes per Rank ≈ 2·(W−1)/W · M",
-      "read": "Reduce-Scatter plus All-Gather move almost one tensor volume per rank each.",
-      "purpose": "Bandwidth model for gradient synchronization.",
-      "dims": "Bytes per rank.",
+      "read": "Conceptually split the tensor into W equally sized chunks. Every Rank moves W−1 chunks during Reduce-Scatter and another W−1 during All-Gather.",
+      "purpose": "Approximately how many Bytes must each participating process transfer during a Ring All-Reduce?",
+      "dims": "M and the result are Byte counts per Rank; W is a process count within exactly the Process Group used for this operation.",
       "vars": [
         [
+          "Bytes per Rank",
+          "approximate amount of data sent or moved by one Rank"
+        ],
+        [
           "W",
-          "World Size"
+          "number of Ranks in this specific All-Reduce Process Group"
         ],
         [
           "M",
-          "Tensor size in bytes"
+          "size of the complete tensor being reduced, in Bytes"
         ],
         [
           "2",
-          "Two ring phases"
+          "two Ring phases: Reduce-Scatter first, then All-Gather"
+        ],
+        [
+          "(W−1)/W",
+          "fraction of M moved by one Rank in one phase through W−1 equally sized chunks"
         ]
       ],
-      "intuition": "Each rank sends small chunks in a circle, instead of sending everything to a center.",
-      "pitfall": "Latency term and duplex/topology details are missing in this approximation.",
-      "example": "For large W, the volume approaches 2M.",
+      "intuition": "With more Ranks, each chunk becomes smaller. Per-Rank volume therefore approaches two tensor sizes instead of growing linearly with Rank count.",
+      "pitfall": "The approximation omits startup latency, concrete network topology, and simultaneous send/receive details. W is the group size of this Collective, not automatically the whole job's World Size.",
+      "example": "Four Ranks reduce a tensor with M=100 MB. One chunk is 100/4=25 MB. In each phase, every Rank moves W−1=3 chunks, or 75 MB. Two phases give 2·75=150 MB per Rank.",
       "check": "Why doesn't it grow linearly with W?",
       "answer": "The tensor is split into W chunks, and each rank moves only W−1 chunks of size M/W in each of the two ring phases. The total volume 2(W−1)M/W therefore approaches the constant value 2M for large W, rather than growing linearly with W."
     },
@@ -3472,13 +3969,13 @@ window.CS336_EN = Object.freeze({
       "cat": "Parallelism",
       "title": "Distributed Critical Path",
       "expr": "W_total=d·t·p   ·   B_global=B_micro·accum·d   ·   T_step≈T_compute+max(0,T_comm−T_overlap)",
-      "read": "Multiply parallel degrees for Rank count but only the Data-Parallel degree for Batch Size; add only communication not hidden by Compute.",
-      "purpose": "Prevents World-Size factor errors and reveals which portion of communication actually lengthens the training step.",
-      "dims": "d, t, p, and accumulation are dimensionless; B counts examples; every T term is a duration expressed in the same unit.",
-      "vars": [["d,t,p","Data-, Tensor-, and Pipeline-Parallel degrees"],["B_micro","local Microbatch Size"],["accum","Gradient-Accumulation steps"],["T_overlap","communication time actually concurrent with Compute"]],
-      "intuition": "Model-Parallel Ranks split work on the same data batch; overlap saves time only when communication truly runs before its dependency becomes active.",
-      "pitfall": "Using total World Size as the Data-Parallel degree or counting launched asynchronous work automatically as fully overlapped.",
-      "example": "d=4,t=4,p=2,B_micro=2,accum=4 gives W_total=32 and B_global=32, not 256.",
+      "read": "Multiply every Parallelism degree for process count, but only the Data-Parallel degree for different examples. Then add only the communication time that did not genuinely run concurrently.",
+      "purpose": "How many processes and different examples participate, and which communication portion actually lengthens the Optimizer Step?",
+      "dims": "d, t, p, and accum are dimensionless counts; B_global and B_micro count examples; every T quantity must use the same time unit.",
+      "vars": [["W_total","total number of participating Ranks"],["d","Data-Parallel degree: number of groups processing different examples"],["t","Tensor-Parallel degree: number of Ranks sharing one Layer computation"],["p","Pipeline-Parallel degree: number of Stages processing the same examples in sequence"],["B_global","different examples per shared Optimizer update"],["B_micro","examples per Forward Pass and Data-Parallel group"],["accum","number of accumulated Microbatches before the update"],["T_step","estimated total duration of one training Step"],["T_compute","compute duration without uncovered communication"],["T_comm","total communication duration being modeled"],["T_overlap","part of T_comm that genuinely runs alongside independent Compute"],["max(0,…)","prevents reported overlap from making the Step artificially shorter than T_compute"]],
+      "intuition": "Tensor- and Pipeline-Parallel Ranks share one example and therefore do not enlarge the data Batch. Asynchronous communication saves only the time that elapses alongside independent Compute before its first dependency.",
+      "pitfall": "Do not substitute W_total for Data-Parallel degree. An async handle does not prove overlap; the Timeline, dependencies, and completed wait determine how much was hidden.",
+      "example": "Let d=4, t=2, p=2, B_micro=2, and accum=4. Then W_total=4·2·2=16 Ranks, but B_global=2·4·4=32 examples. If Compute takes 100 ms, communication 40 ms, and 25 ms genuinely overlap, T_step≈100+max(0,40−25)=115 ms.",
       "check": "When does communication disappear entirely from the modeled critical path?",
       "aliases": "distributed world size global batch overlap critical path ddp process group",
       "answer": "When T_overlap is at least T_comm, max(0,T_comm−T_overlap)=0 and communication does not lengthen the modeled step. This requires genuine concurrency and a dependency that occurs only after communication completes; merely launching an async operation does not prove such overlap."
@@ -3486,82 +3983,110 @@ window.CS336_EN = Object.freeze({
     "pipeline-efficiency": {
       "cat": "Parallelism",
       "title": "Pipeline Bubble (Simplified 1F1B Model)",
-      "read": "Microbatches divided by microbatches plus fill/drain overhead.",
-      "purpose": "Rough efficiency estimate of a pipeline with p stages.",
-      "dims": "Dimensionless ratio.",
+      "read": "Compare the m useful Microbatch times with those times plus approximately p−1 extra times needed to fill and drain the Pipeline.",
+      "purpose": "What fraction of simplified Pipeline time performs useful Microbatch work rather than paying the fixed Bubble?",
+      "dims": "E is a ratio between 0 and 1; m and p are positive integer counts.",
       "vars": [
         [
+          "E",
+          "simplified Pipeline efficiency: useful time divided by total time"
+        ],
+        [
           "m",
-          "Microbatches per batch"
+          "number of Microbatches moving through the Pipeline in sequence"
         ],
         [
           "p",
-          "Pipeline stages"
+          "number of Pipeline Stages"
+        ],
+        [
+          "p−1",
+          "simplified fill-and-drain overhead in Stage-time units"
+        ],
+        [
+          "1F1B",
+          "One Forward, One Backward: a Schedule that interleaves Forward and Backward work from different Microbatches after filling"
         ]
       ],
-      "intuition": "More microbatches amortize the pipeline filling cost.",
-      "pitfall": "Exact schedules, unbalanced stages, and communication change the value.",
-      "example": "m=8,p=4 ⇒ E≈8/11≈73%.",
+      "intuition": "The Bubble costs approximately a fixed number of Stage times. More Microbatches spread that fixed overhead across more useful work.",
+      "pitfall": "The equation assumes equally fast Stages and a simplified Schedule. Communication, unequal Layer costs, and other Schedules change actual efficiency.",
+      "example": "With m=8 Microbatches and p=4 Stages, approximately p−1=3 additional Bubble times occur. Total time is 8+3=11 units. Eight are useful, so E≈8/11=0.727≈73%.",
       "check": "What is the cost of very large m?",
       "answer": "Very large m reduces the relative pipeline bubble but generates more scheduling and communication operations. With a fixed global batch, individual microbatches become smaller and may underutilize matrix multiplications; with fixed microbatch size, batch size and latency increase instead."
     },
     "scaling-law": {
       "cat": "Scaling",
       "title": "Chinchilla-style Loss Model",
-      "read": "Irreducible loss plus parameter- and data-limited power terms.",
-      "purpose": "Models training loss over model size and token count.",
-      "dims": "L,E dimensionless (Nats/token); N parameters, D tokens.",
+      "read": "Add a remaining baseline Loss, a contribution that falls with larger model size, and a contribution that falls with more training data.",
+      "purpose": "How can one empirical curve describe whether model size or data volume limits the observed training Loss?",
+      "dims": "L and E use the same Loss scale, usually nats per Token. N counts parameters and D counts Tokens. The units of A and B depend on the units chosen for N and D.",
       "vars": [
         [
+          "L(N,D)",
+          "Loss predicted by the Fit for model size N and data volume D"
+        ],
+        [
           "E",
-          "Asymptotic loss"
-        ],
-        [
-          "A,B",
-          "Scales"
-        ],
-        [
-          "α,β",
-          "Positive exponents"
+          "remaining limit under this model when both bottlenecks become very large"
         ],
         [
           "N",
-          "Parameters"
+          "number of model parameters in one fixed unit"
         ],
         [
           "D",
-          "Tokens"
+          "number of training Tokens in one fixed unit"
+        ],
+        [
+          "A",
+          "fitted size of the parameter-limited Loss contribution"
+        ],
+        [
+          "B",
+          "fitted size of the data-limited Loss contribution"
+        ],
+        [
+          "α",
+          "positive exponent controlling how quickly the parameter contribution falls with N"
+        ],
+        [
+          "β",
+          "positive exponent controlling how quickly the data contribution falls with D"
         ]
       ],
-      "intuition": "More model or data helps with diminishing marginal returns.",
-      "pitfall": "Empirical fit model; architecture, data, and training recipe must be comparable.",
-      "example": "In log-log space, each dominant term yields approximately a straight line.",
+      "intuition": "More parameters or more data shrinks only its corresponding extra term. Because both terms fall as powers, each additional doubling typically brings a smaller absolute gain.",
+      "pitfall": "A, B, α, β, and E are estimated from comparable completed Runs; they are not laws of nature. Units, architecture, data, and training recipe must not change silently.",
+      "example": "Pure numeric toy case in normalized units: E=1.5, A=0.8, B=0.6, α=β=1, N=2, and D=3. The parameter contribution is 0.8/2=0.4 and the data contribution is 0.6/3=0.2, so L=1.5+0.4+0.2=2.1. Doubling only N to 4 lowers L to 1.5+0.2+0.2=1.9.",
       "check": "What happens for N,D→∞?",
       "answer": "For positive exponents, A/N^α and B/D^β vanish as N and D approach infinity. The modeled loss limit is therefore the irreducible term E."
     },
     "isoflops": {
       "cat": "Scaling",
       "title": "IsoFLOPs Condition",
-      "read": "With fixed compute, each model size determines the affordable token count.",
-      "purpose": "Generates profiles of equal training FLOPs for compute optimality.",
-      "dims": "C FLOPs, N parameters, D tokens.",
+      "read": "Divide fixed training budget C by six and by the chosen parameter count N; the result is the approximately affordable Token count D.",
+      "purpose": "How many training Tokens may a model of one chosen size see when every compared Run receives the same Compute budget?",
+      "dims": "C is a count of Floating-Point Operations, N a parameter count, and D a Token count. Factor 6 comes from the same rough dense training-Compute approximation.",
       "vars": [
         [
+          "D",
+          "approximately affordable number of training Tokens for this Run"
+        ],
+        [
           "C",
-          "Compute budget"
+          "fixed Compute budget in Floating-Point Operations (FLOPs)"
+        ],
+        [
+          "6",
+          "approximation factor for Forward and Backward per parameter and Token"
         ],
         [
           "N",
-          "Model parameters"
-        ],
-        [
-          "D",
-          "Training tokens"
+          "chosen number of model parameters"
         ]
       ],
-      "intuition": "Larger model sees less data at the same budget.",
-      "pitfall": "Valid as a rough dense-transformer approximation, not an accounting of every operation.",
-      "example": "Doubling N ⇒ halving D.",
+      "intuition": "Under the same budget, a small model can process many Tokens. A larger model costs more per Token and must therefore train on fewer Tokens.",
+      "pitfall": "Every Run must use the same FLOP convention. The equation is a planning approximation for dense Transformers, not an exact measure of runtime or hardware utilization.",
+      "example": "Let C=600 billion FLOPs and N=10 million parameters. Then D=600,000,000,000/(6·10,000,000)=10,000 Tokens. Doubling N to 20 million at the same C leaves D=5,000 Tokens.",
       "check": "Why does a loss minimum typically arise along the profile?",
       "answer": "At very small N, the model is capacity-limited despite many affordable tokens; at very large N, too few training tokens remain due to D=C/(6N). Between these extremes, a compute-optimal compromise with minimal loss typically emerges."
     },
@@ -3582,13 +4107,13 @@ window.CS336_EN = Object.freeze({
       "cat": "Scaling",
       "title": "Compute-Optimal N, D & Loss Predictions",
       "expr": "N_opt=A_NCᵃ   ·   D_opt=A_DCᵇ   ·   L_opt=E+A_LC^(−γ)",
-      "read": "Fit Model Size, Token count, and Loss remaining above E as separate Power Laws over Compute.",
-      "purpose": "Makes the complete A3 target prediction explicit, including the irreducible Loss offset and a consistency check.",
+      "read": "Insert a new Compute budget C into three previously fitted power trends: one for model size, one for Token count, and one for Loss remaining above E.",
+      "purpose": "Which model size, data volume, and Loss are predicted to be Compute-optimal at a new training budget?",
       "dims": "N and D are counts, C is Compute in one fixed unit, L and E share a Loss scale, and the exponents are dimensionless.",
-      "vars": [["A_N,A_D,A_L","unit-dependent prefactors"],["a,b,γ","positive Scaling exponents"],["E","irreducible or asymptotic Loss offset"]],
-      "intuition": "N and D become linear directly in Log space; only the positive distance L_opt−E is logged for Loss.",
-      "pitfall": "Setting E to zero without evidence or treating a+b≈1 as a law when D was not consistently constructed from C/(6N).",
-      "example": "When D is derived and C≈6ND, a+b should be near one; for independent fits, a deviation is not automatically an accounting error.",
+      "vars": [["N_opt","predicted Compute-optimal parameter count"],["D_opt","predicted Compute-optimal number of training Tokens"],["L_opt","predicted Loss of the Compute-optimal configuration"],["C","new training-Compute budget in the same unit used during fitting"],["A_N","prefactor for N_opt fitted from measurements"],["A_D","prefactor for D_opt fitted from measurements"],["A_L","prefactor for the still-scalable Loss contribution"],["a","positive exponent for growth of optimal model size"],["b","positive exponent for growth of optimal Token count"],["γ","positive exponent for decline of Loss above E"],["E","fitted or assumed limiting Loss"]],
+      "intuition": "With a larger budget, optimal model size and data volume may grow while the still-improvable Loss contribution falls. All three trends must come from the same reliable Compute tiers.",
+      "pitfall": "Do not set E to zero without evidence. a+b≈1 is a useful consistency check only when D was derived from the same C≈6ND relationship.",
+      "example": "Toy Fit with normalized C=4: A_N=10 million and a=0.5 give N_opt=10·√4=20 million. A_D=100 million and b=0.5 give D_opt=100·√4=200 million. With E=1.5, A_L=0.4, and γ=0.5, L_opt=1.5+0.4/√4=1.7.",
       "check": "Why does an unknown offset E require a sensitivity analysis?",
       "aliases": "n opt d opt l opt offset scaling predictions exponent sum",
       "answer": "Different plausible values of E change the positive residual L_opt−E and therefore its logarithms, the fitted slope γ, and the extrapolated Loss curve. Because E and γ can be strongly coupled, E must be constrained or varied across a reported sensitivity range."
@@ -3597,13 +4122,13 @@ window.CS336_EN = Object.freeze({
       "cat": "Scaling",
       "title": "Lecture 11 μP Role Scaling",
       "expr": "r=M/M₀: Emb var×1, lr×1   ·   Hidden var×1/r, lr×1/r   ·   Readout var×1/r², lr×1/r",
-      "read": "Scale initialization variance and Adam learning rate by matrix role rather than applying one global width factor.",
-      "purpose": "Documents the exact Hyperparameter-transfer contract for the Maximum Update Parametrization protocol covered in Lecture 11.",
+      "read": "In the Maximum Update Parametrization (μP) protocol covered here, first find the ratio of target width to base width. Then give each matrix role its separate variance and Adam Learning-Rate scaling.",
+      "purpose": "When moving to a wider model, how must starting spread and Adam Learning Rate change for each matrix role?",
       "dims": "r is dimensionless; variance factors multiply base variance and learning-rate factors multiply the base Adam learning rate. Standard deviation is the square root of the variance factor.",
-      "vars": [["M,M₀","target and base widths"],["r","width ratio"],["var","initialization-variance factor"],["lr","Adam learning-rate factor"]],
-      "intuition": "Hidden and Readout matrices sum different numbers of width-dependent contributions and therefore require different starting and update scales.",
-      "pitfall": "This table is protocol-specific, primarily covers width scaling, and must not be transferred blindly to other Optimizers, depths, or parameter roles.",
-      "example": "r=4 gives Hidden std×1/2 and lr×1/4, Readout std×1/4 and lr×1/4, while Embedding stays unchanged.",
+      "vars": [["M₀","width of the small base model on which Hyperparameters were chosen"],["M","width of the target model"],["r","width ratio M/M₀"],["Emb","Embedding matrix at model input"],["Hidden","matrices inside the wide hidden computation"],["Readout","output matrix from hidden state to Logits"],["var","multiplication factor for initialization variance"],["std","multiplication factor for standard deviation; the square root of var"],["lr","multiplication factor for Adam Learning Rate"]],
+      "intuition": "The three matrix roles collect and distribute width-dependent contributions differently. One global scaling rule cannot keep all their activations and updates comparable at once.",
+      "pitfall": "This role table belongs to the specific Lecture-11 μP protocol and does not automatically cover other Optimizers, depth scaling, or differently defined parameter roles. Do not confuse variance with standard deviation.",
+      "example": "The base model has M₀=128 and the target model M=512, so r=512/128=4. Embedding stays at var×1 and lr×1. Hidden uses var×1/4, therefore std×1/2, and lr×1/4. Readout uses var×1/16, therefore std×1/4, and lr×1/4.",
       "check": "Why is the Readout standard-deviation factor 1/r rather than 1/r²?",
       "aliases": "mup maximum update parametrization width transfer initialization adam learning rate wsd",
       "answer": "The formula specifies Readout variance with factor 1/r². Standard deviation is the square root of variance, so sqrt(1/r²)=1/r for positive width ratio r. Using 1/r² as the standard deviation would incorrectly scale variance by 1/r⁴."
@@ -3611,38 +4136,54 @@ window.CS336_EN = Object.freeze({
     "ngram-filter": {
       "cat": "Data",
       "title": "n-gram Maximum Likelihood & Backoff",
-      "read": "Count how often word w follows context h relative to every observed continuation of h.",
-      "purpose": "Provides the basis for an n-gram Language Model such as KenLM and a target-likelihood or Perplexity ranking.",
-      "dims": "p is dimensionless between zero and one; counts are non-negative integers.",
+      "read": "An n-gram is a contiguous Sequence of n Tokens. Count how often next Token w followed previous context h, then divide by all observed continuations of that context.",
+      "purpose": "How can simple counts estimate which Token is likely to come next after a short context?",
+      "dims": "p(w|h) is a dimensionless number between 0 and 1; all count values are non-negative integer counts.",
       "vars": [
-        ["h", "Context consisting of the previous n−1 tokens"],
-        ["w", "Predicted next token"],
-        ["c(h,w)", "Count of the context followed by this continuation"],
-        ["c(h)", "Count of the context across all continuations"]
+        ["p(w|h)", "Estimated conditional probability that w appears next when context h is known"],
+        ["w", "Next Token whose probability is being calculated"],
+        ["h", "History consisting of the previous n−1 Tokens"],
+        ["|", "Means ‘conditioned on’: h is given and w is predicted"],
+        ["count(·)", "Counting operator returning how often the enclosed pattern occurs in the training corpus"],
+        ["count(h,w)", "Number of cases in which exactly w immediately follows h"],
+        ["count(h)", "Number of all observed occurrences of h with any continuation"],
+        ["/", "Divides matching continuations by all continuations of the context"]
       ],
       "intuition": "Local counts become conditional Next-Token probabilities; their product, or equivalently the sum of their Log-Probabilities, scores the complete text.",
       "pitfall": "Pure Maximum Likelihood gives unseen n-grams probability zero. Kneser-Ney discounts observed counts and backs off to shorter contexts whose continuation statistics remain informative.",
-      "example": "If w follows h three times among ten observed continuations, p_MLE=0.3.",
+      "example": "In the corpus, h=‘the cat’ occurs count(h)=10 times. It is followed by w=‘sits’ exactly count(h,w)=3 times. Substitution gives p(‘sits’|‘the cat’)=3/10=0.3, or 30 percent.",
       "check": "Why does a practical n-gram model need Smoothing or Backoff?",
       "answer": "Without Smoothing, one unseen n-gram receives probability zero, making the likelihood of the entire document zero regardless of every other prediction. Backoff and Kneser-Ney redistribute probability mass so unseen continuations remain possible while informative lower-order context still influences the estimate."
     },
     "fasttext-filter": {
       "cat": "Data",
       "title": "fastText Bag-of-n-Grams Classifier",
-      "read": "Hash n-grams into a fixed set of buckets, average their embeddings, and classify the resulting document vector with a Linear Layer.",
-      "purpose": "Enables fast Language Identification and quality or topic classification across very large corpora.",
-      "dims": "E has Shape [B,H], h [H], U [K,H], and the probability vector p [K].",
+      "read": "Split text into short contiguous Token or Character Sequences, map them to fixed storage buckets, average their numerical vectors, and calculate class probabilities.",
+      "purpose": "How can a very large text collection be classified quickly by language, quality, or topic without storing every possible Character Sequence separately?",
+      "dims": "E has Shape [B,H], h Shape [H], U Shape [K,H], and p Shape [K]: B storage buckets, H numbers per vector, and K possible classes.",
       "vars": [
-        ["gᵢ", "Word or Character n-Gram i"],
-        ["B", "Number of hash buckets"],
-        ["E", "Learned table of bucket embeddings"],
-        ["H", "Hidden dimension"],
-        ["K", "Number of classes"],
-        ["U,b", "Learned Linear Classifier parameters"]
+        ["x", "Document being classified"],
+        ["h(x)", "Average Feature vector calculated from the Document"],
+        ["L", "Number of n-grams extracted from x"],
+        ["i", "Current index from 1 through L"],
+        ["gᵢ", "n-gram with index i, a short contiguous Word or Character Sequence"],
+        ["hash(gᵢ)", "Deterministic integer calculated from gᵢ"],
+        ["mod B", "Remainder after division by B, turning the hash number into a valid index from 0 to B−1"],
+        ["B", "Fixed number of available hash storage buckets"],
+        ["E[j]", "Learned numerical vector in storage bucket j"],
+        ["Σᵢ and 1/L", "Σ adds the L selected vectors; 1/L divides their sum by their count to form the average"],
+        ["y", "One possible Output class, such as a language"],
+        ["p(y|x)", "Probability of class y conditioned on the given Document x"],
+        ["|", "Means ‘conditioned on’"],
+        ["U", "Learned matrix mapping h to one raw score per class"],
+        ["b", "Learned added value for each class"],
+        ["softmax(·)", "Jointly converts all class scores into positive probabilities whose sum is 1"],
+        ["H", "Number of values in each Feature vector"],
+        ["K", "Number of possible classes"]
       ],
       "intuition": "The average is fast and mostly order-insensitive; the classifier learns which hashed local patterns distinguish the labels.",
       "pitfall": "Hash collisions force unrelated features to share parameters, and the output score inherits both the bias and the label definition of the training data.",
-      "example": "Two different n-grams in the same bucket use the same embedding row even when their meanings differ.",
+      "example": "Set L=2 and B=3. For g₁ let hash(g₁)=3, so 3 mod 3=0; for g₂ let hash(g₂)=5, so 5 mod 3=2. With E[0]=[2,0] and E[2]=[0,2], h(x)=([2,0]+[0,2])/2=[1,1]. Set U=[[1,0],[0,2]] and b=[0,0]. Then Uh+b=[1,2] and softmax([1,2])≈[0.269,0.731]. Result: class 2 receives the higher probability, 73.1 percent.",
       "check": "Why does memory remain bounded despite the enormous number of possible n-grams?",
       "answer": "The Hashing Trick maps every possible n-gram into one of a fixed number B of buckets, so the embedding table has only B rows. New n-grams reuse these rows rather than extending the vocabulary, at the cost of deliberate collisions and shared parameters."
     },
@@ -3666,492 +4207,492 @@ window.CS336_EN = Object.freeze({
     },
     "bloom-filter": {
       "cat": "Data",
-      "title": "Bloom Filter: FPR & Optimal k",
-      "read": "First estimate Bit-Array occupancy, then compute the probability that every one of k tested bits is accidentally one for a negative query.",
-      "purpose": "Plans the memory budget, insertion load, and number of Hash Functions for a probabilistic Membership Filter.",
-      "dims": "m, n, and k are counts; f is a probability between zero and one.",
+      "title": "Bloom Filter: False-Positive Rate (FPR) & Optimal k",
+      "read": "First estimate the fraction of bits that are one after all insertions. Then raise that fraction to k: an absent query is falsely positive only when all k tested bits happen to be one.",
+      "purpose": "Answers the planning question: how much memory and how many Hash Functions does a Bloom Filter need for a given number of inserted keys?",
+      "dims": "m, n, and k are positive counts; f and FPR are ratios between zero and one.",
       "vars": [
-        ["m", "Number of bits"],
-        ["n", "Number of inserted elements"],
-        ["k", "Hash Functions per insertion and query"],
-        ["f", "Theoretical False-Positive probability"],
-        ["k*", "Real-valued optimum whose nearby integer values should be compared in practice"]
+        ["m","Number of bits in the Bit Array"],
+        ["n","Number of inserted elements"],
+        ["k","Number of Hash Functions per insertion and query"],
+        ["kn","Total bit positions set, approximately, including repeated positions"],
+        ["f","Theoretical probability of a False Positive"],
+        ["FPR","False-Positive Rate: fraction of actually negative queries reported as positive"],
+        ["e","Euler's number, approximately 2.718; base of the exponential function"],
+        ["ln","Natural logarithm"],
+        ["≈","Approximation rather than exact equality"],
+        ["k*","Real-valued optimum; compare nearby integer k values in practice"],
+        ["FP, TN","False Positives and True Negatives in measured FPR=FP/(FP+TN)"]
       ],
-      "intuition": "More hashes require a query to match more positions, but they also set more bits during insertion; the competing effects create an interior optimum.",
-      "pitfall": "At the optimum, roughly half of the bits are occupied; the FPR itself is approximately 2^(−k), not 0.5. Empirical FPR is FP/(FP+TN) over negative queries only.",
-      "example": "For m=100 and n=10, k*≈6.93, so k=7 is the first integer candidate to test.",
+      "intuition": "More hashes initially make a positive query harder, but every insertion also sets more bits. Too many hashes fill the array and worsen the rate again.",
+      "pitfall": "A positive result means only ‘possibly present’; only a negative result is conclusive. The formula assumes approximately uniform, independent hashes, so real FPR must be measured with keys that were never inserted.",
+      "example": "Miniature picture: in an 8-bit array, one key sets bits 2 and 6 through two hashes. A different query checks bit 2 and still-zero bit 5, so it is definitely absent. Numerical case: m=100 and n=10 give k*=(100/10)·ln2≈6.93, so test k=7. The approximation gives f≈(1−e^(−0.7))^7≈0.0082, or about 0.82% False Positives among negative queries.",
       "check": "What does a positive query result mean compared with a negative result?",
       "answer": "A negative result means at least one required bit is zero, so the queried key was definitely not inserted under the standard no-deletion contract. A positive result means only that every bit is one; other inserts may have set them collectively, producing a possible False Positive."
     },
     "logistic": {
       "cat": "Data",
       "title": "Logistic Probability",
-      "read": "A linear score function is mapped by sigmoid to 0 to 1.",
-      "purpose": "Simple model for quality or language classification.",
-      "dims": "x feature vector, w same shape, p dimensionless.",
+      "read": "First calculate a weighted raw score from the Document Features, then turn it into a number between 0 and 1.",
+      "purpose": "How do several measurable Features become a probability that a Document belongs to a chosen class?",
+      "dims": "x and w are equally long vectors; wᵀx+b is a scalar and p(y=1|x) is a dimensionless probability between 0 and 1.",
       "vars": [
         [
+          "p(y=1|x)",
+          "Estimated probability of the positive class when Features x are given"
+        ],
+        [
+          "y=1",
+          "Definition that class 1 is treated as the positive target class"
+        ],
+        [
+          "|",
+          "Means ‘conditioned on’: x is known"
+        ],
+        [
           "x",
-          "Document features"
+          "Vector of measured Document Features"
         ],
         [
-          "w,b",
-          "Learned parameters"
+          "w",
+          "Vector of learned weights with exactly the same length as x"
         ],
         [
-          "σ",
-          "Sigmoid"
+          "wᵀx",
+          "Dot product: multiply matching entries of w and x and add all products; ᵀ denotes the transposed notation used for this product"
+        ],
+        [
+          "b",
+          "Learned constant added value, also called Bias"
+        ],
+        [
+          "σ(·)",
+          "Sigmoid function mapping any real raw score into the range from 0 to 1"
+        ],
+        [
+          "e",
+          "Euler's number, approximately 2.718, used as the base of the exponential function"
+        ],
+        [
+          "−(wᵀx+b)",
+          "Negative sign applied to the complete raw score in the exponent"
+        ],
+        [
+          "1/(1+…)",
+          "Explicit calculation form of the Sigmoid function"
         ]
       ],
       "intuition": "Large positive scores mean high class probability.",
       "pitfall": "Calibration and threshold are separate questions.",
-      "example": "Score 0 ⇒ p=0.5.",
+      "example": "Set x=[2,1], w=[1,−1], and b=0. The raw score is wᵀx+b=1·2+(−1)·1+0=1. Therefore p(y=1|x)=1/(1+e⁻¹)≈1/(1+0.368)=0.731. The model reports 73.1 percent for class 1.",
       "check": "What does a stricter threshold change in Precision/Recall?",
       "answer": "A stricter, i.e., higher threshold classifies fewer examples as positive. Recall cannot increase and usually decreases, while precision often increases because weaker positive scores are excluded; however, a precision increase is not guaranteed without assumptions about score quality."
     },
     "precision-recall": {
       "cat": "Evaluation",
       "title": "Precision & Recall",
-      "read": "Precision asks: How many of the found items are correct? Recall asks: How many of the correct items were found?",
-      "purpose": "Evaluates filters, safety mechanisms, and PII detection.",
-      "dims": "Ratios between 0 and 1.",
+      "read": "Precision divides correct positive reports by all positive reports. Recall divides those same correct reports by all cases that are actually positive.",
+      "purpose": "How reliable are a filter's positive reports, and what fraction of all truly relevant cases does it find?",
+      "dims": "Precision and Recall are ratios between 0 and 1, or 0 and 100 percent; TP, FP, and FN are case counts.",
       "vars": [
         [
+          "positive class",
+          "the event explicitly defined as positive, such as ‘personally identifiable information is present’"
+        ],
+        [
+          "Precision",
+          "fraction of correct cases among all positive reports"
+        ],
+        [
+          "Recall",
+          "fraction of detected cases among all actually positive cases"
+        ],
+        [
           "TP",
-          "true positive"
+          "True Positives: cases that are actually positive and correctly detected"
         ],
         [
           "FP",
-          "false positive"
+          "False Positives: actually negative cases incorrectly reported as positive"
         ],
         [
           "FN",
-          "false negative (missed positive)"
+          "False Negatives: actually positive cases that were missed"
         ]
       ],
-      "intuition": "Stricter filters often increase Precision and decrease Recall—or vice versa, depending on the definition of the positive class.",
-      "pitfall": "Explicitly define the positive class; for data filtering, either \"keep\" or \"remove\" can be the positive class.",
-      "example": "8 TP, 2 FP, 4 FN ⇒ P=.8, R=.667.",
+      "intuition": "Precision examines the quality of the returned list; Recall examines its completeness. Both use TP, but their denominators answer different questions.",
+      "pitfall": "Define the positive class before calculating. In a data filter, either ‘remove’ or ‘keep’ may be positive; without that choice, the meaning of every error reverses.",
+      "example": "Define ‘PII is present’ as positive; PII means Personally Identifiable Information. Among 10 PII documents, the filter detects 8 and misses 2: TP=8 and FN=2. It also flags 2 clean documents incorrectly: FP=2. Precision=8/(8+2)=0.8 and Recall=8/(8+2)=0.8.",
       "check": "Which error is riskier for PII?",
       "answer": "If \"positive\" means personally identifiable information (PII) is detected and removed, a False Negative is more critical for security: the PII remains undetected in the dataset. A False Positive removes non-problematic data, primarily harming data quantity or quality."
     },
     "jaccard": {
       "cat": "Data",
       "title": "Jaccard Similarity",
-      "read": "Intersection divided by union.",
-      "purpose": "Similarity of shingle sets for near-deduplication.",
-      "dims": "Ratio from 0 to 1.",
+      "read": "Count how many distinct elements the two sets share, then divide by the number of all distinct elements across both sets.",
+      "purpose": "Measures how similar two documents are as sets of Shingles before deciding whether they are near-duplicates.",
+      "dims": "J is a ratio from zero to one: zero means no shared elements and one means the same non-empty set.",
       "vars": [
-        [
-          "A,B",
-          "sets of n-gram shingles"
-        ]
+        ["J(A,B)","Jaccard Similarity of sets A and B"],
+        ["A, B","Two sets, such as the Word Bigrams of two documents"],
+        ["n-gram","Sequence of n consecutive elements; an n=2 case is a Bigram"],
+        ["Shingle","An n-gram used as one set element for comparison"],
+        ["A∩B","Intersection: elements present in both A and B"],
+        ["A∪B","Union: all distinct elements present in A or B"],
+        ["|S|","Number of elements in set S"]
       ],
-      "intuition": "Shared content relative to all unique content.",
-      "pitfall": "Sets ignore frequency; normalization and shingle size have a strong influence.",
-      "example": "{a,b} and {b,c} ⇒ 1/3.",
+      "intuition": "The numerator counts shared content; the denominator prevents one match from looking overly important for large sets.",
+      "pitfall": "Sets ignore how often a Shingle occurs. Normalization, capitalization, and Shingle size therefore change A and B before the formula runs. Two empty sets need an explicit implementation convention.",
+      "example": "Document A gives the Bigrams {‘red fox’, ‘fox runs’}; document B gives {‘red fox’, ‘fox sleeps’}. They share one Bigram and have three distinct Bigrams in total, so J=1/3≈0.333.",
       "check": "When is J exactly 1?",
       "answer": "For sets with a non-empty union, J is exactly one if A and B contain the same elements, i.e., A=B. The special case of two empty sets requires an explicit convention because the formula yields 0/0."
     },
     "minhash": {
       "cat": "Data",
       "title": "MinHash Property",
-      "read": "The probability of equal MinHash values corresponds to the Jaccard similarity.",
-      "purpose": "Estimates set similarity with a compact signature.",
-      "dims": "Probability/ratio.",
+      "read": "Order all possible Shingles with the same random Hash order. Compare the smallest Shingle in A with the smallest in B. Across many independent orders, the fraction of matching minima approximates Jaccard Similarity.",
+      "purpose": "Estimates Jaccard Similarity without comparing the complete Shingle sets for every document pair.",
+      "dims": "Both sides are probabilities or ratios between zero and one.",
       "vars": [
-        [
-          "h_min",
-          "minimum under random permutation/hash order"
-        ],
-        [
-          "J",
-          "Jaccard"
-        ]
+        ["P[... ]","Probability of the event inside the brackets"],
+        ["A, B","Two Shingle sets"],
+        ["h_min(A)","Element of A with the smallest value under one shared random Hash order"],
+        ["h_min(B)","Corresponding minimum of B under that same order"],
+        ["J(A,B)","Exact Jaccard Similarity of A and B"]
       ],
-      "intuition": "The smallest element of the union lies in the intersection with probability equal to the Jaccard index.",
-      "pitfall": "A single hash function is a very noisy estimator; signatures use many hashes.",
-      "example": "100 components, 80 match ⇒ estimator 0.8.",
+      "intuition": "The smallest element of the union produces matching minima exactly when it belongs to the intersection.",
+      "pitfall": "One MinHash component gives only yes or no and is very noisy. A useful signature needs many approximately independent Hash orders, and both sets must use the same order for each component.",
+      "example": "Let A={a,b} and B={b,c}. Under order b<a<c, both minima are b: a match. Under a<b<c, the minima are a and b: no match. Every order gives one such 0/1 component. If 80 of 100 independent components match, the signature estimates J≈80/100=0.8.",
       "check": "Why do we need independent hash orders?",
       "answer": "Independent hash orders provide approximately independent Bernoulli observations for whether the minima match. Their mean estimates Jaccard with decreasing variance; strongly correlated hash orders would contribute little additional information."
     },
     "lsh": {
       "cat": "Data",
-      "title": "LSH Candidate Probability",
-      "read": "At least one of b bands must match in all r rows.",
-      "purpose": "Makes similar MinHash signatures scalable into candidates.",
-      "dims": "s and P between 0 and 1; b, r are integers.",
+      "title": "Locality-Sensitive Hashing (LSH): Candidate Probability",
+      "read": "A band matches only when all r rows match. A document pair becomes a candidate as soon as at least one of the b bands matches completely.",
+      "purpose": "Reduces expensive exact document comparisons by first retrieving similar MinHash signatures as candidates.",
+      "dims": "s and P are ratios between zero and one; b and r are positive integers.",
       "vars": [
-        [
-          "s",
-          "true/estimated similarity"
-        ],
-        [
-          "r",
-          "rows per band"
-        ],
-        [
-          "b",
-          "number of bands"
-        ]
+        ["P(candidate|s)","Probability of retrieval as a candidate pair at similarity s"],
+        ["candidate","Pair that still requires exact verification"],
+        ["s","Estimated Jaccard Similarity, or match probability of one signature row"],
+        ["r","Rows per band; all r rows must match"],
+        ["b","Number of bands; one matching band is enough"],
+        ["sʳ","Probability that one specific band matches completely"],
+        ["1−sʳ","Probability that this band does not match completely"],
+        ["k=b·r","Total signature length split into b bands of r rows"]
       ],
-      "intuition": "AND within a band, OR across bands creates an S-curve.",
-      "pitfall": "LSH generates candidates, not final duplicate decisions.",
-      "example": "More b increases candidate recall and computational load.",
+      "intuition": "Within a band the rule is AND; across bands it is OR. Larger r makes each band stricter, while larger b creates more chances for at least one match.",
+      "pitfall": "LSH produces candidates, not final duplicate decisions. Verify candidates with true Jaccard Similarity, and specify whether the threshold contract uses > or ≥.",
+      "example": "Take s=0.8, r=2, and b=3. (1) One band matches with 0.8²=0.64. (2) It fails with 1−0.64=0.36. (3) All three bands fail with 0.36³≈0.047. (4) At least one band therefore matches with 1−0.047≈0.953, or about 95.3% candidate probability.",
       "check": "What does a larger r do?",
       "answer": "A larger r requires more matching signature rows within each band, making the candidate condition stricter. For 0<s<1, s^r decreases, thus reducing the candidate probability, which usually lowers recall and the number of candidates, but reduces false positives."
     },
     "accuracy-se": {
       "cat": "Evaluation",
       "title": "Accuracy & Standard Error",
-      "read": "Hit rate plus approximate sampling uncertainty.",
-      "purpose": "Shows whether small benchmark differences are plausibly measurable.",
-      "dims": "Ratios; n is the number of independent tasks.",
+      "read": "First calculate the fraction of correct answers. Then estimate how much that fraction could fluctuate from sampling a new, similarly sized set of independent tasks.",
+      "purpose": "Is a small difference between two Benchmark Accuracies larger than their rough sampling uncertainty?",
+      "dims": "Acc and SE are ratios or percentage points; k and n are case counts. The approximation assumes binary, approximately independent tasks.",
       "vars": [
         [
+          "Acc",
+          "Accuracy: observed fraction of correct answers"
+        ],
+        [
           "k",
-          "correct answers"
+          "number of correctly answered tasks"
         ],
         [
           "n",
-          "tasks"
+          "total number of evaluated tasks"
         ],
         [
           "SE",
-          "standard error"
+          "Standard Error of the estimated hit rate"
+        ],
+        [
+          "1−Acc",
+          "observed fraction of incorrect answers"
         ]
       ],
-      "intuition": "More examples reduce uncertainty approximately by 1/√n.",
-      "pitfall": "Tasks are not always independent; prompt/sampling variance adds additional noise.",
-      "example": "Acc=.5, n=100 ⇒ SE≈.05.",
+      "intuition": "Accuracy from finitely many tasks is one sample and would change somewhat on a new task set. More independent tasks make this random fluctuation smaller.",
+      "pitfall": "SE is not a guarantee and does not include shared topic dependencies, Prompt changes, or Sampling variance. With very small n or extreme hit rates, this simple approximation is especially rough.",
+      "example": "Out of n=100 tasks, k=50 are correct, so Acc=50/100=0.5. For Standard Error: Acc·(1−Acc)=0.5·0.5=0.25; 0.25/100=0.0025; its square root is SE=0.05, or about 5 percentage points.",
       "check": "How does quadrupling n affect the SE?",
       "answer": "If n is quadrupled, √n grows by a factor of two. The standard error, which is approximately proportional to 1/√n, therefore halves."
     },
     "sft-loss": {
       "cat": "Alignment",
-      "title": "SFT Loss with Response Mask",
-      "read": "Cross-entropy only over the response tokens marked by m.",
-      "purpose": "Supervised Fine-Tuning (SFT) on instruction data.",
-      "dims": "Loss is dimensionless; m_t ∈ {0,1}.",
+      "title": "Supervised Fine-Tuning (SFT): Loss with Response Mask",
+      "read": "Keep only the Log Probabilities of the desired response Tokens, negate them, add them, and divide by the number of those response Tokens.",
+      "purpose": "Trains a pretrained Language Model to imitate desired responses without accidentally treating Prompt or Padding positions as response targets.",
+      "dims": "The Loss is dimensionless. Mask mₜ is zero or one; numerator and denominator use the same positions.",
       "vars": [
-        [
-          "x",
-          "prompt"
-        ],
-        [
-          "y",
-          "response"
-        ],
-        [
-          "mₜ",
-          "loss mask"
-        ],
-        [
-          "πθ",
-          "policy/LM"
-        ]
+        ["L_SFT","Mean SFT Loss over marked response Tokens"],
+        ["x","Prompt used as context"],
+        ["y","Desired response"],
+        ["t","Position in the tokenized sequence"],
+        ["yₜ","Correct response Token at position t"],
+        ["y&lt;ₜ","Response Tokens before position t"],
+        ["mₜ","Response Mask: one for a response Token to learn, otherwise zero"],
+        ["πθ","Language Model as a probability distribution with parameters θ"],
+        ["log πθ(...)","Log Probability of the correct Token; a less likely Token has a more negative value"],
+        ["Σₜ mₜ","Number of unmasked response Tokens and therefore the averaging denominator"]
       ],
-      "intuition": "The prompt provides context; the desired behavior is imitated in the response.",
-      "pitfall": "Correctly mask chat template and padding tokens.",
-      "example": "Only three response tokens ⇒ denominator 3.",
+      "intuition": "The Prompt describes the task, but the Mask decides which target positions the model should imitate. The minus sign turns high target probability into low Loss.",
+      "pitfall": "The Mask and shifted targets must refer to the same positions. In response-only SFT, Prompt, Template, and Padding Tokens belong in neither the sum nor the denominator.",
+      "example": "Toy sequence with Mask [0,0,1,1]: only two response Tokens count. The model assigns them probabilities 0.5 and 0.25. (1) Negative Logs: −log0.5≈0.693 and −log0.25≈1.386. (2) Sum: 2.079. (3) Divide by two response Tokens: L_SFT≈1.040. The two masked Prompt positions contribute exactly zero.",
       "check": "When might one intentionally train on prompt tokens?",
       "answer": "Prompt tokens can be intentionally trained when the goal is not just response imitation, but to model the full conversation format or an entire text sequence. It must then be clearly documented that user and template content are also part of the learning objective."
     },
     "bradley-terry": {
       "cat": "Alignment",
       "title": "Bradley-Terry Preference Model",
-      "read": "The sigmoid of the reward difference gives the probability of the observed preference.",
-      "purpose": "Trains reward models from answer pairs.",
-      "dims": "Rewards are scalar scores; probability is between 0 and 1.",
+      "read": "Subtract the rejected response's score from the preferred response's score. The Sigmoid function turns that difference into a probability between zero and one.",
+      "purpose": "Lets a Reward Model learn which of two responses to the same Prompt is preferred.",
+      "dims": "Reward scores are individual real numbers; P is a probability between zero and one.",
       "vars": [
-        [
-          "y⁺",
-          "preferred answer"
-        ],
-        [
-          "y⁻",
-          "rejected answer"
-        ],
-        [
-          "r",
-          "reward model"
-        ]
+        ["P(...)","Model-predicted preference probability"],
+        ["x","Prompt shared by both responses"],
+        ["y⁺","Preferred response"],
+        ["y⁻","Rejected response"],
+        ["≻","Is preferred over"],
+        ["r(x,y)","Scalar output of the Reward Model for Prompt x and response y"],
+        ["σ(z)","Sigmoid function 1/(1+e^(−z)); maps zero to 0.5"]
       ],
-      "intuition": "Only relative order, not absolute zero point, is identifiable.",
-      "pitfall": "Both answers must belong to the same prompt.",
-      "example": "Equal rewards ⇒ preference probability .5.",
+      "intuition": "The distance between the two scores matters, not their absolute height. A larger positive gap makes the observed preference more likely.",
+      "pitfall": "Both responses must belong to the same Prompt. A Reward score is not a calibrated grade; the pair identifies only relative order.",
+      "example": "For the same Prompt, y⁺ receives score 2 and y⁻ receives score 1. (1) Difference: 2−1=1. (2) Sigmoid: σ(1)=1/(1+e^(−1))≈0.731. The model therefore predicts about 73.1% probability for the observed preference. Equal scores would give difference zero and probability 0.5.",
       "check": "What happens when the same constant is added to both rewards?",
       "answer": "The common constant cancels out completely in (r⁺+c)−(r⁻+c). Therefore, reward difference, sigmoid probability, and Bradley-Terry loss remain unchanged."
     },
     "kl": {
       "cat": "Alignment",
-      "title": "KL Divergence",
-      "read": "Expected log-probability difference under p.",
-      "purpose": "Measures directed distribution deviation, e.g., policy from reference.",
-      "dims": "Nats with natural log; non-negative.",
+      "title": "Kullback-Leibler (KL) Divergence",
+      "read": "For every possible outcome, compare how much probability p and q assign to it. Weight the Log of their ratio by p(x), then add across all outcomes.",
+      "purpose": "Measures, in one direction, how far a trained distribution p has moved from a reference distribution q.",
+      "dims": "KL is dimensionless and non-negative. With the natural Logarithm, its unit is a Nat.",
       "vars": [
-        [
-          "p",
-          "first distribution"
-        ],
-        [
-          "q",
-          "reference distribution"
-        ]
+        ["D_KL(p||q)","Directed KL Divergence from p relative to q"],
+        ["x","One possible outcome, such as a Token"],
+        ["Σₓ","Add the contribution of every possible outcome x"],
+        ["p(x)","Probability of x under the first distribution"],
+        ["q(x)","Probability of the same x under the reference"],
+        ["p(x)/q(x)","Probability ratio for x"],
+        ["log","Natural Logarithm; log1=0"],
+        ["Nat","Unit produced by the natural Logarithm"]
       ],
-      "intuition": "Expensive when p places mass where q expects little.",
-      "pitfall": "Not symmetric; D_KL(p||q) ≠ D_KL(q||p).",
-      "example": "p=q ⇒ KL=0.",
+      "intuition": "A difference costs especially much when p often produces an outcome that q considers unlikely. Weighting by p also explains the direction.",
+      "pitfall": "KL is not symmetric: D_KL(p||q) generally differs from D_KL(q||p). If p(x)>0 but q(x)=0, the contribution is infinite.",
+      "example": "Two outcomes: p=(0.75,0.25) and q=(0.5,0.5). (1) First contribution: 0.75·log(0.75/0.5)=0.75·log1.5≈0.304. (2) Second: 0.25·log(0.25/0.5)=0.25·log0.5≈−0.173. (3) Sum: D_KL≈0.131 Nats.",
       "check": "Why can KL become infinite?",
       "answer": "KL(p||q) becomes infinite if there is an event with p(x)>0 but q(x)=0. Then the sum contains the positively weighted term log(p(x)/0)=+∞."
     },
     "rlhf-objective": {
       "cat": "Alignment",
-      "title": "KL-Regularized RLHF Objective",
-      "read": "Maximize expected reward, but penalize deviation from the reference policy.",
-      "purpose": "Controls reward optimization and language distribution drift.",
-      "dims": "Reward and β·KL must have compatible scales.",
+      "title": "Reinforcement Learning from Human Feedback (RLHF): KL-Regularized Objective",
+      "read": "Start with the average Reward of generated responses. Subtract a penalty that grows with deviation from a fixed Reference Policy.",
+      "purpose": "Balances two goals: generate preferred responses more often and avoid moving the model uncontrollably far from its starting behavior.",
+      "dims": "J, Reward, and β·KL must share a scale. KL is dimensionless; β converts it into the Reward scale.",
       "vars": [
-        [
-          "π",
-          "trained policy"
-        ],
-        [
-          "π_ref",
-          "fixed reference"
-        ],
-        [
-          "r",
-          "reward"
-        ],
-        [
-          "β",
-          "KL strength"
-        ]
+        ["J(π)","Total objective value to maximize for the trained Policy"],
+        ["E","Expectation: average across Prompts and sampled responses"],
+        ["x","Prompt"],
+        ["y","Response generated by the Policy"],
+        ["π","Trained Policy that generates y and is updated"],
+        ["π_ref","Fixed Reference Policy for the deviation comparison"],
+        ["r(x,y)","Reward of complete response y to Prompt x"],
+        ["D_KL(π||π_ref)","Directed deviation of the trained Policy from the Reference"],
+        ["β","Weight of the KL penalty"]
       ],
-      "intuition": "Reward pulls, reference holds fixed.",
-      "pitfall": "β is setup-dependent; same value is not universal.",
-      "example": "Large β ⇒ more conservative policy.",
+      "intuition": "Reward pulls the Policy toward preferred responses; the Reference acts like an elastic band. β determines how strong that band is.",
+      "pitfall": "β is not a universal value. Reward scaling, Token aggregation, and KL estimation change its effective strength. Too small makes Reward Hacking easier; too large prevents useful change.",
+      "example": "Suppose mean Reward is 4, measured KL deviation is 0.5, and β=2. (1) KL penalty: 2·0.5=1. (2) Objective: J=4−1=3. With the same Reward but β=4, the penalty becomes 2 and J falls to 2, so the Policy is judged more conservatively.",
       "check": "Which risk increases with too small β?",
       "answer": "With too small β, the binding to the reference policy is weak, allowing the policy to aggressively exploit the reward proxy. This increases risks such as reward hacking, loss of language quality, mode collapse, and strong distributional drift."
     },
     "dpo": {
       "cat": "Alignment",
-      "title": "DPO Loss",
-      "read": "Rank the preferred response above the rejected response using their policy-to-reference log-ratios.",
-      "purpose": "Direct Preference Optimization (DPO) without separate on-policy RL loop.",
-      "dims": "Sequence log-probabilities and loss are dimensionless.",
+      "title": "Direct Preference Optimization (DPO): Loss",
+      "read": "For each response, first measure how much the trained Policy raised or lowered it relative to the Reference. Then subtract the rejected response's change from the preferred response's change.",
+      "purpose": "Trains directly on preferred and rejected response pairs without new On-Policy Rollouts or a separate Reward Model during DPO training.",
+      "dims": "All four sequence Log Probabilities, the DPO Logit, and the Loss are dimensionless.",
       "vars": [
-        [
-          "y⁺/y⁻",
-          "chosen/rejected"
-        ],
-        [
-          "πθ",
-          "trained policy"
-        ],
-        [
-          "π_ref",
-          "fixed reference"
-        ],
-        [
-          "β",
-          "scaling"
-        ]
+        ["L_DPO","DPO Loss to minimize"],
+        ["x","Prompt shared by the pair"],
+        ["y⁺","Preferred response"],
+        ["y⁻","Rejected response"],
+        ["πθ","Trained Policy with changeable parameters θ"],
+        ["π_ref","Fixed Reference Policy"],
+        ["log π(y|x)","Sum of Log Probabilities over the same response Tokens under one Policy"],
+        ["β","Scale of the preference margin"],
+        ["σ","Sigmoid function that turns the margin into a probability"],
+        ["−log","Turns high probability of the observed preference into low Loss"]
       ],
-      "intuition": "Improve relative preference compared to the base model.",
-      "pitfall": "Aggregate log-probabilities over exactly the same answer tokens.",
-      "example": "If the DPO logit is 0, loss=log 2.",
+      "intuition": "DPO does not ask only whether y⁺ is likely. It asks whether the trained Policy improved y⁺ relative to the base model more than it improved y⁻.",
+      "pitfall": "All four values need the same Chat Template, response boundary, and Mask. Prompt, Padding, or inconsistent Template Tokens distort the margin; the Reference remains frozen.",
+      "example": "Four Log Probabilities: Current chosen −1.0; Reference chosen −1.5; Current rejected −2.0; Reference rejected −1.8. (1) Chosen change: −1.0−(−1.5)=+0.5. (2) Rejected change: −2.0−(−1.8)=−0.2. (3) Margin: 0.5−(−0.2)=0.7. With β=1, σ(0.7)≈0.668 and L_DPO=−log0.668≈0.403.",
       "check": "Why are πθ log-probs alone not enough for this form?",
       "answer": "The reference log-probabilities measure how strongly the trained policy reorders the preferred against the rejected answer relative to the base model. Without them, exactly this KL-related comparison basis is missing; what would remain is a different pairwise policy objective, not the specified DPO loss."
     },
     "expected-reward": {
       "cat": "RL",
-      "title": "Expected Reward",
-      "read": "Average reward over prompts and answers sampled by the policy.",
-      "purpose": "Basic objective of RLVR and policy gradient methods.",
-      "dims": "Unit of the reward.",
+      "title": "Expected Reward: Mean Outcome",
+      "read": "Draw Prompts from the task distribution, let the current Policy generate responses, score them, and take the long-run average of those Rewards.",
+      "purpose": "States the basic objective of Reinforcement Learning from Verifiable Rewards (RLVR): the current Policy should produce successful responses more often on average.",
+      "dims": "J has the same units as Reward; with binary Reward zero or one, J is a ratio from zero to one.",
       "vars": [
-        [
-          "ρ",
-          "prompt distribution"
-        ],
-        [
-          "πθ",
-          "policy"
-        ],
-        [
-          "R",
-          "outcome reward"
-        ]
+        ["J(θ)","Expected Reward of the model with parameters θ"],
+        ["θ","All trainable model parameters"],
+        ["E","Expectation: average across very many possible samples"],
+        ["x","Sampled Prompt"],
+        ["ρ","Distribution from which Prompts x are drawn"],
+        ["y","Complete response sampled from the Policy"],
+        ["πθ(.|x)","Current Policy's probability distribution over responses to x"],
+        ["R(x,y)","Reward for response y to Prompt x"]
       ],
-      "intuition": "The policy determines its own training answers.",
-      "pitfall": "A small static sample set is not the same expected value after policy updates.",
-      "example": "Binary verifier reward ⇒ J is success rate of rollouts.",
+      "intuition": "The model creates its own training responses. When the Policy changes, the response distribution being averaged changes as well.",
+      "pitfall": "The mean of one small Rollout Batch is only an estimate. A frozen response dataset is not automatically a sample from the new Policy after updates.",
+      "example": "Four Rollouts receive binary Verifier Rewards [1,0,1,1]. (1) Sum: 3. (2) Divide by four Rollouts: 3/4=0.75. The estimated Expected Reward for this toy Batch is therefore 0.75, or a 75% success rate.",
       "check": "Over which two random sources is averaging done?",
       "answer": "Averaging is first over prompts x from the prompt distribution ρ and then over answers y sampled from the policy πθ(.|x). The random token decisions of an answer are contained in the random variable y."
     },
     "policy-gradient": {
       "cat": "RL",
       "title": "Policy Gradient",
-      "read": "Weight the log-policy gradient of a sampled answer with its reward.",
-      "purpose": "Unbiased sample gradient for non-differentiable reward.",
-      "dims": "Same parameter shape as θ.",
+      "read": "For each sampled response, the gradient of its Log Probability points toward parameter changes that would make that response more likely. Reward weights that direction, and the result is averaged across samples.",
+      "purpose": "Produces a learning signal even when a discrete Verifier is not itself differentiable.",
+      "dims": "∇θJ is not one scalar: it contains one gradient entry with the same shape as every parameter in θ.",
       "vars": [
-        [
-          "J",
-          "expected reward"
-        ],
-        [
-          "R",
-          "sampleable reward"
-        ],
-        [
-          "πθ",
-          "policy"
-        ],
-        [
-          "∇θ logπ",
-          "score function"
-        ]
+        ["J","Expected Reward that we want to increase"],
+        ["θ","Trainable model parameters"],
+        ["∇θ","Gradient with respect to θ: direction of strongest local change"],
+        ["E","Expectation or average across sampled Prompts and responses"],
+        ["x","Prompt"],
+        ["y","Sampled response"],
+        ["R(x,y)","Observed Reward of that response"],
+        ["πθ(y|x)","Probability of response y under the current Policy"],
+        ["log","Natural Logarithm; turns a product of Token probabilities into a sum"],
+        ["∇θ logπ","Gradient of Log Probability, also called the Score Function"]
       ],
-      "intuition": "Make rewarded samples more likely.",
-      "pitfall": "High variance; in practice use advantage instead of raw reward.",
-      "example": "R=0 yields no update in the naive binary variant.",
+      "intuition": "Reward is not differentiated. It is a weight for a differentiable quantity: the Log Probability of the response that was actually sampled.",
+      "pitfall": "One Rollout gives a noisy gradient. In practice, Advantage often replaces raw Reward; its Baseline must not accidentally change the expected gradient.",
+      "example": "A toy model has only two responses. Let θ=P(A)=0.25, R(A)=1, and R(B)=0. Then J(θ)=θ and directly dJ/dθ=1. With the Log trick, A contributes R·d logθ/dθ=1·(1/0.25)=4, but A is drawn with probability 0.25, so its expected contribution is 0.25·4=1. B has Reward zero and contributes zero. Both calculations give gradient one.",
       "check": "Where is ∇π=π∇logπ used?",
       "answer": "Start with ∇J=Σ p(x)∇πθ(y|x)R(x,y) and replace ∇πθ with πθ∇logπθ. The resulting factor πθ turns the sum back into an expectation over responses sampled from the policy."
     },
     "advantage": {
       "cat": "RL",
       "title": "Advantage & Baseline",
-      "read": "Compare the reward of a response with an expected baseline for the prompt.",
-      "purpose": "Reduces policy gradient variance and provides a relative signal.",
-      "dims": "Same unit as reward.",
+      "read": "Subtract the comparison value expected for this Prompt from the observed Reward of the response.",
+      "purpose": "Says not only whether a response received Reward, but whether it was better or worse than expected for that particular Prompt.",
+      "dims": "Reward R, Baseline b, and Advantage A share the same units.",
       "vars": [
-        [
-          "R",
-          "observed reward"
-        ],
-        [
-          "b(x)",
-          "action-independent baseline"
-        ],
-        [
-          "A",
-          "relative advantage"
-        ]
+        ["A(x,y)","Relative Advantage of response y for Prompt x"],
+        ["x","Prompt"],
+        ["y","Sampled response"],
+        ["R(x,y)","Observed Reward of this response"],
+        ["b(x)","Baseline: expected comparison value for the Prompt, independent of the sampled response"]
       ],
-      "intuition": "A 9 can be bad if 10 is normal for this prompt.",
-      "pitfall": "The baseline must not depend on the sampled action to remain unbiased.",
-      "example": "R=9, b=10 ⇒ A=−1.",
+      "intuition": "A high absolute Reward can still be relatively poor when an easy task was expected to score even higher. Centering usually reduces noise across tasks of different difficulty.",
+      "pitfall": "For the simple unbiasedness argument, the Baseline must not depend on the sampled response. It is treated as a fixed weight in the Policy Gradient rather than differentiated through the same Loss.",
+      "example": "For Prompt x, let Baseline b(x)=10. Response y₁ receives R=9: A=9−10=−1, so it is worse than expected. Response y₂ receives R=12: A=12−10=+2, so it is better than expected. The zero point is the Baseline, not Reward zero.",
       "check": "Why does subtracting b not change the expected gradient?",
       "answer": "Since b(x) does not depend on the sampled response, E_y[b(x)∇logπθ(y|x)] = b(x)∇Σ_yπθ(y|x) = b(x)∇1 = 0. Thus, subtraction does not change the expected gradient but can reduce its variance."
     },
     "grpo-advantage": {
       "cat": "RL",
-      "title": "GRPO Group Normalization",
-      "read": "Center and scale rewards of multiple responses to the same prompt.",
-      "purpose": "Group Relative Policy Optimization (GRPO) without a learned value model.",
-      "dims": "A is dimensionless, R is any reward scale.",
+      "title": "Group Relative Policy Optimization (GRPO): Group Normalization",
+      "read": "Generate several responses to the same Prompt. Subtract their group mean from each Reward, then divide the gap by the chosen group standard deviation.",
+      "purpose": "Compares responses within the same task difficulty and replaces a separate learned Value Model with the local group.",
+      "dims": "R, mean, and standard deviation share the Reward unit; after division, A is dimensionless.",
       "vars": [
-        [
-          "G",
-          "responses per prompt"
-        ],
-        [
-          "Rᵢ",
-          "reward of response i"
-        ],
-        [
-          "ε",
-          "protection against zero group std"
-        ]
+        ["G","Number of responses in the same Prompt group"],
+        ["i","Index of one response from one through G"],
+        ["Rᵢ","Reward of response i"],
+        ["R₁:G","List of all G Rewards in the group"],
+        ["mean(R₁:G)","Arithmetic mean of the group Rewards"],
+        ["std(R₁:G)","Chosen standard deviation of the group Rewards"],
+        ["Aᵢ","Normalized group-relative Advantage of response i"],
+        ["ε","Small positive number preventing division by zero"]
       ],
-      "intuition": "Compares within the same task difficulty.",
-      "pitfall": "Std normalization reweights groups by reward spread and is an algorithmic choice.",
-      "example": "Rewards [0,1] ⇒ centered advantages with opposite signs.",
+      "intuition": "The mean sets the local zero point. Standard deviation sets the scale: the same Reward gap counts more in a tightly clustered group than in a widely spread group.",
+      "pitfall": "The convention is part of the algorithm. A5 implementation requires PyTorch's default torch.std with Bessel correction and denominator G−1; the lecture derivation also shows the population form with denominator G. Identical Rewards give every response a zero numerator and no relative signal.",
+      "example": "A5 case with Rewards [1,0,0,1] and G=4: (1) Mean μ=0.5. (2) Sum of squared gaps: 4·0.5²=1. (3) Sample variance with G−1 is 1/3, so sample std≈0.577. (4) Reward one gives A=(1−0.5)/0.577≈+0.866; Reward zero gives A≈−0.866. Population std 0.5 would instead give ±1.",
       "check": "What happens with [1,1,1]?",
       "answer": "For rewards [1,1,1], the group mean is one and each centered advantage is zero, so there is no relative learning signal. The standard deviation is also zero and must be safeguarded by ε or a defined special case during normalization."
     },
     "grpo-variants": {
       "cat": "RL",
-      "title": "GRPO Variant Contract",
+      "title": "GRPO Variants: Baseline, Normalization & Denominator",
       "expr": "A=(R−b)/(c+ε)   ·   loss=−Σ mask·A·logπ / Z",
-      "read": "A variant is fully characterized by Reward baseline b, Advantage normalizer c, and token-Loss denominator Z.",
-      "purpose": "Separates Standard GRPO, Constant, Dr. GRPO, RFT, and MaxRL by the weighting mechanism each one actually changes.",
-      "dims": "R, b, and c use the Reward scale; A is dimensionless after normalization, while Z either counts tokens or is a fixed constant.",
-      "vars": [["b","group baseline or zero"],["c","group standard deviation, mean normalizer, or one"],["Z","sequence length, global token count, or fixed constant"],["mask","response-only mask"]],
-      "intuition": "Baseline controls comparison, normalizer controls Prompt weighting, and denominator controls length weighting, so identical Rollouts can produce different gradients.",
-      "pitfall": "Compare variants mechanically only on identical Rollouts with unchanged Sampling, Batch, token, and update budgets.",
-      "example": "Dr. GRPO uses the group mean, c=1, and fixed Z; RFT uses b=0, c=1, fixed Z, and only correct samples.",
+      "read": "Ask three questions for every variant: which comparison value b is subtracted, what scale c divides the gap, and what denominator Z divides the Token contribution sum?",
+      "purpose": "Makes visible which responses, Prompt groups, and response lengths different GRPO variants weight more or less strongly.",
+      "dims": "R, b, and c share the Reward unit. A is dimensionless after division; Z is a Token count or a defined constant.",
+      "vars": [["R","Reward of one response"],["b","Baseline: group mean or zero"],["c","Advantage normalizer: group std, another mean normalizer, or one"],["ε","Small protection term preventing division by zero"],["A","Response weight computed from Reward, Baseline, and normalizer"],["mask","Zero for Prompt/Padding and one for valid response Tokens"],["logπ","Log Probability of the stored response Token under the trained Policy"],["Σ","Add the valid Token contributions"],["Z","Loss denominator: sequence length, global Token count, or fixed constant"],["loss","Negative Advantage-weighted Log-Probability Loss to minimize"]],
+      "intuition": "Baseline determines the comparison, c determines the weight of Prompt groups with different spread, and Z determines the total weight of different response lengths.",
+      "pitfall": "A variant comparison is interpretable only with identical Rollouts, Masks, Sampling, Batch, Token, and update budgets. Rejection Fine-Tuning (RFT) also selects only accepted samples; the name alone does not specify the algebra.",
+      "example": "Toy response: R=1, b=0.5, c=0.5, and ε≈0, so A=1. Two valid Tokens have logπ −0.2 and −0.4. (1) Masked sum: 1·(−0.2−0.4)=−0.6. (2) With sequence denominator Z=2, Loss is −(−0.6)/2=0.3. (3) With fixed Z=4, it is 0.15. A response with twice as many similar Token terms would be averaged again by a sequence mean, while an unchanged fixed denominator leaves the extra terms in its total weight.",
       "check": "Which design axis does a fixed denominator change relative to a sequence mean?",
       "aliases": "dr grpo rft maxrl constant denominator advantage normalization variants",
       "answer": "A sequence mean sets Z to the number of valid response tokens and therefore gives each response a similar outer weight regardless of length. A fixed denominator leaves the number of contributing tokens in the total weight, so longer responses exert more influence when token contributions are otherwise equal."
     },
     "gspo-ratio": {
       "cat": "RL",
-      "title": "Sequence Importance & GSPO Ratio",
+      "title": "Sequence Importance & Group Sequence Policy Optimization (GSPO)",
       "expr": "W(y)=exp(Σ_t∈resp Δlogπ_t)   ·   s_GSPO(y)=exp((1/n_y)Σ_t∈resp Δlogπ_t)",
-      "read": "The exact sequence weight multiplies every response-token Ratio; GSPO uses their geometric mean as one shared response scalar.",
-      "purpose": "Exposes the Bias-variance trade-off between exact Off-Policy sequence correction and the more length-stable GSPO Surrogate.",
-      "dims": "Both Ratios are positive and dimensionless; n_y counts only unmasked response tokens, and Δlogπ compares Current with the exact Old Rollout Policy.",
-      "vars": [["W(y)","exact Importance Weight of the complete response"],["s_GSPO(y)","geometric mean of token Ratios"],["n_y","number of valid response tokens"],["Δlogπ_t","logπ_current−logπ_old for the stored token"]],
-      "intuition": "Summed Log Ratios form the sequence product; division by length dampens its growth but deliberately changes the estimator.",
-      "pitfall": "Token-local Ratios and GSPO are not exact sequence corrections; old_logprobs and the Response Mask must not be recomputed after Rollout.",
-      "example": "With token Ratios four and one, W=4 while GSPO applies the shared response scalar √4=2 to both tokens.",
+      "read": "For every response Token, calculate the difference between Current and Old Log Probability. Add all differences for exact sequence weight; GSPO averages them before exponentiating.",
+      "purpose": "Compares exact but length-sensitive Off-Policy correction of a complete response with a more stable GSPO Surrogate.",
+      "dims": "W and s_GSPO are positive dimensionless factors. n_y is a Token count; Δlogπ is the Logarithm of a probability ratio.",
+      "vars": [["y","Complete sampled response"],["resp","Set of unmasked response-Token positions"],["t","One response-Token position"],["π_current","Current Policy during the update"],["π_old","Policy that generated the Rollout"],["Δlogπ_t","logπ_current−logπ_old for stored Token t"],["Σ","Add across all valid response Tokens"],["exp","Exponential function; turns summed Log Ratios back into a product of Ratios"],["n_y","Number of valid response Tokens"],["W(y)","Exact Importance Weight of the complete response"],["s_GSPO(y)","Geometric mean of Token Ratios used as one response factor"]],
+      "intuition": "A product grows or shrinks with every extra Token. Averaging Log Ratios becomes a geometric mean after exp, damping this length effect while deliberately changing the estimator.",
+      "pitfall": "GSPO and Token-local Ratios are not exact sequence corrections. Stored old_logprobs, Tokens, and Response Mask must not be recomputed after the Rollout.",
+      "example": "Two response Tokens have Current/Old Ratios two and one. Their Log differences are log2 and log1=0. (1) Exact: W=exp(log2+0)=2. (2) GSPO: s=exp((log2+0)/2)=√2≈1.414. GSPO therefore uses 1.414 instead of two as the shared response factor, reducing length dependence.",
       "check": "When are W and s_GSPO both one despite their different definitions?",
       "aliases": "gspo sequence importance weight geometric mean old logprobs response mask",
       "answer": "Both factors are one when the sum of response Log Ratios is zero. This holds in particular when Current and Old Policy agree on every stored token, but it can also occur when positive and negative Log Ratios cancel exactly across the response."
     },
     "importance-ratio": {
       "cat": "RL",
-      "title": "Importance Ratio",
-      "read": "How much more likely is the stored action under the new policy compared to the rollout policy?",
-      "purpose": "Corrects off-policy distribution shift.",
-      "dims": "Positive dimensionless factor.",
+      "title": "Importance Ratio: Current versus Old Policy",
+      "read": "Divide today's probability of the stored Token action by exactly the probability with which the Rollout Policy generated it.",
+      "purpose": "Measures how representative an old sampled action remains for the Current Policy.",
+      "dims": "ρ is a positive dimensionless factor: one means unchanged probability, above one means an increase, and below one a decrease.",
       "vars": [
-        [
-          "π_old",
-          "policy at sampling"
-        ],
-        [
-          "πθ",
-          "current policy"
-        ],
-        [
-          "aₜ,sₜ",
-          "token action and state"
-        ]
+        ["ρₜ(θ)","Importance Ratio for Token position t under Current parameters θ"],
+        ["θ","Current model parameters"],
+        ["sₜ","State before Token t: Prompt plus preceding Tokens"],
+        ["aₜ","Token sampled at the time"],
+        ["π_old(aₜ|sₜ)","Probability during the original Rollout"],
+        ["πθ(aₜ|sₜ)","Probability of the same Token under the Current Policy"],
+        ["logπθ−logπ_old","Difference between the two Log Probabilities"],
+        ["exp","Exponential function that turns the Log difference back into a ratio"]
       ],
-      "intuition": "Samples that the new policy would generate more frequently receive higher weight.",
-      "pitfall": "Compute the log-probability difference in log space and exponentiate only afterward; large ratios have high variance.",
-      "example": "Same policies ⇒ ρ=1.",
+      "intuition": "If the Current Policy would generate the stored Token more often, its factor exceeds one; if less often, the factor is below one.",
+      "pitfall": "The denominator must come from exactly the Policy version that sampled the Token. Recomputed old_logprobs destroy the correction; large Ratios create high variance.",
+      "example": "The Old Policy gave the stored Token probability 0.20 and the Current Policy gives 0.30. (1) Directly: ρ=0.30/0.20=1.5. (2) In Log space: log0.30−log0.20≈0.405; exp(0.405)≈1.5. The sample is therefore weighted by factor 1.5.",
       "check": "Why must old log probabilities be stored?",
       "answer": "The importance ratio needs the denominator probability under exactly the policy that generated the sample. After an update, that probability cannot be reconstructed from the new policy; recomputing the supposedly ‘old’ log probabilities with the new policy would produce an incorrect ratio, potentially exactly 1."
     },
     "ppo-clip": {
       "cat": "RL",
-      "title": "PPO Clipped Surrogate",
-      "read": "Use the more pessimistic of free and clipped ratio updates.",
-      "purpose": "Proximal Policy Optimization (PPO) limits harmful large policy changes on old rollouts.",
-      "dims": "The loss has the same units as the reward/advantage.",
+      "title": "Proximal Policy Optimization (PPO): Clipped Surrogate",
+      "read": "Calculate the free Ratio contribution and the same contribution with Ratio limited to 1−ε through 1+ε. Choose the more pessimistic value and negate it for a Loss that is minimized.",
+      "purpose": "Limits the incentive for very large Policy changes when old Rollouts are reused.",
+      "dims": "ρ and ε are dimensionless; A and L use the Reward or Advantage scale.",
       "vars": [
-        [
-          "ρ",
-          "importance ratio"
-        ],
-        [
-          "A",
-          "advantage"
-        ],
-        [
-          "ε",
-          "clip range"
-        ]
+        ["L","PPO Surrogate Loss to minimize"],
+        ["ρ","Importance Ratio between Current and Old Policy"],
+        ["A","Advantage of the stored action or response"],
+        ["ε","Half-width of the allowed Ratio interval around one"],
+        ["clip(ρ,1−ε,1+ε)","Limits ρ to the lower or upper boundary"],
+        ["min(u,v)","Chooses the smaller of the two Objective contributions"],
+        ["−","Turns the maximized Surrogate into a minimized Loss"]
       ],
-      "intuition": "Improvements beyond the trust region are not further rewarded.",
-      "pitfall": "Sign of A determines which ratio side is clipped.",
-      "example": "A>0 and ρ>1+ε ⇒ term capped at 1+ε.",
+      "intuition": "PPO does not keep rewarding an already greatly increased probability for a good action. The opposite Ratio side matters for bad actions, so the sign of A is essential.",
+      "pitfall": "Clipping is not exact Importance correction; it deliberately trades Bias for stability. Do not clip ρ without regard to sign and remove the min comparison.",
+      "example": "Positive case: A=2, ρ=1.4, and ε=0.2. (1) Free contribution: ρA=1.4·2=2.8. (2) Clipped ρ is 1.2, so contribution is 1.2·2=2.4. (3) min chooses 2.4; Loss is −2.4. Increasing ρ beyond 1.2 no longer improves this term.",
       "check": "What happens with negative A and very small ρ?",
       "answer": "For A<0 and ρ<1−ε, the minimum selects the clipped term (1−ε)A because the negative sign reverses magnitude. Further decreasing the probability of this bad action is thus not additionally rewarded and provides no further gradient incentive in this region."
     }
@@ -6224,9 +6765,9 @@ window.CS336_EN = Object.freeze({
         "target": "$1 core questions"
       },
       {
-        "source": "^(\\d+) Formeln · Die vollständige Formel bleibt schon im geschlossenen Zustand sichtbar\\.$",
+        "source": "^(\\d+) Formeln · Geschlossen siehst du ausgeschriebene Abkürzungen und den Zweck, aber keine Gleichung; Namen und Zahlenbeispiel kommen vor der Formel\\.$",
         "flags": "u",
-        "target": "$1 formulas · The complete formula remains visible while the item is collapsed."
+        "target": "$1 formulas · Closed cards show expanded abbreviations and purpose, but no equation; names and a numerical example come before the equation."
       },
       {
         "source": "^(\\d+) Symbole · Ein Symbol kann je nach Kapitel etwas anderes bedeuten\\.$",
@@ -6702,14 +7243,14 @@ window.CS336_EN = Object.freeze({
     "Vorhersagen → Parameter ändern → Ergebnis beobachten → mit Formel erklären → auf einen neuen Fall übertragen.": "Predict → change one parameter → observe the result → explain it with a formula → transfer it to a new case.",
     "Tafelwerk": "Formula Reference",
     "Formeln & Symbole mit Kontext": "Formulas & Symbols in Context",
-    "Nicht nur kopieren: lies jede Formel, prüfe Dimensionen, verstehe ihre Einsatzgrenze und teste dich selbst.": "Do not merely copy: read every formula, check its dimensions, understand where it applies, and test yourself.",
+    "Jede Karte beginnt mit Problem und Zweck, erklärt alle Namen und rechnet einen kleinen Fall. Erst danach erscheint die allgemeine Gleichung.": "Every card begins with the problem and purpose, explains every name, and works through a small case. Only then does the general equation appear.",
     "Σ Formeln": "Σ Formulas",
     "α Symbole": "α Symbols",
     "Formeln und Symbole durchsuchen": "Search formulas and symbols",
     "Nach Kategorie filtern": "Filter by category",
     "Alle Kategorien": "All categories",
     "Symbole": "Symbols",
-    " · Die vollständige Formel bleibt schon im geschlossenen Zustand sichtbar.": " · The complete formula remains visible while the item is collapsed.",
+    " · Geschlossen siehst du ausgeschriebene Abkürzungen und den Zweck, aber keine Gleichung; Namen und Zahlenbeispiel kommen vor der Formel.": " · Closed cards show expanded abbreviations and purpose, but no equation; names and a numerical example come before the equation.",
     " · Ein Symbol kann je nach Kapitel etwas anderes bedeuten.": " · A symbol may mean different things in different chapters.",
     "Prüfe Schreibweise oder entferne einen Filter.": "Check the spelling or remove a filter.",
     "Selbst lösen, gezielt Unterstützung holen": "Solve it yourself, get targeted support",
