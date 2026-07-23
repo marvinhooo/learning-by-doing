@@ -90,7 +90,8 @@ const ids = {
   modules: new Set(base.modules.map(item => item.id)),
   concepts: new Set(base.concepts.map(item => item.id)),
   formulas: new Set(base.formulas.map(item => item.id)),
-  labs: new Set(base.labs.map(item => item.id))
+  labs: new Set(base.labs.map(item => item.id)),
+  symbols: new Set(base.symbols.map(item => item.id))
 };
 const requireRefs = (owner, values, target) => {
   for (const value of values || []) if (!ids[target].has(value)) throw new Error(`${owner}: unknown ${target} reference ${value}`);
@@ -130,6 +131,8 @@ for (const lectureId of lectureIds) {
     requireBilingualText(`lecture guides.${lectureId}.prereqs[${index}].explain`, prereq.explain, 5);
     if (prereq.concept !== undefined) requireRefs(`lecture guides.${lectureId}.prereqs[${index}].concept`, [prereq.concept], "concepts");
   });
+  requireUniqueRefs(`lecture guides.${lectureId}.symbols`, guide.symbols || []);
+  requireRefs(`lecture guides.${lectureId}.symbols`, guide.symbols || [], "symbols");
   for (const target of ["concepts", "formulas", "labs"]) {
     const refs = guide[target];
     requireUniqueRefs(`lecture guides.${lectureId}.${target}`, refs, target === "concepts");
