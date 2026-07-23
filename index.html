@@ -571,6 +571,17 @@
     .accordion-fact span { display: block; margin-bottom: .2rem; color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; }
     .accordion-actions { display: flex; align-items: center; flex-wrap: wrap; gap: .55rem; margin-top: .9rem; }
     .mission-item code { display: block; white-space: normal; overflow-wrap: anywhere; }
+    /* .accordion-fact span styles the section label; reset it for the spans inside the problem map. */
+    .problem-map span { display: inline; margin-bottom: 0; text-transform: none; letter-spacing: normal; }
+    .problem-map { display: grid; gap: .3rem; margin-top: .45rem; }
+    .problem-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: .3rem .7rem; padding: .35rem .5rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); }
+    .problem-row code { display: inline; font-size: .8rem; overflow-wrap: anywhere; }
+    .problem-map .problem-title { display: block; color: var(--muted); font-size: .78rem; }
+    .problem-map .problem-meta { display: flex; align-items: baseline; flex-wrap: wrap; justify-content: flex-end; gap: .35rem; font-size: .72rem; color: var(--muted); white-space: nowrap; }
+    .problem-points { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text); }
+    .problem-mode { border: 1px solid var(--border); border-radius: 999px; padding: .05rem .4rem; }
+    .problem-total { margin-top: .5rem; color: var(--muted); font-size: .78rem; }
+    @media (max-width: 540px) { .problem-row { grid-template-columns: minmax(0, 1fr); } .problem-meta { justify-content: flex-start; } }
     .group-description { margin: 0; padding: .8rem .75rem; color: var(--muted); border-top: 1px solid var(--border); }
     .group-disclosure .collection-list { margin-inline: .75rem; }
     .filter-select { width: min(280px, 100%); }
@@ -4223,6 +4234,133 @@
       ]
     };
 
+    const HANDOUT_PROBLEMS = {
+      "a1:unicode1":[1,"w",0,"Understanding Unicode"],
+      "a1:unicode2":[3,"w",0,"Unicode Encodings"],
+      "a1:train_bpe":[15,"c",0,"BPE Tokenizer Training"],
+      "a1:train_bpe_tinystories":[2,"wr",0,"BPE Training on TinyStories"],
+      "a1:train_bpe_expts_owt":[2,"w",0,"BPE Training on OpenWebText"],
+      "a1:tokenizer":[15,"c",0,"Implementing the tokenizer"],
+      "a1:tokenizer_experiments":[4,"w",0,"Experiments with tokenizers"],
+      "a1:linear":[1,"c",0,"Implementing the linear module"],
+      "a1:embedding":[1,"c",0,"Implement the embedding module"],
+      "a1:rmsnorm":[1,"c",0,"Root Mean Square Layer Normalization"],
+      "a1:positionwise_feedforward":[2,"c",0,"Implement the position-wise feed-forward network"],
+      "a1:rope":[2,"c",0,"Implement RoPE"],
+      "a1:softmax":[1,"c",0,"Implement softmax"],
+      "a1:scaled_dot_product_attention":[5,"c",0,"Implement scaled dot-product attention"],
+      "a1:multihead_self_attention":[5,"c",0,"Implement causal multi-head self-attention"],
+      "a1:transformer_block":[3,"wr",0,"Implement the Transformer block"],
+      "a1:transformer_lm":[3,"w",0,"Implementing the Transformer LM"],
+      "a1:transformer_accounting":[5,"w",0,"Transformer LM resource accounting"],
+      "a1:cross_entropy":[1,"c",0,"Implement cross-entropy"],
+      "a1:learning_rate_tuning":[1,"w",0,"Tuning the learning rate"],
+      "a1:adamw":[2,"c",0,"Implement AdamW"],
+      "a1:adamw_accounting":[2,"w",0,"Resource accounting for training with AdamW"],
+      "a1:learning_rate_schedule":[1,"c",0,"Implement cosine learning rate schedule with warmup"],
+      "a1:gradient_clipping":[1,"c",0,"Implement gradient clipping"],
+      "a1:data_loading":[2,"c",0,"Implement data loading"],
+      "a1:checkpointing":[1,"c",0,"Implement model checkpointing"],
+      "a1:training_together":[4,"c",0,"Put it together"],
+      "a1:decoding":[3,"c",0,"Decoding"],
+      "a1:experiment_log":[3,"w",0,"Experiment logging"],
+      "a1:learning_rate":[3,"wr",2,"Tune the learning rate"],
+      "a1:batch_size_experiment":[1,"r",1,"Batch size variations"],
+      "a1:generate":[1,"w",0,"Generate text"],
+      "a1:layer_norm_ablation":[1,"r",0.5,"Remove RMSNorm and train"],
+      "a1:pre_norm_ablation":[1,"r",0.5,"Implement post-norm and train"],
+      "a1:no_pos_emb":[1,"r",0.5,"Implement NoPE"],
+      "a1:swiglu_ablation":[1,"r",0.5,"SwiGLU vs. SiLU"],
+      "a1:main_experiment":[2,"wr",2,"Experiment on OWT"],
+      "a1:leaderboard":[6,"wr",10,"Leaderboard"],
+      "a2:benchmarking_script":[4,"cwr",0,"Benchmarking Script"],
+      "a2:nsys_profile":[5,"wr",0,"Nsight Systems Profiling"],
+      "a2:mixed_precision_accumulation":[1,"wr",0,"Mixed-Precision Accumulation"],
+      "a2:benchmarking_mixed_precision":[2,"wr",0,"Benchmarking Mixed Precision"],
+      "a2:memory_profiling":[4,"wr",0,"Memory Profiling"],
+      "a2:gradient_checkpointing":[4,"w",0,"Memory-Optimal Gradient Checkpointing"],
+      "a2:pytorch_attention":[2,"wr",0,"PyTorch Attention Benchmarking"],
+      "a2:torch_compile":[2,"r",0,"Torch Compile"],
+      "a2:flash_forward":[15,"c",0,"FlashAttention-2 Forward Pass"],
+      "a2:flash_backward":[5,"c",0,"FlashAttention-2 Backward Pass"],
+      "a2:flash_benchmarking":[5,"r",0,"FlashAttention-2 Benchmarking"],
+      "a2:distributed_communication_single_node":[5,"r",0,"Distributed Communication (Single Node)"],
+      "a2:naive_ddp":[5,"c",0,"Naïve DDP"],
+      "a2:naive_ddp_benchmarking":[3,"wr",0,"Naïve DDP Benchmarking"],
+      "a2:minimal_ddp_flat_benchmarking":[2,"r",0,"Minimal DDP with Flat Gradients Benchmarking"],
+      "a2:ddp_overlap_individual_parameters":[5,"c",0,"DDP with Overlapping Individual Parameters"],
+      "a2:ddp_overlap_individual_parameters_benchmarking":[1,"r",0,"DDP Overlapping Individual Parameters Benchmarking"],
+      "a2:optimizer_state_sharding":[15,"c",0,"Optimizer State Sharding"],
+      "a2:optimizer_state_sharding_accounting":[5,"wr",0,"Optimizer State Sharding Accounting"],
+      "a2:fsdp":[15,"c",0,"Fully-Sharded Data Parallel"],
+      "a2:fsdp_accounting":[5,"wr",0,"FSDP Accounting"],
+      "a2:alternate_ring_all_reduce":[1,"w",0,"Alternate ring all-reduce"],
+      "a2:data_parallel_calcs":[3,"w",0,"Data parallel calculations"],
+      "a2:fsdp_calcs":[3,"w",0,"Fully sharded data parallel calculations"],
+      "a2:tp_calcs":[4,"w",0,"Tensor parallel calculations"],
+      "a2:fsdp_tp_calcs":[6,"w",0,"2D parallelism calculations"],
+      "a2:leaderboard":[10,"r",0,"Leaderboard: fastest training step"],
+      "a3:chinchilla_isoflops":[5,"wr",0,"IsoFLOPs scaling laws"],
+      "a3:scaling_laws":[50,"wr",0,"Constructing scaling laws leaderboard"],
+      "a4:look_at_cc":[4,"w",0,"Looking at Common Crawl"],
+      "a4:extract_text":[3,"cw",0,"HTML to text conversion"],
+      "a4:language_identification":[6,"cw",0,"Language identification"],
+      "a4:mask_pii":[3,"cw",0,"Personally identifiable information"],
+      "a4:harmful_content":[6,"cw",0,"Harmful content"],
+      "a4:gopher_quality_filters":[3,"cw",0,"Gopher quality filters"],
+      "a4:quality_classifier":[15,"c",0,"Quality classifier"],
+      "a4:exact_deduplication":[3,"c",0,"Exact line deduplication"],
+      "a4:minhash_deduplication":[8,"c",0,"MinHash + LSH document deduplication"],
+      "a4:filter_data":[6,"cr",0,"Filter data for language modeling"],
+      "a4:inspect_filtered_data":[4,"w",0,"Inspect filtered data"],
+      "a4:tokenize_data":[2,"c",0,"Tokenize data"],
+      "a4:train_model":[8,"wr",0,"Train model"],
+      "a5:prompting_baselines":[5,"w",0,"Run OLMo-2-0425-1B on GSM8K"],
+      "a5:baseline_calcs":[5,"w",0,"Compute the variance of the policy gradient estimator"],
+      "a5:tokenize_prompt_and_output":[1,"c",0,"Prompt and output tokenization"],
+      "a5:get_response_log_probs":[1,"c",0,"Response log-probs (and entropy)"],
+      "a5:compute_rollout_rewards":[1,"cw",0,"Computing the rewards of rollouts"],
+      "a5:compute_group_normalized_rewards_grpo":[1,"c",0,"Group normalization"],
+      "a5:compute_policy_gradient_loss_on_policy":[1,"c",0,"On-policy policy gradient"],
+      "a5:aggregate_loss_across_microbatch_sequence":[0.5,"cw",0,"Aggregate loss across tokens and sequences"],
+      "a5:grpo_train_step_standard_on_policy":[5,"c",0,"GRPO train step"],
+      "a5:grpo_experiments_standard_on_policy":[10,"cr",2,"Use GRPO to improve OLMo-2-0425-1B performance on GSM8K"],
+      "a5:grpo_learning_rate":[3,"r",4,"Tune the learning rate"],
+      "a5:grpo_prompt_ablation":[3,"r",4,"Prompt ablation"],
+      "a5:think_about_length_normalization":[1,"w",0,"Think about length normalization"],
+      "a5:compute_group_normalized_rewards_drgrpo":[0.5,"c",0,"Dr. GRPO Group normalization"],
+      "a5:aggregate_loss_across_microbatch_constant":[0.5,"c",0,"Dr. GRPO loss aggregation"],
+      "a5:think_about_rft":[2,"w",0,"Think about RFT"],
+      "a5:derive_difficulty_reweightings":[6,"w",0,"Derive difficulty reweightings induced by different advantage normalizers"],
+      "a5:think_about_advantage_normalization":[2,"w",0,"Think about advantage normalization"],
+      "a5:compute_group_normalized_rewards_maxrl":[0.5,"c",0,"MaxRL Group normalization"],
+      "a5:grpo_train_step_variants_on_policy":[2.5,"c",0,"GRPO train step variants"],
+      "a5:grpo_experiments_variants_on_policy":[10,"r",8,"Compare the performance of different RL algorithms"],
+      "a5:derive_surrogate_objectives":[2,"w",0,"Derive surrogate objectives for importance reweighting approaches"],
+      "a5:compute_policy_gradient_loss_off_policy":[1,"c",0,"Off-policy policy gradient with tokenlevel reweighting"],
+      "a5:think_about_importance_reweighting":[2,"w",0,"Think about importance reweighting"],
+      "a5:compute_policy_gradient_loss_off_policy_gspo":[1,"c",0,"Off-policy policy gradient with sequence-level reweighting"],
+      "a5:grpo_train_step_off_policy":[2.5,"c",0,"Off-policy GRPO train step"],
+      "a5:grpo_experiments_off_policy":[10,"r",8,"Compare the performance of different off-policy algorithms"],
+      "a5:try_your_own":[10,"r",0,"Try your own policy gradient estimator"],
+      "a5:mmlu_baseline":[4,"cw",0,"Zero-shot MMLU baseline"],
+      "a5:gsm8k_baseline":[4,"cw",0,"Zero-shot GSM8K baseline"],
+      "a5:alpaca_eval_baseline":[4,"cw",0,"Zero-shot AlpacaEval baseline"],
+      "a5:sst_baseline":[4,"cw",0,"Zero-shot SimpleSafetyTests baseline"],
+      "a5:look_at_sft":[4,"w",0,"Inspect instruction tuning data"],
+      "a5:data_loading":[3,"c",0,"Implement data loading"],
+      "a5:sft_script":[4,"c",0,"Training script: instruction tuning"],
+      "a5:sft":[6,"wr",3,"Instruction tuning"],
+      "a5:mmlu_sft":[4,"w",0,"Evaluate SFT on MMLU"],
+      "a5:gsm8k_sft":[4,"w",0,"Evaluate SFT on GSM8K"],
+      "a5:alpaca_eval_sft":[4,"w",0,"Evaluate SFT on AlpacaEval"],
+      "a5:sst_sft":[4,"w",0,"Evaluate SFT on SimpleSafetyTests"],
+      "a5:red_teaming":[4,"w",0,"Red-team the instruction-tuned model"],
+      "a5:look_at_hh":[2,"w",0,"Inspect HH preference data"],
+      "a5:dpo_loss":[2,"c",0,"DPO loss"],
+      "a5:dpo_training":[4,"cr",1,"DPO training"]
+    };
+
     const ASSIGNMENT_MISSION_GUIDES = {
       "text-tokenizer":{
         plain:{de:"Du baust zuerst eine verlässliche Übersetzung zwischen lesbarem Text und Token-Zahlen. Danach lernst du aus einem kleinen Text häufige Bytefolgen als längere Tokens.",en:"First, you build a reliable translation between readable text and token numbers. Then you learn longer tokens from byte sequences that occur often in a small text."},
@@ -5488,9 +5626,46 @@
       const guides=ASSIGNMENT_PREREQUISITE_GUIDES[a.id]||[];
       return `<div class="collection-list">${guides.map(item=>`<article class="compact-row"><div class="compact-row-main"><span class="compact-row-head"><span class="compact-row-title">${esc(localeValue(item.label))}</span></span><span class="compact-row-summary">${esc(localeValue(item.explain))}</span></div></article>`).join("")}</div>`;
     }
+    function missionProblems(assignmentId,scope){
+      return String(scope||"").split("·").map(part=>part.trim()).filter(Boolean).map(id=>{
+        const entry=HANDOUT_PROBLEMS[`${assignmentId}:${id}`];
+        return entry?{id,points:entry[0],modes:entry[1],gpu:entry[2],title:entry[3]}:{id,points:0,modes:"",gpu:0,title:""};
+      });
+    }
+    function problemModeLabels(modes){
+      const map=currentLanguage==="en"?{c:"code",w:"write-up",r:"measure"}:{c:"Code",w:"Schreiben",r:"Messen"};
+      return String(modes||"").split("").map(mode=>map[mode]).filter(Boolean);
+    }
+    function problemEffortSummary(problems){
+      const points=problems.reduce((sum,p)=>sum+p.points,0),gpu=problems.reduce((sum,p)=>sum+p.gpu,0);
+      const counts={c:0,w:0,r:0};problems.forEach(p=>String(p.modes).split("").forEach(mode=>{if(mode in counts)counts[mode]++}));
+      return{count:problems.length,points,gpu,counts};
+    }
+    function problemMapMarkup(assignmentId,scope){
+      const problems=missionProblems(assignmentId,scope);
+      if(!problems.length)return"";
+      const summary=problemEffortSummary(problems);
+      const rows=problems.map(p=>{
+        const modes=problemModeLabels(p.modes).map(label=>`<span class="problem-mode">${esc(label)}</span>`).join("");
+        const points=p.points?`<span class="problem-points">${p.points} ${p.points===1?(currentLanguage==="en"?"point":"Punkt"):(currentLanguage==="en"?"points":"Punkte")}</span>`:"";
+        const gpu=p.gpu?`<span class="problem-mode">${p.gpu} ${currentLanguage==="en"?"GPU h":"GPU-Std."}</span>`:"";
+        return `<div class="problem-row"><span><code data-no-i18n>${esc(p.id)}</code>${p.title?`<span class="problem-title" data-no-i18n>${esc(p.title)}</span>`:""}</span><span class="problem-meta">${modes}${gpu}${points}</span></div>`;
+      }).join("");
+      const parts=[`${summary.count} ${currentLanguage==="en"?(summary.count===1?"problem":"problems"):(summary.count===1?"Problem":"Probleme")}`,`${summary.points} ${currentLanguage==="en"?"points":"Punkte"}`];
+      if(summary.gpu)parts.push(`${summary.gpu} ${currentLanguage==="en"?"GPU hours":"GPU-Stunden"}`);
+      const modeParts=[[summary.counts.c,currentLanguage==="en"?"code":"Code"],[summary.counts.w,currentLanguage==="en"?"write-up":"Schreiben"],[summary.counts.r,currentLanguage==="en"?"measure":"Messen"]].filter(entry=>entry[0]).map(entry=>`${entry[0]}× ${entry[1]}`);
+      return `<div class="problem-map">${rows}</div><p class="problem-total">${esc(parts.join(" · "))}${modeParts.length?` · ${esc(modeParts.join(", "))}`:""}</p>`;
+    }
+    function assignmentEffortMarkup(a){
+      const problems=(a.missions||[]).flatMap(mission=>missionProblems(a.id,mission.scope));
+      if(!problems.length)return"";
+      const s=problemEffortSummary(problems);
+      const modeParts=[[s.counts.c,currentLanguage==="en"?"ask for code":"verlangen Code"],[s.counts.w,currentLanguage==="en"?"ask for a write-up":"verlangen Schreiben"],[s.counts.r,currentLanguage==="en"?"ask for a measured run":"verlangen einen Messlauf"]].filter(entry=>entry[0]).map(entry=>`${entry[0]} ${entry[1]}`);
+      return `<div class="callout"><strong>${currentLanguage==="en"?"What this assignment actually asks for":"Was dieses Assignment tatsächlich verlangt"}</strong><p>${s.count} ${currentLanguage==="en"?"problems":"Probleme"} · ${s.points} ${currentLanguage==="en"?"points":"Punkte"}${s.gpu?` · ${s.gpu} ${currentLanguage==="en"?"GPU hours of training budget":"GPU-Stunden Trainingsbudget"}`:""}. ${esc(modeParts.join(currentLanguage==="en"?"; ":"; "))}${modeParts.length?".":""}</p><p class="muted small">${currentLanguage==="en"?"A problem can ask for several of these at once, so the counts overlap. This is orientation for planning your own effort — never a schedule, a completion gate, or a competence rating.":"Ein Problem kann mehreres zugleich verlangen, deshalb überschneiden sich die Zahlen. Das ist Orientierung für deine eigene Aufwandsplanung – nie ein Zeitplan, kein Abschluss-Gate und keine Kompetenzwertung."}</p></div>`;
+    }
     function assignmentMissionMarkup(a,mission,index){
       const key=`${a.id}:${mission.id}`,open=appState.openAssignmentMissionIds.has(key)?" open":"",guide=ASSIGNMENT_MISSION_GUIDES[mission.id],concepts=(mission.concepts||[]).map(id=>byId(CONCEPTS,id)).filter(Boolean),labs=(mission.labs||[]).map(id=>byId(LABS,id)).filter(Boolean),formulas=[...new Set(concepts.flatMap(concept=>concept.formulas))].map(id=>byId(FORMULAS,id)).filter(Boolean);
-      return `<details class="accordion-item mission-item" data-assignment-mission="${esc(key)}"${open}><summary><span class="accordion-summary-main"><span class="accordion-heading"><span class="badge">${currentLanguage==="en"?"Topic":"Thema"} ${index+1}</span><span class="accordion-title">${esc(mission.title)}</span></span><span class="accordion-preview">${esc(localeValue(guide.plain))}</span></span><span class="accordion-chevron" aria-hidden="true">⌄</span></summary><div class="accordion-body"><div class="callout accent"><strong>${currentLanguage==="en"?"What you build here":"Was du hier baust"}</strong><p>${esc(localeValue(guide.plain))}</p><p><strong>${currentLanguage==="en"?"Why this block matters":"Warum dieser Block nötig ist"}:</strong> ${esc(localeValue(guide.why))}</p></div><div class="accordion-fact"><span>${currentLanguage==="en"?"Explanations for the ideas and useful experiments":"Erklärungen der Ideen und passende Experimente"}</span><div class="accordion-actions">${concepts.map(c=>`<button class="button ghost small" data-open-concept="${c.id}">${esc(c.title)}</button>`).join("")}${labs.map(l=>`<button class="button ghost small" data-open-lab="${l.id}">${esc(l.title)}</button>`).join("")}</div></div>${formulas.length?`<div class="accordion-fact"><span>${currentLanguage==="en"?"Formula lessons: example first, equation last":"Formelerklärungen: Beispiel zuerst, Gleichung zuletzt"}</span><div class="accordion-actions">${formulas.map(f=>`<button class="button ghost small" data-open-formula="${f.id}">${esc(f.title)}</button>`).join("")}</div></div>`:""}<div class="accordion-body-grid"><div class="accordion-fact"><span>${currentLanguage==="en"?"Exact technical task from the Handout":"Exakter technischer Auftrag aus dem Handout"}</span>${esc(mission.derive)}</div><div class="accordion-fact"><span>${currentLanguage==="en"?"How to test your solution":"So prüfst du deine Lösung"}</span>${esc(mission.evidence)}</div><div class="accordion-fact"><span>${currentLanguage==="en"?"If it fails, check this first":"Wenn es scheitert, prüfe zuerst"}</span>${esc(mission.failure)}</div></div><div class="accordion-fact"><span>${currentLanguage==="en"?"Exact names from the original Handout — reference only":"Exakte Namen aus dem Original-Handout – nur als Referenz"}</span><code data-no-i18n>${esc(mission.scope)}</code></div></div></details>`;
+      return `<details class="accordion-item mission-item" data-assignment-mission="${esc(key)}"${open}><summary><span class="accordion-summary-main"><span class="accordion-heading"><span class="badge">${currentLanguage==="en"?"Topic":"Thema"} ${index+1}</span><span class="accordion-title">${esc(mission.title)}</span></span><span class="accordion-preview">${esc(localeValue(guide.plain))}</span></span><span class="accordion-chevron" aria-hidden="true">⌄</span></summary><div class="accordion-body"><div class="callout accent"><strong>${currentLanguage==="en"?"What you build here":"Was du hier baust"}</strong><p>${esc(localeValue(guide.plain))}</p><p><strong>${currentLanguage==="en"?"Why this block matters":"Warum dieser Block nötig ist"}:</strong> ${esc(localeValue(guide.why))}</p></div><div class="accordion-fact"><span>${currentLanguage==="en"?"Explanations for the ideas and useful experiments":"Erklärungen der Ideen und passende Experimente"}</span><div class="accordion-actions">${concepts.map(c=>`<button class="button ghost small" data-open-concept="${c.id}">${esc(c.title)}</button>`).join("")}${labs.map(l=>`<button class="button ghost small" data-open-lab="${l.id}">${esc(l.title)}</button>`).join("")}</div></div>${formulas.length?`<div class="accordion-fact"><span>${currentLanguage==="en"?"Formula lessons: example first, equation last":"Formelerklärungen: Beispiel zuerst, Gleichung zuletzt"}</span><div class="accordion-actions">${formulas.map(f=>`<button class="button ghost small" data-open-formula="${f.id}">${esc(f.title)}</button>`).join("")}</div></div>`:""}<div class="accordion-body-grid"><div class="accordion-fact"><span>${currentLanguage==="en"?"Exact technical task from the Handout":"Exakter technischer Auftrag aus dem Handout"}</span>${esc(mission.derive)}</div><div class="accordion-fact"><span>${currentLanguage==="en"?"How to test your solution":"So prüfst du deine Lösung"}</span>${esc(mission.evidence)}</div><div class="accordion-fact"><span>${currentLanguage==="en"?"If it fails, check this first":"Wenn es scheitert, prüfe zuerst"}</span>${esc(mission.failure)}</div></div><div class="accordion-fact"><span>${currentLanguage==="en"?"Problems in this block — names, weight and kind of work":"Probleme in diesem Block – Namen, Gewicht und Art der Arbeit"}</span><p class="muted small">${currentLanguage==="en"?"Names and point values come from the original handout. “code” means an implementation the provided tests check, “write-up” a derivation or short answer, “measure” a run whose result you report. Nothing here is a deadline or a target.":"Namen und Punktwerte stammen aus dem Original-Handout. „Code“ heißt eine Implementierung, die die mitgelieferten Tests prüfen, „Schreiben“ eine Herleitung oder kurze Antwort, „Messen“ einen Lauf, dessen Ergebnis du berichtest. Nichts davon ist ein Termin oder ein Soll."}</p>${problemMapMarkup(a.id,mission.scope)}</div></div></details>`;
     }
     function formulaMarkup(f){ return String(f.expr).replace(/\u00a0/g," "); }
     function formulaText(value){ return esc(String(value??"").replace(/&(lt|gt|amp);/g,entity=>({"&lt;":"<","&gt;":">","&amp;":"&"}[entity]))); }
@@ -5663,7 +5838,7 @@
     function renderAssignmentDetail(el,a){
       if(!a)return;
       const missions=a.missions||[],linkedConcepts=a.concepts.map(id=>byId(CONCEPTS,id)).filter(Boolean);
-      el.innerHTML=`${backButton("assignments","Assignments")}<div class="view-header" style="margin-top:1rem"><p class="eyebrow">${a.label} · ${currentLanguage==="en"?"Learning guide, no submission solution":"Lernhilfe, keine Abgabelösung"}</p><h1>${esc(a.title)}</h1><p class="lede">${esc(a.goal)}</p></div><div class="callout accent" style="margin-bottom:1rem"><strong>${currentLanguage==="en"?"In plain language:":"In einfachen Worten:"}</strong> ${currentLanguage==="en"?"The handout is split below into manageable topic blocks. Each block says what the original task covers, what idea you need, how to test your own implementation, and what to inspect first when it fails.":"Das Handout ist unten in überschaubare Themenblöcke zerlegt. Jeder Block sagt, was die Originalaufgabe umfasst, welche Idee du brauchst, wie du deine eigene Implementierung prüfst und was du bei einem Fehler zuerst untersuchst."}</div><div class="detail-layout"><div class="detail-body"><section class="reading-section detail-section"><p class="eyebrow">${currentLanguage==="en"?"No hidden prerequisites":"Keine versteckten Voraussetzungen"}</p><h2>${currentLanguage==="en"?"What you need first — explained with examples":"Das brauchst du vorher – mit Beispielen erklärt"}</h2><p class="muted">${currentLanguage==="en"?"These explanations come before the original task names and formulas. Open the linked concept only when you need more detail.":"Diese Erklärungen kommen vor den ursprünglichen Aufgabennamen und Formeln. Öffne ein verknüpftes Konzept nur, wenn du mehr Details brauchst."}</p>${assignmentPrerequisitesMarkup(a)}</section><section class="reading-section detail-section"><p class="eyebrow">${currentLanguage==="en"?"What is required?":"Was wird verlangt?"}</p><h2>${currentLanguage==="en"?"Topic blocks from the original handout":"Themenblöcke aus dem Original-Handout"}</h2><p class="muted">${currentLanguage==="en"?"These blocks are a map, not missions to certify. Open the block you are currently implementing.":"Diese Blöcke sind eine Landkarte und keine zu zertifizierenden Missionen. Öffne den Block, den du gerade implementierst."}</p><div class="accordion-list">${missions.map((mission,index)=>assignmentMissionMarkup(a,mission,index)).join("")}</div></section><section class="reading-section detail-section"><h2>${currentLanguage==="en"?"The mental models behind the tasks":"Die mentalen Modelle hinter den Aufgaben"}</h2><ul class="check-list">${a.models.map(model=>`<li>${esc(model)}</li>`).join("")}</ul></section><section class="reading-section detail-section"><h2>${currentLanguage==="en"?"A sensible implementation order":"Eine sinnvolle Implementierungsreihenfolge"}</h2><ol>${a.milestones.map(milestone=>`<li>${esc(milestone)}</li>`).join("")}</ol></section><section class="reading-section detail-section"><h2>${currentLanguage==="en"?"Questions to check your understanding":"Fragen zum Verständnis"}</h2><p class="muted">${currentLanguage==="en"?"Answer mentally, then open the explanation. No text field and no score are involved.":"Beantworte sie gedanklich und öffne danach die Erklärung. Es gibt weder Textfeld noch Wertung."}</p>${selfCheckMarkup(a.checks,a.checkAnswers,currentLanguage==="en"?"Show concept explanation":"Konzeptantwort anzeigen")}</section><section class="reading-section detail-section"><h2>${currentLanguage==="en"?"Hints when you are stuck":"Hinweise, wenn du festhängst"}</h2><p class="muted">${currentLanguage==="en"?"Hints are available directly. Open only as much as you need.":"Die Hinweise sind direkt verfügbar. Öffne nur so viel, wie du brauchst."}</p><div class="accordion-list">${a.hints.map((hint,index)=>`<details class="answer-disclosure"><summary>${currentLanguage==="en"?`Hint ${index+1}`:`Hinweis ${index+1}`}</summary><p>${esc(hint)}</p></details>`).join("")}</div></section><section class="reading-section detail-section"><h2>${currentLanguage==="en"?"Common mistakes":"Typische Fehlannahmen"}</h2><ul class="check-list">${a.pitfalls.map(pitfall=>`<li>${esc(pitfall)}</li>`).join("")}</ul></section><section class="reading-section detail-section"><h2>Definition of Done</h2><p class="muted">${currentLanguage==="en"?"This list summarizes the handout expectations; the platform does not pretend to verify your submission.":"Diese Liste fasst die Erwartungen des Handouts zusammen; die Plattform behauptet nicht, deine Abgabe zu verifizieren."}</p><ul class="check-list">${a.done.map(item=>`<li>${esc(item)}</li>`).join("")}</ul></section></div><aside class="detail-aside"><div class="panel"><h3>${currentLanguage==="en"?"Prerequisites":"Voraussetzungen"}</h3><p class="small muted">${currentLanguage==="en"?"Each prerequisite is explained with an example at the top of this page; the list is not hidden in a sidebar.":"Jede Voraussetzung wird oben auf dieser Seite mit einem Beispiel erklärt; die Liste ist nicht in der Seitenleiste versteckt."}</p></div><div class="panel"><h3>${currentLanguage==="en"?"Linked explanations":"Verknüpfte Erklärungen"}</h3><div class="accordion-actions">${linkedConcepts.map(concept=>`<button class="button ghost small" data-open-concept="${concept.id}">${esc(concept.title)}</button>`).join("")}</div></div><div class="panel"><h3>${currentLanguage==="en"?"Original sources":"Originalquellen"}</h3><div style="display:grid;gap:.5rem">${a.sources.map(id=>sourceAnchor(id)).join("")}</div></div></aside></div>`;
+      el.innerHTML=`${backButton("assignments","Assignments")}<div class="view-header" style="margin-top:1rem"><p class="eyebrow">${a.label} · ${currentLanguage==="en"?"Learning guide, no submission solution":"Lernhilfe, keine Abgabelösung"}</p><h1>${esc(a.title)}</h1><p class="lede">${esc(a.goal)}</p></div><div class="callout accent" style="margin-bottom:1rem"><strong>${currentLanguage==="en"?"In plain language:":"In einfachen Worten:"}</strong> ${currentLanguage==="en"?"The handout is split below into manageable topic blocks. Each block says what the original task covers, what idea you need, how to test your own implementation, and what to inspect first when it fails.":"Das Handout ist unten in überschaubare Themenblöcke zerlegt. Jeder Block sagt, was die Originalaufgabe umfasst, welche Idee du brauchst, wie du deine eigene Implementierung prüfst und was du bei einem Fehler zuerst untersuchst."}</div><div class="detail-layout"><div class="detail-body"><section class="reading-section detail-section"><p class="eyebrow">${currentLanguage==="en"?"No hidden prerequisites":"Keine versteckten Voraussetzungen"}</p><h2>${currentLanguage==="en"?"What you need first — explained with examples":"Das brauchst du vorher – mit Beispielen erklärt"}</h2><p class="muted">${currentLanguage==="en"?"These explanations come before the original task names and formulas. Open the linked concept only when you need more detail.":"Diese Erklärungen kommen vor den ursprünglichen Aufgabennamen und Formeln. Öffne ein verknüpftes Konzept nur, wenn du mehr Details brauchst."}</p>${assignmentPrerequisitesMarkup(a)}</section><section class="reading-section detail-section"><p class="eyebrow">${currentLanguage==="en"?"What is required?":"Was wird verlangt?"}</p><h2>${currentLanguage==="en"?"Topic blocks from the original handout":"Themenblöcke aus dem Original-Handout"}</h2><p class="muted">${currentLanguage==="en"?"These blocks are a map, not missions to certify. Open the block you are currently implementing.":"Diese Blöcke sind eine Landkarte und keine zu zertifizierenden Missionen. Öffne den Block, den du gerade implementierst."}</p>${assignmentEffortMarkup(a)}<div class="accordion-list">${missions.map((mission,index)=>assignmentMissionMarkup(a,mission,index)).join("")}</div></section><section class="reading-section detail-section"><h2>${currentLanguage==="en"?"The mental models behind the tasks":"Die mentalen Modelle hinter den Aufgaben"}</h2><ul class="check-list">${a.models.map(model=>`<li>${esc(model)}</li>`).join("")}</ul></section><section class="reading-section detail-section"><h2>${currentLanguage==="en"?"A sensible implementation order":"Eine sinnvolle Implementierungsreihenfolge"}</h2><ol>${a.milestones.map(milestone=>`<li>${esc(milestone)}</li>`).join("")}</ol></section><section class="reading-section detail-section"><h2>${currentLanguage==="en"?"Questions to check your understanding":"Fragen zum Verständnis"}</h2><p class="muted">${currentLanguage==="en"?"Answer mentally, then open the explanation. No text field and no score are involved.":"Beantworte sie gedanklich und öffne danach die Erklärung. Es gibt weder Textfeld noch Wertung."}</p>${selfCheckMarkup(a.checks,a.checkAnswers,currentLanguage==="en"?"Show concept explanation":"Konzeptantwort anzeigen")}</section><section class="reading-section detail-section"><h2>${currentLanguage==="en"?"Hints when you are stuck":"Hinweise, wenn du festhängst"}</h2><p class="muted">${currentLanguage==="en"?"Hints are available directly. Open only as much as you need.":"Die Hinweise sind direkt verfügbar. Öffne nur so viel, wie du brauchst."}</p><div class="accordion-list">${a.hints.map((hint,index)=>`<details class="answer-disclosure"><summary>${currentLanguage==="en"?`Hint ${index+1}`:`Hinweis ${index+1}`}</summary><p>${esc(hint)}</p></details>`).join("")}</div></section><section class="reading-section detail-section"><h2>${currentLanguage==="en"?"Common mistakes":"Typische Fehlannahmen"}</h2><ul class="check-list">${a.pitfalls.map(pitfall=>`<li>${esc(pitfall)}</li>`).join("")}</ul></section><section class="reading-section detail-section"><h2>Definition of Done</h2><p class="muted">${currentLanguage==="en"?"This list summarizes the handout expectations; the platform does not pretend to verify your submission.":"Diese Liste fasst die Erwartungen des Handouts zusammen; die Plattform behauptet nicht, deine Abgabe zu verifizieren."}</p><ul class="check-list">${a.done.map(item=>`<li>${esc(item)}</li>`).join("")}</ul></section></div><aside class="detail-aside"><div class="panel"><h3>${currentLanguage==="en"?"Prerequisites":"Voraussetzungen"}</h3><p class="small muted">${currentLanguage==="en"?"Each prerequisite is explained with an example at the top of this page; the list is not hidden in a sidebar.":"Jede Voraussetzung wird oben auf dieser Seite mit einem Beispiel erklärt; die Liste ist nicht in der Seitenleiste versteckt."}</p></div><div class="panel"><h3>${currentLanguage==="en"?"Linked explanations":"Verknüpfte Erklärungen"}</h3><div class="accordion-actions">${linkedConcepts.map(concept=>`<button class="button ghost small" data-open-concept="${concept.id}">${esc(concept.title)}</button>`).join("")}</div></div><div class="panel"><h3>${currentLanguage==="en"?"Original sources":"Originalquellen"}</h3><div style="display:grid;gap:.5rem">${a.sources.map(id=>sourceAnchor(id)).join("")}</div></div></aside></div>`;
       bindBack(el);bindDisclosureState(el,"[data-assignment-mission]",appState.openAssignmentMissionIds,"assignmentMission");bindOpeners(el);updateRouteMetadata()
     }
     function copyText(text){ if(navigator.clipboard?.writeText){navigator.clipboard.writeText(text).then(()=>toast("LaTeX kopiert")).catch(()=>fallbackCopy(text));}else fallbackCopy(text); }
