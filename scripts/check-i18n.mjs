@@ -613,13 +613,28 @@ const scopedProblemKeys = new Set(base.assignments.flatMap(a => (a.missions || [
 for (const key of scopedProblemKeys) if (!handoutProblems[key]) throw new Error(`handout problems: mission scope references ${key}, which has no points/kind entry`);
 for (const key of Object.keys(handoutProblems)) if (!scopedProblemKeys.has(key)) throw new Error(`handout problems: ${key} is not referenced by any mission scope`);
 for (const [key, entry] of Object.entries(handoutProblems)) {
-  if (!Array.isArray(entry) || entry.length !== 4) throw new Error(`handout problems: ${key} must be [points, modes, gpuHours, title]`);
+  if (!Array.isArray(entry) || (entry.length !== 4 && entry.length !== 6)) throw new Error(`handout problems: ${key} must be [points, modes, gpuHours, title] or [points, modes, gpuHours, title, adapters, tests]`);
   if (!(typeof entry[0] === "number" && entry[0] > 0)) throw new Error(`handout problems: ${key} needs a positive point value`);
   if (!/^[cwr]{1,3}$/.test(entry[1])) throw new Error(`handout problems: ${key} has invalid work modes "${entry[1]}"`);
   if (typeof entry[2] !== "number" || entry[2] < 0) throw new Error(`handout problems: ${key} has an invalid GPU-hour budget`);
   if (typeof entry[3] !== "string" || !entry[3].trim()) throw new Error(`handout problems: ${key} needs the original handout title`);
+  if (entry.length === 6) {
+    // Both are quoted verbatim from the handout, so they must stay syntactically exact: adapter hooks
+    // are bare identifiers (the "adapters." prefix is added when rendering) and tests are the argument
+    // part of the printed "uv run pytest ..." command.
+    if (typeof entry[4] !== "string" || (entry[4] && !/^[A-Za-z0-9_]+(,[A-Za-z0-9_]+)*$/.test(entry[4]))) throw new Error(`handout problems: ${key} has invalid adapter hooks "${entry[4]}"`);
+    if (typeof entry[5] !== "string" || (entry[5] && !/^(-k [A-Za-z0-9_]+|tests\/[A-Za-z0-9_]+\.py)(,(-k [A-Za-z0-9_]+|tests\/[A-Za-z0-9_]+\.py))*$/.test(entry[5]))) throw new Error(`handout problems: ${key} has invalid test commands "${entry[5]}"`);
+    if (!entry[4] && !entry[5]) throw new Error(`handout problems: ${key} declares a verification handle but leaves both fields empty`);
+  }
 }
-console.log(`handout problems OK: ${scopedProblemKeys.size} problems, ${Object.values(handoutProblems).reduce((sum, entry) => sum + entry[0], 0)} points, ${Object.values(handoutProblems).reduce((sum, entry) => sum + entry[2], 0)} GPU hours`);
+const verifiable = Object.values(handoutProblems).filter(entry => entry.length === 6);
+// The handouts name an adapter hook and/or a pytest command for these problems. Losing them would quietly
+// remove the bridge from an explanation to a passing test, so guard the floor found when they were extracted.
+if (verifiable.length < 45) throw new Error(`handout problems: only ${verifiable.length} problems carry the handout's adapter/test handles, expected at least 45`);
+if (verifiable.filter(entry => entry[5]).length < 45) throw new Error("handout problems: every problem with a verification handle must keep its pytest command");
+const problemMapRenderer = source.slice(source.indexOf("function problemVerifyMarkup"), source.indexOf("function assignmentEffortMarkup"));
+for (const required of ["p.adapters", "p.tests", "adapters.${esc(name)}", "uv run pytest ${esc(args)}", "problemVerifyMarkup(p)"]) if (!problemMapRenderer.includes(required)) throw new Error(`problem map: verification handles must stay rendered (missing ${required})`);
+console.log(`handout problems OK: ${scopedProblemKeys.size} problems, ${Object.values(handoutProblems).reduce((sum, entry) => sum + entry[0], 0)} points, ${Object.values(handoutProblems).reduce((sum, entry) => sum + entry[2], 0)} GPU hours, ${verifiable.length} with adapter/test handles`);
 const transformerModule = base.modules.find(module => module.id === "transformer");
 const initIndex = transformerModule?.concepts.indexOf("parameter-initialization") ?? -1;
 const rmsIndex = transformerModule?.concepts.indexOf("rmsnorm") ?? -1;

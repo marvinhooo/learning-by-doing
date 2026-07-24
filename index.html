@@ -581,6 +581,10 @@
     .problem-points { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text); }
     .problem-mode { border: 1px solid var(--border); border-radius: 999px; padding: .05rem .4rem; }
     .problem-total { margin-top: .5rem; color: var(--muted); font-size: .78rem; }
+    .problem-map .problem-verify { grid-column: 1 / -1; display: grid; gap: .2rem; margin-top: .35rem; padding-top: .35rem; border-top: 1px dashed var(--border); }
+    .problem-map .problem-verify-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: .35rem; }
+    .problem-map .problem-verify-label { flex: none; min-width: 3.6rem; color: var(--muted); font-size: .7rem; text-transform: uppercase; letter-spacing: .04em; }
+    .problem-map .problem-verify code { font-size: .74rem; padding: .05rem .3rem; border-radius: 5px; background: var(--surface); border: 1px solid var(--border); user-select: all; }
     @media (max-width: 540px) { .problem-row { grid-template-columns: minmax(0, 1fr); } .problem-meta { justify-content: flex-start; } }
     .group-description { margin: 0; padding: .8rem .75rem; color: var(--muted); border-top: 1px solid var(--border); }
     .group-disclosure .collection-list { margin-inline: .75rem; }
@@ -830,7 +834,7 @@
       *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
     }
   </style>
-  <script src="i18n-en.js?v=45"></script>
+  <script src="i18n-en.js?v=46"></script>
   <script src="config.js"></script>
   <script src="vendor/supabase.js"></script>
 </head>
@@ -1633,7 +1637,7 @@
         "details": [
           "Byte-Pair Encoding (BPE) verbindet die vollständige Abdeckung eines Byte-Tokenizers mit kürzeren Sequenzen für häufige Textmuster. Das Startvokabular enthält die 256 Einzelbytes sowie definierte Sondertokens. Jede Merge-Operation fügt genau einen neuen Token-Eintrag zum Vokabular hinzu, bis die gewünschte Vokabulargröße erreicht ist.",
           "Vor dem Zählen zerlegt eine Pretokenisierung den Korpus in grobe Segmente und speichert deren Häufigkeiten. Innerhalb dieser Grenzen zählt BPE benachbarte Tokenpaare, wählt das häufigste Paar mit einer festen Tie-Break-Regel und ersetzt dessen Vorkommen durch ein neues Token. Nach dem Merge A,B zu AB ändern sich nur Paarbeziehungen, die das neue Token oder überlappende Vorkommen berühren, was inkrementelle Implementierungen ausnutzen.",
-          "Beim Encoding wird ein Pretoken zunächst in Bytes zerlegt und danach gemäß den gelernten Merge-Rängen zusammengeführt. Die geordnete Liste ist nötig, weil ein späterer Merge auf einem früher erzeugten Token aufbauen kann; eine bloße Menge enthält diese Abhängigkeit nicht. Sondertokens wie ein End-of-Sequence-Marker werden als unteilbare harte Grenzen behandelt und dürfen weder zerlegt noch über ihre Grenzen hinweg gemergt werden."
+          "Beim Encoding wird ein Pretoken zunächst in Bytes zerlegt und danach gemäß den gelernten Merge-Rängen zusammengeführt. Die geordnete Liste ist nötig, weil ein späterer Merge auf einem früher erzeugten Token aufbauen kann; eine bloße Menge enthält diese Abhängigkeit nicht. Sondertokens wie ein End-of-Sequence-Marker werden als unteilbare harte Grenzen behandelt und dürfen weder zerlegt noch über ihre Grenzen hinweg gemergt werden. Decoding läuft umgekehrt: Erst werden die Bytefolgen aller IDs aneinandergehängt, danach wird der gesamte Puffer als UTF-8 gelesen. Weil eine beliebige ID-Folge keine gültige Kodierung ergeben muss, wird dabei mit errors='replace' dekodiert – defekte Stellen werden zum Ersatzzeichen U+FFFD, statt eine Ausnahme auszulösen."
         ],
         "pitfalls": [
           "Merges als ungeordnete Menge speichern: Dann ist nicht definiert, welcher von mehreren anwendbaren Schritten Vorrang hat, und Encoding kann vom Training abweichen.",
@@ -1842,7 +1846,7 @@
         "details": [
           "SwiGLU kombiniert die Aktivierungsfunktion SiLU(z)=z·sigmoid(z) mit einer Gated Linear Unit, also einem lernbaren Gate. Eine gebräuchliche Formel ist FFN(x)=W_down(SiLU(W_gate x)⊙W_up x), wobei ⊙ elementweise Multiplikation bedeutet. Der Gate-Zweig ist glatt und kann Werte dämpfen, passieren lassen oder mit Vorzeichen verändern.",
           "Für X [B,T,D] liefern W_gate und W_up jeweils [B,T,F], wobei F die innere Feed-Forward-Breite ist. Nach SiLU und elementweiser Multiplikation bringt W_down den Tensor zurück auf [B,T,D], damit die Residualaddition möglich ist. Alle Operationen behandeln jede der B·T Positionen unabhängig; erst Attention mischt Informationen entlang T.",
-          "SwiGLU besitzt drei statt zwei große Gewichtsmatrizen und hätte bei gleicher innerer Breite mehr Parameter als ein klassisches Multi-Layer Perceptron (MLP). Deshalb wird F häufig auf ungefähr 8D/3 statt 4D gesetzt und für effiziente Hardware auf ein geeignetes Vielfaches gerundet. Bei so angepasster Breite bleibt die Parameterzahl ungefähr vergleichbar, während Gating empirisch oft bessere Sprachmodellqualität liefert."
+          "SwiGLU besitzt drei statt zwei große Gewichtsmatrizen und hätte bei gleicher innerer Breite mehr Parameter als ein klassisches Multi-Layer Perceptron (MLP). Deshalb wird F häufig auf ungefähr 8D/3 statt 4D gesetzt und für effiziente Hardware auf ein geeignetes Vielfaches gerundet. Assignment 1 legt diese Rundung fest: d_ff ≈ 8/3·d_model, gebracht auf ein Vielfaches von 64. Bei so angepasster Breite bleibt die Parameterzahl ungefähr vergleichbar, während Gating empirisch oft bessere Sprachmodellqualität liefert."
         ],
         "pitfalls": [
           "Über die Sequenzachse T transformieren: Das Feed-Forward Network soll Features innerhalb eines Tokens mischen; Positionsmischung ist Aufgabe der Attention.",
@@ -4314,30 +4318,30 @@
     const HANDOUT_PROBLEMS = {
       "a1:unicode1":[1,"w",0,"Understanding Unicode"],
       "a1:unicode2":[3,"w",0,"Unicode Encodings"],
-      "a1:train_bpe":[15,"c",0,"BPE Tokenizer Training"],
+      "a1:train_bpe":[15,"c",0,"BPE Tokenizer Training","run_train_bpe","tests/test_train_bpe.py"],
       "a1:train_bpe_tinystories":[2,"wr",0,"BPE Training on TinyStories"],
       "a1:train_bpe_expts_owt":[2,"w",0,"BPE Training on OpenWebText"],
-      "a1:tokenizer":[15,"c",0,"Implementing the tokenizer"],
+      "a1:tokenizer":[15,"c",0,"Implementing the tokenizer","get_tokenizer","tests/test_tokenizer.py"],
       "a1:tokenizer_experiments":[4,"w",0,"Experiments with tokenizers"],
-      "a1:linear":[1,"c",0,"Implementing the linear module"],
-      "a1:embedding":[1,"c",0,"Implement the embedding module"],
-      "a1:rmsnorm":[1,"c",0,"Root Mean Square Layer Normalization"],
-      "a1:positionwise_feedforward":[2,"c",0,"Implement the position-wise feed-forward network"],
-      "a1:rope":[2,"c",0,"Implement RoPE"],
-      "a1:softmax":[1,"c",0,"Implement softmax"],
-      "a1:scaled_dot_product_attention":[5,"c",0,"Implement scaled dot-product attention"],
-      "a1:multihead_self_attention":[5,"c",0,"Implement causal multi-head self-attention"],
-      "a1:transformer_block":[3,"wr",0,"Implement the Transformer block"],
-      "a1:transformer_lm":[3,"w",0,"Implementing the Transformer LM"],
+      "a1:linear":[1,"c",0,"Implementing the linear module","run_linear","-k test_linear"],
+      "a1:embedding":[1,"c",0,"Implement the embedding module","run_embedding","-k test_embedding"],
+      "a1:rmsnorm":[1,"c",0,"Root Mean Square Layer Normalization","run_rmsnorm","-k test_rmsnorm"],
+      "a1:positionwise_feedforward":[2,"c",0,"Implement the position-wise feed-forward network","run_swiglu","-k test_swiglu"],
+      "a1:rope":[2,"c",0,"Implement RoPE","run_rope","-k test_rope"],
+      "a1:softmax":[1,"c",0,"Implement softmax","run_softmax","-k test_softmax_matches_pytorch"],
+      "a1:scaled_dot_product_attention":[5,"c",0,"Implement scaled dot-product attention","run_scaled_dot_product_attention","-k test_scaled_dot_product_attention,-k test_4d_scaled_dot_product_attention"],
+      "a1:multihead_self_attention":[5,"c",0,"Implement causal multi-head self-attention","run_multihead_self_attention","-k test_multihead_self_attention"],
+      "a1:transformer_block":[3,"wr",0,"Implement the Transformer block","run_transformer_block","-k test_transformer_block"],
+      "a1:transformer_lm":[3,"w",0,"Implementing the Transformer LM","run_transformer_lm","-k test_transformer_lm"],
       "a1:transformer_accounting":[5,"w",0,"Transformer LM resource accounting"],
-      "a1:cross_entropy":[1,"c",0,"Implement cross-entropy"],
+      "a1:cross_entropy":[1,"c",0,"Implement cross-entropy","run_cross_entropy","-k test_cross_entropy"],
       "a1:learning_rate_tuning":[1,"w",0,"Tuning the learning rate"],
-      "a1:adamw":[2,"c",0,"Implement AdamW"],
+      "a1:adamw":[2,"c",0,"Implement AdamW","get_adamw_cls","-k test_adamw"],
       "a1:adamw_accounting":[2,"w",0,"Resource accounting for training with AdamW"],
-      "a1:learning_rate_schedule":[1,"c",0,"Implement cosine learning rate schedule with warmup"],
-      "a1:gradient_clipping":[1,"c",0,"Implement gradient clipping"],
-      "a1:data_loading":[2,"c",0,"Implement data loading"],
-      "a1:checkpointing":[1,"c",0,"Implement model checkpointing"],
+      "a1:learning_rate_schedule":[1,"c",0,"Implement cosine learning rate schedule with warmup","get_lr_cosine_schedule","-k test_get_lr_cosine_schedule"],
+      "a1:gradient_clipping":[1,"c",0,"Implement gradient clipping","run_gradient_clipping","-k test_gradient_clipping"],
+      "a1:data_loading":[2,"c",0,"Implement data loading","run_get_batch","-k test_get_batch"],
+      "a1:checkpointing":[1,"c",0,"Implement model checkpointing","run_load_checkpoint,run_save_checkpoint","-k test_checkpointing"],
       "a1:training_together":[4,"c",0,"Put it together"],
       "a1:decoding":[3,"c",0,"Decoding"],
       "a1:experiment_log":[3,"w",0,"Experiment logging"],
@@ -4358,18 +4362,18 @@
       "a2:gradient_checkpointing":[4,"w",0,"Memory-Optimal Gradient Checkpointing"],
       "a2:pytorch_attention":[2,"wr",0,"PyTorch Attention Benchmarking"],
       "a2:torch_compile":[2,"r",0,"Torch Compile"],
-      "a2:flash_forward":[15,"c",0,"FlashAttention-2 Forward Pass"],
-      "a2:flash_backward":[5,"c",0,"FlashAttention-2 Backward Pass"],
+      "a2:flash_forward":[15,"c",0,"FlashAttention-2 Forward Pass","get_flash_autograd_function_triton,get_flashattention_autograd_function_pytorch","-k test_flash_forward_pass_pytorch,-k test_flash_forward_pass_triton"],
+      "a2:flash_backward":[5,"c",0,"FlashAttention-2 Backward Pass","","-k test_flash_backward"],
       "a2:flash_benchmarking":[5,"r",0,"FlashAttention-2 Benchmarking"],
       "a2:distributed_communication_single_node":[5,"r",0,"Distributed Communication (Single Node)"],
-      "a2:naive_ddp":[5,"c",0,"Naïve DDP"],
+      "a2:naive_ddp":[5,"c",0,"Naïve DDP","ddp_on_after_backward,get_ddp","tests/test_ddp.py"],
       "a2:naive_ddp_benchmarking":[3,"wr",0,"Naïve DDP Benchmarking"],
       "a2:minimal_ddp_flat_benchmarking":[2,"r",0,"Minimal DDP with Flat Gradients Benchmarking"],
-      "a2:ddp_overlap_individual_parameters":[5,"c",0,"DDP with Overlapping Individual Parameters"],
+      "a2:ddp_overlap_individual_parameters":[5,"c",0,"DDP with Overlapping Individual Parameters","ddp_on_after_backward,get_ddp","tests/test_ddp.py"],
       "a2:ddp_overlap_individual_parameters_benchmarking":[1,"r",0,"DDP Overlapping Individual Parameters Benchmarking"],
-      "a2:optimizer_state_sharding":[15,"c",0,"Optimizer State Sharding"],
+      "a2:optimizer_state_sharding":[15,"c",0,"Optimizer State Sharding","get_sharded_optimizer","tests/test_sharded_optimizer.py"],
       "a2:optimizer_state_sharding_accounting":[5,"wr",0,"Optimizer State Sharding Accounting"],
-      "a2:fsdp":[15,"c",0,"Fully-Sharded Data Parallel"],
+      "a2:fsdp":[15,"c",0,"Fully-Sharded Data Parallel","get_fsdp","tests/test_fsdp.py"],
       "a2:fsdp_accounting":[5,"wr",0,"FSDP Accounting"],
       "a2:alternate_ring_all_reduce":[1,"w",0,"Alternate ring all-reduce"],
       "a2:data_parallel_calcs":[3,"w",0,"Data parallel calculations"],
@@ -4380,44 +4384,44 @@
       "a3:chinchilla_isoflops":[5,"wr",0,"IsoFLOPs scaling laws"],
       "a3:scaling_laws":[50,"wr",0,"Constructing scaling laws leaderboard"],
       "a4:look_at_cc":[4,"w",0,"Looking at Common Crawl"],
-      "a4:extract_text":[3,"cw",0,"HTML to text conversion"],
-      "a4:language_identification":[6,"cw",0,"Language identification"],
-      "a4:mask_pii":[3,"cw",0,"Personally identifiable information"],
-      "a4:harmful_content":[6,"cw",0,"Harmful content"],
+      "a4:extract_text":[3,"cw",0,"HTML to text conversion","","-k test_extract_text_from_html_bytes"],
+      "a4:language_identification":[6,"cw",0,"Language identification","","-k test_identify_language"],
+      "a4:mask_pii":[3,"cw",0,"Personally identifiable information","","-k test_mask_emails,-k test_mask_phones,-k test_mask_ips"],
+      "a4:harmful_content":[6,"cw",0,"Harmful content","","-k test_classify_nsfw,-k test_classify_toxic_speech"],
       "a4:gopher_quality_filters":[3,"cw",0,"Gopher quality filters"],
-      "a4:quality_classifier":[15,"c",0,"Quality classifier"],
-      "a4:exact_deduplication":[3,"c",0,"Exact line deduplication"],
-      "a4:minhash_deduplication":[8,"c",0,"MinHash + LSH document deduplication"],
+      "a4:quality_classifier":[15,"c",0,"Quality classifier","","-k test_classify_quality"],
+      "a4:exact_deduplication":[3,"c",0,"Exact line deduplication","","-k test_exact_line_deduplication"],
+      "a4:minhash_deduplication":[8,"c",0,"MinHash + LSH document deduplication","","-k test_minhash_deduplication"],
       "a4:filter_data":[6,"cr",0,"Filter data for language modeling"],
       "a4:inspect_filtered_data":[4,"w",0,"Inspect filtered data"],
       "a4:tokenize_data":[2,"c",0,"Tokenize data"],
       "a4:train_model":[8,"wr",0,"Train model"],
       "a5:prompting_baselines":[5,"w",0,"Run OLMo-2-0425-1B on GSM8K"],
       "a5:baseline_calcs":[5,"w",0,"Compute the variance of the policy gradient estimator"],
-      "a5:tokenize_prompt_and_output":[1,"c",0,"Prompt and output tokenization"],
-      "a5:get_response_log_probs":[1,"c",0,"Response log-probs (and entropy)"],
-      "a5:compute_rollout_rewards":[1,"cw",0,"Computing the rewards of rollouts"],
-      "a5:compute_group_normalized_rewards_grpo":[1,"c",0,"Group normalization"],
-      "a5:compute_policy_gradient_loss_on_policy":[1,"c",0,"On-policy policy gradient"],
-      "a5:aggregate_loss_across_microbatch_sequence":[0.5,"cw",0,"Aggregate loss across tokens and sequences"],
-      "a5:grpo_train_step_standard_on_policy":[5,"c",0,"GRPO train step"],
+      "a5:tokenize_prompt_and_output":[1,"c",0,"Prompt and output tokenization","run_tokenize_prompt_and_output","-k test_tokenize_prompt_and_output"],
+      "a5:get_response_log_probs":[1,"c",0,"Response log-probs (and entropy)","run_get_response_log_probs","-k test_get_response_log_probs"],
+      "a5:compute_rollout_rewards":[1,"cw",0,"Computing the rewards of rollouts","run_compute_rollout_rewards","-k compute_rollout_rewards"],
+      "a5:compute_group_normalized_rewards_grpo":[1,"c",0,"Group normalization","run_compute_group_normalized_rewards","-k compute_group_normalized_rewards_grpo"],
+      "a5:compute_policy_gradient_loss_on_policy":[1,"c",0,"On-policy policy gradient","run_compute_policy_gradient_loss","-k test_compute_policy_gradient_loss_on_policy"],
+      "a5:aggregate_loss_across_microbatch_sequence":[0.5,"cw",0,"Aggregate loss across tokens and sequences","run_aggregate_loss_across_microbatch","-k test_aggregate_loss_across_microbatch_sequence"],
+      "a5:grpo_train_step_standard_on_policy":[5,"c",0,"GRPO train step","run_grpo_train_step","-k test_grpo_train_step_standard_on_policy"],
       "a5:grpo_experiments_standard_on_policy":[10,"cr",2,"Use GRPO to improve OLMo-2-0425-1B performance on GSM8K"],
       "a5:grpo_learning_rate":[3,"r",4,"Tune the learning rate"],
       "a5:grpo_prompt_ablation":[3,"r",4,"Prompt ablation"],
       "a5:think_about_length_normalization":[1,"w",0,"Think about length normalization"],
-      "a5:compute_group_normalized_rewards_drgrpo":[0.5,"c",0,"Dr. GRPO Group normalization"],
-      "a5:aggregate_loss_across_microbatch_constant":[0.5,"c",0,"Dr. GRPO loss aggregation"],
+      "a5:compute_group_normalized_rewards_drgrpo":[0.5,"c",0,"Dr. GRPO Group normalization","run_compute_group_normalized_rewards","-k compute_group_normalized_rewards_drgrpo"],
+      "a5:aggregate_loss_across_microbatch_constant":[0.5,"c",0,"Dr. GRPO loss aggregation","run_aggregate_loss_across_microbatch","-k test_aggregate_loss_across_microbatch_constant"],
       "a5:think_about_rft":[2,"w",0,"Think about RFT"],
       "a5:derive_difficulty_reweightings":[6,"w",0,"Derive difficulty reweightings induced by different advantage normalizers"],
       "a5:think_about_advantage_normalization":[2,"w",0,"Think about advantage normalization"],
-      "a5:compute_group_normalized_rewards_maxrl":[0.5,"c",0,"MaxRL Group normalization"],
-      "a5:grpo_train_step_variants_on_policy":[2.5,"c",0,"GRPO train step variants"],
+      "a5:compute_group_normalized_rewards_maxrl":[0.5,"c",0,"MaxRL Group normalization","run_compute_group_normalized_rewards","-k compute_group_normalized_rewards_maxrl"],
+      "a5:grpo_train_step_variants_on_policy":[2.5,"c",0,"GRPO train step variants","run_grpo_train_step","-k test_grpo_train_step_variants_on_policy"],
       "a5:grpo_experiments_variants_on_policy":[10,"r",8,"Compare the performance of different RL algorithms"],
       "a5:derive_surrogate_objectives":[2,"w",0,"Derive surrogate objectives for importance reweighting approaches"],
-      "a5:compute_policy_gradient_loss_off_policy":[1,"c",0,"Off-policy policy gradient with tokenlevel reweighting"],
+      "a5:compute_policy_gradient_loss_off_policy":[1,"c",0,"Off-policy policy gradient with tokenlevel reweighting","run_compute_policy_gradient_loss","-k test_compute_policy_gradient_loss_off_policy"],
       "a5:think_about_importance_reweighting":[2,"w",0,"Think about importance reweighting"],
-      "a5:compute_policy_gradient_loss_off_policy_gspo":[1,"c",0,"Off-policy policy gradient with sequence-level reweighting"],
-      "a5:grpo_train_step_off_policy":[2.5,"c",0,"Off-policy GRPO train step"],
+      "a5:compute_policy_gradient_loss_off_policy_gspo":[1,"c",0,"Off-policy policy gradient with sequence-level reweighting","run_compute_policy_gradient_loss","-k test_compute_policy_gradient_loss_off_policy_gspo"],
+      "a5:grpo_train_step_off_policy":[2.5,"c",0,"Off-policy GRPO train step","run_grpo_train_step","-k test_grpo_train_step_off_policy"],
       "a5:grpo_experiments_off_policy":[10,"r",8,"Compare the performance of different off-policy algorithms"],
       "a5:try_your_own":[10,"r",0,"Try your own policy gradient estimator"],
       "a5:mmlu_baseline":[4,"cw",0,"Zero-shot MMLU baseline"],
@@ -5706,7 +5710,7 @@
     function missionProblems(assignmentId,scope){
       return String(scope||"").split("·").map(part=>part.trim()).filter(Boolean).map(id=>{
         const entry=HANDOUT_PROBLEMS[`${assignmentId}:${id}`];
-        return entry?{id,points:entry[0],modes:entry[1],gpu:entry[2],title:entry[3]}:{id,points:0,modes:"",gpu:0,title:""};
+        return entry?{id,points:entry[0],modes:entry[1],gpu:entry[2],title:entry[3],adapters:entry[4]||"",tests:entry[5]||""}:{id,points:0,modes:"",gpu:0,title:"",adapters:"",tests:""};
       });
     }
     function problemModeLabels(modes){
@@ -5718,6 +5722,18 @@
       const counts={c:0,w:0,r:0};problems.forEach(p=>String(p.modes).split("").forEach(mode=>{if(mode in counts)counts[mode]++}));
       return{count:problems.length,points,gpu,counts};
     }
+    // Both strings come verbatim from the handout: the adapter hooks it names for a problem and the
+    // pytest invocation it prints right after them. They are the shortest path from "I understood this"
+    // to "the provided test is green", so they belong next to the problem name instead of only in the PDF.
+    function problemVerifyMarkup(p){
+      const adapters=String(p.adapters||"").split(",").filter(Boolean);
+      const tests=String(p.tests||"").split(",").filter(Boolean);
+      if(!adapters.length&&!tests.length)return"";
+      const rows=[];
+      if(adapters.length)rows.push(`<span class="problem-verify-row"><span class="problem-verify-label">${currentLanguage==="en"?"Adapter":"Adapter"}</span>${adapters.map(name=>`<code data-no-i18n>adapters.${esc(name)}</code>`).join("")}</span>`);
+      if(tests.length)rows.push(`<span class="problem-verify-row"><span class="problem-verify-label">${currentLanguage==="en"?"Test":"Test"}</span>${tests.map(args=>`<code data-no-i18n>uv run pytest ${esc(args)}</code>`).join("")}</span>`);
+      return `<span class="problem-verify">${rows.join("")}</span>`;
+    }
     function problemMapMarkup(assignmentId,scope){
       const problems=missionProblems(assignmentId,scope);
       if(!problems.length)return"";
@@ -5726,7 +5742,7 @@
         const modes=problemModeLabels(p.modes).map(label=>`<span class="problem-mode">${esc(label)}</span>`).join("");
         const points=p.points?`<span class="problem-points">${p.points} ${p.points===1?(currentLanguage==="en"?"point":"Punkt"):(currentLanguage==="en"?"points":"Punkte")}</span>`:"";
         const gpu=p.gpu?`<span class="problem-mode">${p.gpu} ${currentLanguage==="en"?"GPU h":"GPU-Std."}</span>`:"";
-        return `<div class="problem-row"><span><code data-no-i18n>${esc(p.id)}</code>${p.title?`<span class="problem-title" data-no-i18n>${esc(p.title)}</span>`:""}</span><span class="problem-meta">${modes}${gpu}${points}</span></div>`;
+        return `<div class="problem-row"><span><code data-no-i18n>${esc(p.id)}</code>${p.title?`<span class="problem-title" data-no-i18n>${esc(p.title)}</span>`:""}</span><span class="problem-meta">${modes}${gpu}${points}</span>${problemVerifyMarkup(p)}</div>`;
       }).join("");
       const parts=[`${summary.count} ${currentLanguage==="en"?(summary.count===1?"problem":"problems"):(summary.count===1?"Problem":"Probleme")}`,`${summary.points} ${currentLanguage==="en"?"points":"Punkte"}`];
       if(summary.gpu)parts.push(`${summary.gpu} ${currentLanguage==="en"?"GPU hours":"GPU-Stunden"}`);
@@ -5742,7 +5758,7 @@
     }
     function assignmentMissionMarkup(a,mission,index){
       const key=`${a.id}:${mission.id}`,open=appState.openAssignmentMissionIds.has(key)?" open":"",guide=ASSIGNMENT_MISSION_GUIDES[mission.id],concepts=(mission.concepts||[]).map(id=>byId(CONCEPTS,id)).filter(Boolean),labs=(mission.labs||[]).map(id=>byId(LABS,id)).filter(Boolean),formulas=[...new Set(concepts.flatMap(concept=>concept.formulas))].map(id=>byId(FORMULAS,id)).filter(Boolean);
-      return `<details class="accordion-item mission-item" data-assignment-mission="${esc(key)}"${open}><summary><span class="accordion-summary-main"><span class="accordion-heading"><span class="badge">${currentLanguage==="en"?"Topic":"Thema"} ${index+1}</span><span class="accordion-title">${esc(mission.title)}</span></span><span class="accordion-preview">${esc(localeValue(guide.plain))}</span></span><span class="accordion-chevron" aria-hidden="true">⌄</span></summary><div class="accordion-body"><div class="callout accent"><strong>${currentLanguage==="en"?"What you build here":"Was du hier baust"}</strong><p>${esc(localeValue(guide.plain))}</p><p><strong>${currentLanguage==="en"?"Why this block matters":"Warum dieser Block nötig ist"}:</strong> ${esc(localeValue(guide.why))}</p></div><div class="accordion-fact"><span>${currentLanguage==="en"?"Explanations for the ideas and useful experiments":"Erklärungen der Ideen und passende Experimente"}</span><div class="accordion-actions">${concepts.map(c=>`<button class="button ghost small" data-open-concept="${c.id}">${esc(c.title)}</button>`).join("")}${labs.map(l=>`<button class="button ghost small" data-open-lab="${l.id}">${esc(l.title)}</button>`).join("")}</div></div>${formulas.length?`<div class="accordion-fact"><span>${currentLanguage==="en"?"Formula lessons: example first, equation last":"Formelerklärungen: Beispiel zuerst, Gleichung zuletzt"}</span><div class="accordion-actions">${formulas.map(f=>`<button class="button ghost small" data-open-formula="${f.id}">${esc(f.title)}</button>`).join("")}</div></div>`:""}<div class="accordion-body-grid"><div class="accordion-fact"><span>${currentLanguage==="en"?"Exact technical task from the Handout":"Exakter technischer Auftrag aus dem Handout"}</span>${esc(mission.derive)}</div><div class="accordion-fact"><span>${currentLanguage==="en"?"How to test your solution":"So prüfst du deine Lösung"}</span>${esc(mission.evidence)}</div><div class="accordion-fact"><span>${currentLanguage==="en"?"If it fails, check this first":"Wenn es scheitert, prüfe zuerst"}</span>${esc(mission.failure)}</div></div><div class="accordion-fact"><span>${currentLanguage==="en"?"Problems in this block — names, weight and kind of work":"Probleme in diesem Block – Namen, Gewicht und Art der Arbeit"}</span><p class="muted small">${currentLanguage==="en"?"Names and point values come from the original handout. “code” means an implementation the provided tests check, “write-up” a derivation or short answer, “measure” a run whose result you report. Nothing here is a deadline or a target.":"Namen und Punktwerte stammen aus dem Original-Handout. „Code“ heißt eine Implementierung, die die mitgelieferten Tests prüfen, „Schreiben“ eine Herleitung oder kurze Antwort, „Messen“ einen Lauf, dessen Ergebnis du berichtest. Nichts davon ist ein Termin oder ein Soll."}</p>${problemMapMarkup(a.id,mission.scope)}</div></div></details>`;
+      return `<details class="accordion-item mission-item" data-assignment-mission="${esc(key)}"${open}><summary><span class="accordion-summary-main"><span class="accordion-heading"><span class="badge">${currentLanguage==="en"?"Topic":"Thema"} ${index+1}</span><span class="accordion-title">${esc(mission.title)}</span></span><span class="accordion-preview">${esc(localeValue(guide.plain))}</span></span><span class="accordion-chevron" aria-hidden="true">⌄</span></summary><div class="accordion-body"><div class="callout accent"><strong>${currentLanguage==="en"?"What you build here":"Was du hier baust"}</strong><p>${esc(localeValue(guide.plain))}</p><p><strong>${currentLanguage==="en"?"Why this block matters":"Warum dieser Block nötig ist"}:</strong> ${esc(localeValue(guide.why))}</p></div><div class="accordion-fact"><span>${currentLanguage==="en"?"Explanations for the ideas and useful experiments":"Erklärungen der Ideen und passende Experimente"}</span><div class="accordion-actions">${concepts.map(c=>`<button class="button ghost small" data-open-concept="${c.id}">${esc(c.title)}</button>`).join("")}${labs.map(l=>`<button class="button ghost small" data-open-lab="${l.id}">${esc(l.title)}</button>`).join("")}</div></div>${formulas.length?`<div class="accordion-fact"><span>${currentLanguage==="en"?"Formula lessons: example first, equation last":"Formelerklärungen: Beispiel zuerst, Gleichung zuletzt"}</span><div class="accordion-actions">${formulas.map(f=>`<button class="button ghost small" data-open-formula="${f.id}">${esc(f.title)}</button>`).join("")}</div></div>`:""}<div class="accordion-body-grid"><div class="accordion-fact"><span>${currentLanguage==="en"?"Exact technical task from the Handout":"Exakter technischer Auftrag aus dem Handout"}</span>${esc(mission.derive)}</div><div class="accordion-fact"><span>${currentLanguage==="en"?"How to test your solution":"So prüfst du deine Lösung"}</span>${esc(mission.evidence)}</div><div class="accordion-fact"><span>${currentLanguage==="en"?"If it fails, check this first":"Wenn es scheitert, prüfe zuerst"}</span>${esc(mission.failure)}</div></div><div class="accordion-fact"><span>${currentLanguage==="en"?"Problems in this block — names, weight and kind of work":"Probleme in diesem Block – Namen, Gewicht und Art der Arbeit"}</span><p class="muted small">${currentLanguage==="en"?"Names and point values come from the original handout. “code” means an implementation the provided tests check, “write-up” a derivation or short answer, “measure” a run whose result you report. Where the handout names one, “Adapter” is the hook in adapters.py your code has to fill and “Test” is the command that checks it — both quoted verbatim, so you can go from reading straight to a green test. Nothing here is a deadline or a target.":"Namen und Punktwerte stammen aus dem Original-Handout. „Code“ heißt eine Implementierung, die die mitgelieferten Tests prüfen, „Schreiben“ eine Herleitung oder kurze Antwort, „Messen“ einen Lauf, dessen Ergebnis du berichtest. Wo das Handout sie nennt, ist „Adapter“ der Hook in adapters.py, den dein Code füllen muss, und „Test“ der Befehl, der ihn prüft – beides wörtlich übernommen, damit du vom Lesen direkt zum grünen Test kommst. Nichts davon ist ein Termin oder ein Soll."}</p>${problemMapMarkup(a.id,mission.scope)}</div></div></details>`;
     }
     function formulaMarkup(f){ return String(f.expr).replace(/\u00a0/g," "); }
     function formulaText(value){ return esc(String(value??"").replace(/&(lt|gt|amp);/g,entity=>({"&lt;":"<","&gt;":">","&amp;":"&"}[entity]))); }
