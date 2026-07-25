@@ -834,7 +834,7 @@
       *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
     }
   </style>
-  <script src="i18n-en.js?v=46"></script>
+  <script src="i18n-en.js?v=47"></script>
   <script src="config.js"></script>
   <script src="vendor/supabase.js"></script>
 </head>
@@ -968,7 +968,7 @@
           {label:{de:"Ableitung und Kettenregel",en:"Derivatives and the chain rule"},explain:{de:"Ein Gradient sagt, wie sich der skalare Loss bei einer kleinen Änderung verändert. Die Kettenregel verbindet diese lokalen Änderungen rückwärts durch das Modell.",en:"A gradient says how the scalar loss changes under a small perturbation. The chain rule connects these local changes backward through the model."},concept:"gradients"},
           {label:{de:"Binäre Tokenarrays",en:"Binary token arrays"},explain:{de:"Ein gespeicherter Datentyp bestimmt, wie viele Bytes zu einer Zahl gehören. uint16 und uint32 lesen dieselbe Datei daher als unterschiedlich viele und andere Werte.",en:"A stored data type determines how many bytes form one number. uint16 and uint32 therefore read the same file as different values and different lengths."},concept:"token-array-loading"}
         ],
-        concepts:["pytorch-tensors","pytorch-state","parameter-initialization","shapes","gradients","resource-accounting","token-array-loading","training-loop","transformer-ledger"], formulas:["matmul","chain-rule","transformer-ledger","adamw"], labs:["pytorch-debugger","transformer-ledger"], symbols:["s0","s1","s2","s4","s57","s8","s14","s16","s22","s21","s23","s24","s25","s18","s34"]
+        concepts:["pytorch-tensors","pytorch-state","parameter-initialization","shapes","einsum-notation","gradients","resource-accounting","token-array-loading","training-loop","transformer-ledger"], formulas:["matmul","chain-rule","transformer-ledger","adamw"], labs:["pytorch-debugger","einsum-pattern","transformer-ledger"], symbols:["s0","s1","s2","s4","s57","s8","s14","s16","s22","s21","s23","s24","s25","s18","s34"]
       },
       l03:{
         plain:{de:"Hier wird aus Token-IDs ein Decoder-Transformer. Du verfolgst den Datenfluss durch Embeddings, Positionsinformation, Attention, Feed-Forward-Netz, Normalisierung, Residualpfade und schließlich die Vorhersage des nächsten Tokens.",en:"Here token IDs become a decoder Transformer. You follow the data flow through embeddings, positional information, attention, the feed-forward network, normalization, residual paths, and finally next-token prediction."},
@@ -1199,7 +1199,7 @@
       { id:"foundations", n:"00", stage:"Prerequisite Sprint", title:"Python, PyTorch, Mathe & Tensor-Denken", minutes:330,
         description:"Schließt gezielt die praktischen und mathematischen Lücken, die in A1 und A2 sonst viele Debugging-Stunden kosten.",
         outcome:"Du kannst Datenrepräsentation, Tensorzustand, Module, Tests, Shapes, Gradienten und Ressourcen als überprüfbare Verträge verfolgen.",
-        prereqs:["Python-Grundsyntax lesen", "Grundidee neuronaler Netze"], concepts:["python-engineering","pytorch-tensors","pytorch-state","shapes","matmul","probability","logs","gradients","resource-accounting"], labs:["pytorch-debugger","shapes","resources"], sources:["l02","a1","a2"] },
+        prereqs:["Python-Grundsyntax lesen", "Grundidee neuronaler Netze"], concepts:["python-engineering","pytorch-tensors","pytorch-state","shapes","matmul","einsum-notation","probability","logs","gradients","resource-accounting"], labs:["pytorch-debugger","shapes","einsum-pattern","resources"], sources:["l02","a1","a2"] },
       { id:"tokenization", n:"01", stage:"A1", title:"Text → Tokens", minutes:170,
         description:"Unicode, Bytes und Byte-Pair Encoding (BPE) vom Rohtext bis zu stabilen Token-IDs.",
         outcome:"Du kannst einen Tokenizer gedanklich trainieren, Grenzfälle erklären und Effizienztrade-offs beurteilen.",
@@ -1426,6 +1426,54 @@
           "y=[−0.5,2,1]. Jede der drei Spalten von W mischt die beiden Inputfeatures mit anderen Gewichten und addiert ihren Bias. Bei einem Tensor X [B,T,2] geschieht diese Rechnung separat an jeder Position [b,t]; der Layer mischt die Featureachse, aber weder verschiedene Batchbeispiele noch verschiedene Tokenpositionen.",
           "Jede der T Queries wird mit jedem der T Keys verglichen, während über die gemeinsame Featureachse d_h summiert wird. Die Query-Achse und die Key-Achse bleiben als die beiden äußeren Achsen erhalten, sodass T·T Scores entstehen.",
           "Es sind ungefähr 2mkn Floating-Point Operations. Für jedes der m·n Ausgabefelder werden k Produkte gebildet und in derselben Größenordnung Additionen ausgeführt."
+        ]
+      },
+      {
+        "id": "einsum-notation",
+        "module": "foundations",
+        "title": "Einsum-Notation & einops: Achsen benennen statt zählen",
+        "level": "Basis",
+        "summary": "Ein Einsum-Muster beschreibt eine Tensoroperation über benannte Achsen: gleich benannte Achsen werden gekoppelt, im Output nicht genannte Achsen werden aufsummiert, und drei Punkte stehen für beliebig viele führende Achsen.",
+        "terms": [
+          ["einsum", "Einstein-Summenkonvention als Funktion: Sie beschreibt eine Kontraktion über benannte Achsen statt über Achsenpositionen."],
+          ["Kontraktion", "Das Aufsummieren einer gemeinsamen Achse zweier Tensoren; genau das leistet auch eine Matrixmultiplikation."],
+          ["einops", "Bibliothek, die Tensoroperationen über benannte Achsen ausdrückt; das A1-Handout empfiehlt sie ausdrücklich für diesen Kurs."],
+          ["rearrange", "einops-Operation, die Achsen umordnet, zusammenfasst oder aufspaltet, ohne Werte miteinander zu verrechnen."],
+          ["reduce", "einops-Operation, die eine Achse mit sum, mean, max oder min entfernt."],
+          ["jaxtyping", "Annotationsstil wie Float[Tensor, \"batch seq d\"]: Er dokumentiert die Achsennamen, prüft sie zur Laufzeit aber nicht."]
+        ],
+        "mental": "Denke an ein Einsum-Muster wie an eine Tabellenbeschriftung. Links stehen die Achsennamen jedes Inputs, rechts die des gewünschten Outputs. Ein Name, der in beiden Inputs vorkommt, koppelt deren Positionen; ein Name, der rechts fehlt, wird über alle seine Werte aufsummiert und verschwindet. Entscheidend ist damit nicht mehr, an welcher Position eine Achse steht, sondern wie sie heißt.",
+        "details": [
+          "Die Grammatik besteht aus zwei Teilen. Links vom Pfeil stehen die Inputs, durch Komma getrennt, jeder mit den Namen seiner Achsen. Rechts steht der gewünschte Output. Für x mit Shape [2,3,4] und den Namen batch seq d_in sowie W mit Shape [5,4] und den Namen d_out d_in liefert einsum(x, W, \"... d_in, d_out d_in -> ... d_out\") die Shape [2,3,5]. d_in kommt in beiden Inputs vor und fehlt rechts, wird also gekoppelt und aufsummiert; d_out steht nur rechts im zweiten Input und bleibt als neue Featureachse erhalten. Die drei Punkte stehen für beliebig viele führende Achsen, die unverändert durchgereicht werden.",
+          "Der Gewinn gegenüber @, transpose und view liegt in der Lesbarkeit des Vertrags. Lecture 2 stellt beide Schreibweisen nebeneinander: z = x @ y.transpose(-2, -1) verlangt, dass man −2 und −1 im Kopf auf Achsenbedeutungen zurückrechnet, während einsum(x, y, \"... seq1 hidden, ... seq2 hidden -> ... seq1 seq2\") dieselbe Rechnung mit ihren Rollen aufschreibt. Die Dokumentation ist damit die Implementierung. Einsum ist dabei zuerst eine Schreibweise: Für die üblichen Kontraktionen mit zwei Operanden führt PyTorch sie auf dieselben Matmul-Kernels zurück, der Gewinn liegt also in vermiedenen Achsenfehlern und nicht automatisch in Geschwindigkeit.",
+          "Neben einsum gehören zwei weitere Operationen zum Werkzeug. rearrange ordnet Achsen um, fasst sie zusammen oder spaltet sie auf, ohne Werte zu verrechnen: rearrange(x, \"... (heads d_head) -> ... heads d_head\", heads=H) zerlegt eine kombinierte Achse, rearrange(x, \"... heads d_head -> ... (heads d_head)\") führt sie wieder zusammen. Beim Aufspalten musst du eine der beiden Längen angeben, weil das Produkt allein die Aufteilung nicht festlegt. Die Klammerreihenfolge ist Teil des Vertrags: (heads d_head) und (d_head heads) ergeben dieselbe Achsenlänge, ordnen dieselben Zahlen aber unterschiedlich an. reduce entfernt eine Achse mit einer Reduktion, etwa reduce(x, \"... hidden -> ...\", \"sum\").",
+          "In A1 tauchen dieselben drei Muster immer wieder auf: der Linear Layer als einsum(x, W, \"... d_in, d_out d_in -> ... d_out\"), die Attention-Scores als einsum(Q, K, \"... query d_k, ... key d_k -> ... query key\") und das Mischen der Values als einsum(A, V, \"... query key, ... key d_v -> ... query d_v\"). Die drei Punkte erfüllen dabei genau die Forderung des Handouts, dass die Module beliebig viele führende Batch-artige Achsen vertragen müssen – also sowohl [T,D] als auch [B,T,D] und [B,H,T,D]. Ergänzend dokumentieren jaxtyping-Annotationen wie Float[Tensor, \"batch seq d_in\"] die erwarteten Achsennamen in der Signatur; sie sind reine Dokumentation und prüfen zur Laufzeit nichts."
+        ],
+        "pitfalls": [
+          "Ein Muster nach Achsenreihenfolge statt nach Bedeutung schreiben: Sobald zwei Achsen zufällig gleich lang sind – Query und Key bei gleicher Sequenzlänge oder d_in und d_out in einer quadratischen Schicht – liefert auch das falsche Muster eine gültige Shape und rechnet stillschweigend etwas anderes.",
+          "Übersehen, dass ein rechts fehlender Name aufsummiert wird: Aus \"-> ... query key\" wird durch Weglassen von key unbemerkt eine Summe über alle Keys statt einer Scorematrix.",
+          "Denselben Namen für zwei verschiedene Rollen verwenden: In \"... d, d d -> ... d\" werden Achsen gekoppelt, die semantisch nichts miteinander zu tun haben.",
+          "Beim Aufspalten die Klammerreihenfolge raten: (heads d_head) und (d_head heads) sind gleich lang, verteilen die Werte aber unterschiedlich auf die Heads.",
+          "Einsum für eine Optimierung halten oder jaxtyping für eine Prüfung: Das eine ist eine Schreibweise, das andere eine Annotation ohne Laufzeitwirkung."
+        ],
+        "checks": [
+          "Welche Shape hat einsum(x, W, \"... d_in, d_out d_in -> ... d_out\") für x [2,3,4] und W [5,4], und welche Achse verschwindet dabei warum?",
+          "Q und K haben beide [B,H,T,d_k]. Warum ist das Muster \"... query d_k, ... key d_k -> ... key query\" nicht an der Shape erkennbar falsch, und was geht danach schief?",
+          "Wie zerlegst du [B,T,H·d_head] in [B,H,T,d_head], und welche Angabe brauchst du dafür zwingend?"
+        ],
+        "formulas": [
+          "matmul",
+          "linear-map"
+        ],
+        "sources": [
+          "l02",
+          "a1",
+          "a2"
+        ],
+        "answers": [
+          "Das Ergebnis hat die Shape [2,3,5]. d_in kommt in beiden Inputs vor und fehlt im Output, wird also gekoppelt und aufsummiert – genau die Kontraktion einer Matrixmultiplikation. Die führenden Achsen 2 und 3 werden von den drei Punkten unverändert durchgereicht, und d_out mit Länge 5 bleibt als neue Featureachse stehen.",
+          "Beide Muster liefern [B,H,T,T], weil Query- und Key-Achse dieselbe Länge T haben; die Shape kann den Fehler deshalb nicht anzeigen. Inhaltlich entsteht aber die transponierte Scorematrix: Ein Softmax über die letzte Achse normalisiert danach über die Queries statt über die Keys, und eine kausale Maske trifft das falsche Dreieck. Auffallen würde es erst an unsinnigen Attention-Gewichten oder an einem Test mit T_query ≠ T_key.",
+          "Mit rearrange(x, \"... seq (heads d_head) -> ... heads seq d_head\", heads=H) in einem Schritt. Zwingend ist die Angabe einer der beiden Längen – hier heads=H –, weil das Produkt H·d_head die Aufteilung allein nicht festlegt. Zusätzlich muss die Klammerreihenfolge dazu passen, wie die Ausgabefeatures der Q/K/V-Matrix angeordnet sind, sonst landen die Werte in den falschen Heads."
         ]
       },
       {
@@ -3744,6 +3792,10 @@
         context:"Matrixmultiplikation ist die wiederkehrende Rechenoperation, die Tokenvektoren in Linear Layers, Attention und Feed-Forward-Netzen in neue Merkmalsräume überführt.",
         why:"Die gemeinsame innere Achse bestimmt, welche Größen kombiniert werden; eine falsche Achsenordnung mischt daher andere Informationen als beabsichtigt."
       },
+      "einsum-notation": {
+        context:"Assignment 1 verlangt Module, die beliebig viele führende Batch-Achsen vertragen, und empfiehlt dafür ausdrücklich Einsum-Notation; Lecture 2 führt dieselbe Schreibweise zusammen mit einops und jaxtyping ein.",
+        why:"Wer Achsen über ihre Position statt über ihren Namen anspricht, schreibt Muster, die bei gleich langen Achsen eine gültige Shape liefern und trotzdem die falsche Größe kontrahieren – ein Fehler, den keine Shape-Prüfung sichtbar macht."
+      },
       "probability": {
         context:"Das Modell erzeugt zunächst unnormierte Scores, aus denen Wahrscheinlichkeiten für das nächste Token sowie Erwartungswerte und Streuungen für Training und Evaluation abgeleitet werden.",
         why:"Wer Wahrscheinlichkeit, Erwartungswert und Varianz verwechselt, interpretiert Sampling-Ergebnisse, Schätzfehler oder Optimierungsziele falsch und trifft dadurch unbegründete Entscheidungen."
@@ -4208,13 +4260,13 @@
         pitfalls:["Unicode-Zeichen = Byte","Merge-Reihenfolge egal","Maskieren mit 0","backward() aktualisiert Parameter","Perplexity über Tokenizer hinweg direkt vergleichen"],
         missions:[
           {id:"text-tokenizer",title:"Textrepräsentation & Tokenizer",scope:"unicode1 · unicode2 · train_bpe · train_bpe_tinystories · train_bpe_expts_owt · tokenizer · tokenizer_experiments",derive:"Zeichne die vollständige Roundtrip-Kette str → UTF-8 bytes → Token-IDs → bytes → str. Simuliere danach zwei BPE-Merges inklusive Tie-Break und Special-Token-Grenze von Hand.",evidence:"Du kannst einen adversarialen Unicode-Fall erklären, nichtüberlappende Merges bestimmen, Reversibilität beweisen und Laufzeit-/Streamingzustand benennen.",failure:"Erste Spur: Prüfe, ob Zeichen, Bytes, Merge-Ranks oder Pretoken-Grenzen verwechselt werden; vergleiche einen kleinsten Korpus Schritt für Schritt.",concepts:["python-engineering","unicode","bpe","tokenizer-tradeoffs"],labs:["bpe"]},
-          {id:"tensor-primitives",title:"Tensor-Primitives",scope:"linear · embedding · rmsnorm · positionwise_feedforward · rope · softmax",derive:"Notiere für jede Primitive Inputachsen, Parameter-Shape, Initialisierungsregel, Reduktionsachse, Output-Shape und einen handrechenbaren Zahlenfall. Leite für einen gewählten Linear Layer σ samt ±3σ-Grenzen her und berechne zwei A1-RoPE-Winkel mit benachbarten Paaren – noch ohne Gesamtmodell.",evidence:"Du kannst Linear-, Embedding- und RMSNorm-Initialisierung exakt unterscheiden, beliebige führende Batchachsen und Broadcasting begründen sowie RoPE gegen Winkelformel, Adjacent-Pairing und nicht-persistenten geteilten Buffer testen.",failure:"Erste Spur: Wenn Shapes passen, prüfe std gegen Varianz, A1-Pairing gegen Half-Split, Reduktionsachse, Parameter-/Bufferregistrierung und unbeabsichtigtes Broadcasting getrennt.",concepts:["pytorch-tensors","pytorch-state","shapes","parameter-initialization","rmsnorm","swiglu","rope"],labs:["pytorch-debugger","shapes"]},
-          {id:"attention-lm",title:"Attention, Block & vollständiges LM",scope:"scaled_dot_product_attention · multihead_self_attention · transformer_block · transformer_lm · transformer_accounting",derive:"Führe ein Shape-Ledger von token_ids [B,T] bis logits [B,T,V] und markiere exakt, wo Positionen gemischt, Features gemischt, Heads getrennt und Zukunftspositionen ausgeschlossen werden.",evidence:"Du kannst nichtquadratische Query-/Key-Längen, Mask-Broadcasting, QKV-Head-Split, Residualpfade sowie Parameter- und FLOP-Terme ohne Ausprobieren herleiten.",failure:"Erste Spur: Teste kausale Invarianz – eine Änderung an einem zukünftigen Token darf frühere Logits nicht verändern – und isoliere danach den ersten fehlschlagenden Block.",concepts:["attention","causal-mask","transformer-block","resource-accounting","transformer-ledger"],labs:["attention","shapes","resources","transformer-ledger"]},
+          {id:"tensor-primitives",title:"Tensor-Primitives",scope:"linear · embedding · rmsnorm · positionwise_feedforward · rope · softmax",derive:"Notiere für jede Primitive Inputachsen, Parameter-Shape, Initialisierungsregel, Reduktionsachse, Output-Shape und einen handrechenbaren Zahlenfall. Leite für einen gewählten Linear Layer σ samt ±3σ-Grenzen her und berechne zwei A1-RoPE-Winkel mit benachbarten Paaren – noch ohne Gesamtmodell.",evidence:"Du kannst Linear-, Embedding- und RMSNorm-Initialisierung exakt unterscheiden, beliebige führende Batchachsen und Broadcasting begründen sowie RoPE gegen Winkelformel, Adjacent-Pairing und nicht-persistenten geteilten Buffer testen.",failure:"Erste Spur: Wenn Shapes passen, prüfe std gegen Varianz, A1-Pairing gegen Half-Split, Reduktionsachse, Parameter-/Bufferregistrierung und unbeabsichtigtes Broadcasting getrennt.",concepts:["pytorch-tensors","pytorch-state","shapes","einsum-notation","parameter-initialization","rmsnorm","swiglu","rope"],labs:["pytorch-debugger","shapes","einsum-pattern"]},
+          {id:"attention-lm",title:"Attention, Block & vollständiges LM",scope:"scaled_dot_product_attention · multihead_self_attention · transformer_block · transformer_lm · transformer_accounting",derive:"Führe ein Shape-Ledger von token_ids [B,T] bis logits [B,T,V] und markiere exakt, wo Positionen gemischt, Features gemischt, Heads getrennt und Zukunftspositionen ausgeschlossen werden.",evidence:"Du kannst nichtquadratische Query-/Key-Längen, Mask-Broadcasting, QKV-Head-Split, Residualpfade sowie Parameter- und FLOP-Terme ohne Ausprobieren herleiten.",failure:"Erste Spur: Teste kausale Invarianz – eine Änderung an einem zukünftigen Token darf frühere Logits nicht verändern – und isoliere danach den ersten fehlschlagenden Block.",concepts:["attention","causal-mask","transformer-block","resource-accounting","transformer-ledger","einsum-notation"],labs:["attention","shapes","resources","transformer-ledger","einsum-pattern"]},
           {id:"optimization",title:"Loss, AdamW & Schedule",scope:"cross_entropy · learning_rate_tuning · adamw · adamw_accounting · learning_rate_schedule · gradient_clipping",derive:"Rechne einen skalaren Zwei-Step-Optimierungsfall mit Momenten, Bias Correction, entkoppeltem Weight Decay und Schedule-Grenzen von Hand.",evidence:"Du kannst Lossreduktion, globales Gradient Clipping, Optimizer-State und Step-Indexierung an Grenzwerten testen und die erwartete Update-Richtung nennen.",failure:"Erste Spur: Trenne Losswert, Gradient, geclippten Gradient, adaptiven Adam-Term, Decay-Term und aktuelle Learning Rate in einzelne Logzeilen.",concepts:["cross-entropy","adamw","schedules","clipping"],labs:["optimizer"]},
           {id:"training-state",title:"Daten, Training Loop & Checkpoint",scope:"data_loading · checkpointing · training_together · experiment_log",derive:"Leite für ein Token-Array der Länge n und Kontext m den exklusiven Startindexbereich, X/Y-Slices und ihre Überlappungsinvariante her. Zeichne danach den Trainingsstep als Zustandsmaschine und liste für einen exakten Resume-Test Modell-, Optimizer-, Scheduler-, Daten- und RNG-Zustand auf.",evidence:"Du kannst dtype und Vokabulargrenzen einer np.memmap prüfen, zufällige [B,m]-Inputs und um eins verschobene Targets ohne Off-by-one bilden, einen Tiny-Batch überfitten und nach Save/Reload denselben nächsten Loss sowie Parameterzustand erzeugen.",failure:"Erste Spur: Prüfe bei falschen Batches zuerst Dateiformat, dtype, n≥m+1, exklusiven Rand n−m und pro Batchbeispiel Y_b[:-1]=X_b[1:]. Bei abweichendem Resume vergleiche nächsten Batch, Update-Step, RNG und Optimizer-Momente – nicht nur Gewichte.",concepts:["token-array-loading","pytorch-state","training-loop","sampling"],labs:["pytorch-debugger","optimizer","resources"]},
           {id:"generation-experiments",title:"Generierung, Ablations & Hauptlauf",scope:"decoding · learning_rate · batch_size_experiment · generate · layer_norm_ablation · pre_norm_ablation · no_pos_emb · swiglu_ablation · main_experiment · leaderboard",derive:"Formuliere für Sampling, Lernrate, Batchgröße und jede Ablation vorab Hypothese, Kontrollvariable, Budget, Metrik und Abbruchkriterium.",evidence:"Du kannst EOS, Temperatur und Top-p an Toy-Logits erklären, faire Läufe bei dokumentiertem Compute vergleichen und aus Lernkurven mehr als nur den besten Endwert ableiten.",failure:"Erste Spur: Wenn ein Vergleich unklar ist, prüfe zuerst ungleiche Tokens, Seeds, Evalprotokolle, Checkpoints oder gleichzeitig geänderte Variablen.",concepts:["sampling","training-loop","benchmark-validity"],labs:["attention","evaluation"]}
         ],
-        done:["Primitive Tests grün","BPE Roundtrip inkl. Unicode/Sondertokens","Shapes dokumentiert","Mini-Batch überfittet","Save/Reload identische Logits und korrekte Fortsetzung","Experimentlog mit Config, Seed, Tokens und Lernkurve"],concepts:["bpe","parameter-initialization","rope","attention","adamw","token-array-loading","training-loop"]},
+        done:["Primitive Tests grün","BPE Roundtrip inkl. Unicode/Sondertokens","Shapes dokumentiert","Mini-Batch überfittet","Save/Reload identische Logits und korrekte Fortsetzung","Experimentlog mit Config, Seed, Tokens und Lernkurve"],concepts:["bpe","einsum-notation","parameter-initialization","rope","attention","adamw","token-array-loading","training-loop"]},
       {id:"a2",label:"A2",title:"Systems - Profiling & Parallelism",stage:"Korrekt → messbar effizient",sources:["a2","l05","l06","l07","l08"],
         goal:"Lerne Single-GPU- und Multi-GPU-Training durch belastbares Messen, IO-bewusste Kernel und explizite State-Ownership.",
         prereqs:["A1-Modell sicher erklären","asynchrones GPU-Timing, Speicherhierarchie und FLOPs/Bytes","FP32, FP16, BF16 sowie Autograd Saved Tensors","Rank, World Size und Collective Communication"],
@@ -4606,6 +4658,15 @@
         transferQuestion:"Welche Shapes ändern sich, wenn nur die Sequenzlänge verdoppelt wird – und welche Parameterzahlen bleiben gleich?"
       },
       {
+        id:"einsum-pattern",title:"Einsum-Muster-Werkstatt",module:"foundations",time:"12 min",desc:"Schreibe für die drei A1-Kernoperationen das Achsenmuster, sieh sofort die aufgelöste Shape und entlarve Muster, die trotz gültiger Shape das Falsche kontrahieren.",
+        mental:"Ein Einsum-Muster ist ein Vertrag über Achsennamen, nicht über Achsenpositionen. Lies es in drei Schritten: Welche Namen kommen in beiden Inputs vor? Welche Namen fehlen rechts vom Pfeil? Genau die gemeinsamen und rechts fehlenden Namen werden kontrahiert, also multipliziert und aufsummiert. Alles andere bleibt stehen – und drei Punkte reichen beliebig viele führende Achsen unverändert durch.",
+        formula:"einsum(x, W, \"... d_in, d_out d_in -> ... d_out\")  ·  einsum(Q, K, \"... query d_k, ... key d_k -> ... query key\")  ·  einsum(A, V, \"... query key, ... key d_v -> ... query d_v\")",
+        symbols:[["...","Ellipsis: beliebig viele führende Achsen, die unverändert durchgereicht werden. A1 verlangt genau diese Toleranz von jedem Modul."],["gemeinsamer Name","Ein Name in beiden Inputs koppelt deren Positionen elementweise."],["fehlt rechts","Ein Name, der im Output nicht auftaucht, wird über alle seine Werte aufsummiert und verschwindet."],["d_in, d_out","Eingangs- und Ausgangsbreite eines Linear Layers; nur d_in wird kontrahiert."],["query, key","Die beiden Positionsachsen der Attention. Sie sind oft gleich lang und deshalb an der Shape nicht unterscheidbar."],["d_k, d_v","Featurebreite pro Head für Keys beziehungsweise Values; d_k wird bei den Scores kontrahiert, d_v überlebt beim Value-Mischen."]],
+        observe:"Wähle eine Operation, stelle die führenden Achsen um und beobachte, dass sich am Muster nichts ändert. Wechsle dann auf ein falsches Muster und lies zuerst nur die aufgelöste Shape: In zwei der drei Operationen bleibt sie gültig.",
+        misconception:"Eine passende Output-Shape beweist kein richtiges Muster. Sobald zwei Achsen zufällig gleich lang sind – Query und Key bei gleicher Sequenzlänge oder d_in und d_out in einer quadratischen Schicht – liefert auch das falsche Muster eine plausible Shape und kontrahiert stillschweigend die falsche Achse.",
+        transferQuestion:"Warum fällt ein vertauschtes Query-Key-Muster bei quadratischen Scores nicht durch einen Shape-Fehler auf – und welcher Test würde es zuverlässig aufdecken?"
+      },
+      {
         id:"pytorch-debugger",title:"PyTorch Contract Debugger",module:"foundations",time:"16 min",desc:"Diagnostiziere fünf kleine, assignment-isomorphe Fehler über Registrierung, Device, Strides, Gradienten und Lossreduktion.",
         mental:"Wenn PyTorch-Code scheitert, ändere nicht wahllos Zeilen. Benenne zuerst den gebrochenen Vertrag: Ist der Zustand registriert, liegen Tensoren auf passendem Device und Dtype, erlaubt das Speicherlayout die gewünschte View, wurde der Gradientenzustand korrekt zurückgesetzt, und ist der Loss wirklich der beabsichtigte Skalar? Danach schreibst du den kleinsten Test, der genau diese Hypothese von den Alternativen trennt.",
         formula:"Module state = Parameters ∪ Buffers ∪ registered submodules  ·  grad ← grad + ∂L/∂θ  ·  view requires compatible strides  ·  training loss.shape = []",
@@ -4834,6 +4895,7 @@
 
     const LAB_TRANSFER_ANSWERS = {
       "shapes": "Verdoppelt sich nur T, werden Aktivierungen wie B×T×D sowie Q, K und V mit B×H×T×d_head entlang der Sequenzachse doppelt so lang. Die Attention-Scores mit B×H×T×T enthalten dagegen viermal so viele Elemente, weil beide Positionsachsen wachsen. Parameterzahlen wie V_vocab×D für das Embedding oder D×D_out für Gewichtsmatrizen bleiben gleich, da trainierbare Matrizen nicht von der Länge einer konkreten Eingabesequenz abhängen.",
+      "einsum-pattern": "Query- und Key-Achse haben bei Self-Attention dieselbe Länge T. Das vertauschte Muster liefert deshalb ebenfalls [..., T, T]; die Shape kann den Unterschied gar nicht anzeigen. Inhaltlich entsteht aber die transponierte Scorematrix, sodass der Softmax über die Queries statt über die Keys normalisiert und eine kausale Maske das falsche Dreieck trifft. Zuverlässig aufdecken lässt sich das mit einem Test, in dem Query- und Key-Länge verschieden sind – etwa Cross-Attention oder ein KV-Cache-Schritt mit T_query=1 und T_key=8: Dort bricht das falsche Muster sofort an der Shape. Ergänzend deckt ein Referenzvergleich gegen torch.nn.functional.scaled_dot_product_attention auf demselben Input den Fehler auch bei quadratischen Scores auf.",
       "pytorch-debugger": "Ein Forward Pass prüft nur einen konkreten Wertpfad mit den gerade verwendeten Shapes, Devices und Zuständen. Ein Modul kann dabei richtige Zahlen liefern, obwohl Untermodule nicht registriert sind, Buffer beim Device-Wechsel zurückbleiben, eine spätere nicht zusammenhängende View scheitert oder Gradienten im zweiten Step ungewollt akkumulieren. Ein belastbarer Testvertrag prüft daher zusätzlich Registrierung und state_dict, Device/Dtype, Grenz-Shapes und Strides, skalaren Loss, Gradienten beziehungsweise Updates sowie Save/Reload.",
       "bpe": "Ein größeres Byte-Pair-Encoding-Vokabular enthält meist längere gelernte Teilwörter und kann denselben Text deshalb mit weniger Tokens darstellen. Dafür wächst die Embeddingmatrix proportional zu V×D; ohne Weight Tying kommt eine ebenso mit V wachsende Outputmatrix hinzu. Seltene oder datenarme Sprachen profitieren nur, wenn ihre Muster in den Merge-Daten häufig genug vorkommen, sonst bleiben sie trotz des größeren Gesamtvokabulars stark fragmentiert.",
       "attention": "Ein Beispiel ist der Scorevektor [2, 2, 2] über drei erlaubte Keypositionen. Durch Division mit jeder positiven Temperatur bleiben alle drei Werte gleich, daher liefert Softmax stets [1/3, 1/3, 1/3]. Temperatur verändert nur Unterschiede zwischen Scores; bei identischen Scores gibt es keine Unterschiede zu verstärken oder abzuschwächen.",
@@ -5334,7 +5396,7 @@
     function updateProgressUI(){}
     function toggleBookmark(type,id,focusSelector=""){ const key=type+":"+id; user.bookmarks=user.bookmarks.includes(key)?user.bookmarks.filter(x=>x!==key):[...user.bookmarks,key]; saveUser(true); toast(user.bookmarks.includes(key)?"Gespeichert":"Lesezeichen entfernt"); renderCurrent(); if(focusSelector)document.querySelector(focusSelector)?.focus(); }
     function isBookmarked(type,id){ return user.bookmarks.includes(type+":"+id); }
-    const OBJECTIVE_LAB_IDS = new Set(["pytorch-debugger","shapes","triton-tile","online-softmax-kata","scaling-fit","filtering-mechanics","bloom-filter","dedup-pipeline","policy-loss-tracer","grpo",...Object.keys(LAB_OBJECTIVES)]);
+    const OBJECTIVE_LAB_IDS = new Set(["pytorch-debugger","shapes","einsum-pattern","triton-tile","online-softmax-kata","scaling-fit","filtering-mechanics","bloom-filter","dedup-pipeline","policy-loss-tracer","grpo",...Object.keys(LAB_OBJECTIVES)]);
     function labHasObjectiveCheck(id){return OBJECTIVE_LAB_IDS.has(id)}
     function labCheckPassed(id){return labHasObjectiveCheck(id)&&Boolean(user.labChecks[id])}
 
@@ -6046,6 +6108,7 @@
     function labMarkup(id){
       if(LAB_OBJECTIVES[id])return objectiveLabMarkup(id);
       if(id==="shapes") return `<div class="lab-layout"><div class="panel lab-controls"><h2>Eingaben</h2><div class="lab-quick-result" id="shapeQuick" role="status" aria-live="polite"></div><label class="field">Batchgröße B <input id="shapeB" type="range" min="1" max="8" value="3"><output id="shapeBOut">3</output></label><label class="field">Tokens pro Sequenz T <input id="shapeT" type="range" min="2" max="32" value="11"><output id="shapeTOut">11</output></label><label class="field">Modelldimension D <select class="select" id="shapeD"><option>64</option><option>128</option><option selected>256</option><option>512</option></select></label><label class="field">Attention Heads H <select class="select" id="shapeH"><option>1</option><option>2</option><option>4</option><option selected>8</option></select></label><p class="lab-note">Ändere genau einen Wert. Lies danach jede Shape mit ihren Achsennamen, nicht nur als Zahlenfolge.</p><fieldset class="question" style="margin-top:1rem"><legend><strong>Transfer-Kurzcheck ohne Regler</strong></legend><p class="small muted">Fester Fall: B=2, T=5, D=12 und H=3. Leite d_head und die Shapes zuerst selbst her.</p><label class="field">Q nach Head-Aufteilung <select class="select" id="shapeCheckQ"><option value="">Noch nicht gewählt</option><option value="correct">[2,3,5,4] = [B,H,T,d_head]</option><option value="copy">[2,3,5,12]</option><option value="swap">[2,5,3,4]</option></select></label><label class="field">QKᵀ Compatibility Scores <select class="select" id="shapeCheckScores"><option value="">Noch nicht gewählt</option><option value="correct">[2,3,5,5] = [B,H,T_query,T_key]</option><option value="features">[2,3,5,4]</option><option value="flat">[2,5,12]</option></select></label><label class="field">Nur T wird von 5 auf 10 verdoppelt <select class="select" id="shapeCheckScaling"><option value="">Noch nicht gewählt</option><option value="correct">X-Elemente ×2 · Score-Elemente ×4 · Gewichte unverändert</option><option value="all2">Alles einschließlich Gewichte ×2</option><option value="scores2">X- und Score-Elemente ×2 · Gewichte ×2</option></select></label><button class="button" id="shapeCheck" type="button">Kurzcheck prüfen</button><div id="shapeCheckResult" role="status" aria-live="polite"></div></fieldset></div><div class="lab-stage" role="region" aria-label="Interaktives Ergebnis" id="shapeStage"></div></div>`;
+      if(id==="einsum-pattern") return `<div class="lab-layout"><div class="panel lab-controls"><h2>Operation und Muster</h2><label class="field">A1-Kernoperation <select class="select" id="einsumOp">${Object.entries(EINSUM_OPS).map(([key,op],index)=>`<option value="${key}" ${index===0?"selected":""}>${esc(localizedUi(op.label))}</option>`).join("")}</select></label><label class="field">Führende Achsen im Ellipsis-Teil <select class="select" id="einsumLead"><option value="none">keine · ein einzelnes Beispiel</option><option value="batch" selected>Batch B=2</option><option value="batch-head">Batch B=2 und Heads H=3</option></select></label><label class="field">Gewähltes Muster <select class="select" id="einsumPattern">${EINSUM_OPS.linear.patterns.map((pattern,index)=>`<option value="${pattern.key}" ${index===0?"selected":""}>${esc(einsumPatternText(pattern,EINSUM_OPS.linear))}</option>`).join("")}</select></label><p class="lab-note">Sage vor jedem Wechsel voraus, welche Achse kontrahiert wird und welche Shape herauskommt. Erst danach die Auflösung lesen. Die führenden Achsen ändern das Muster nie – genau das ist der Zweck der drei Punkte.</p><fieldset class="question" style="margin-top:1rem"><legend><strong>Objektiver Transfer-Kurzcheck</strong></legend><p class="small muted">Feste Fälle ohne Regler. Leite zuerst selbst her.</p><label class="field">1. Für x [2,3,4] und W [5,4] mit dem Muster „... d_in, d_out d_in -&gt; ... d_out“: Welche Achse wird kontrahiert? <select class="select" id="einsumCheckContract"><option value="">Noch nicht gewählt</option><option value="d_in">d_in</option><option value="d_out">d_out</option><option value="none">keine · beide bleiben erhalten</option></select></label><label class="field">2. Für Q und K je [B,3,4] mit dem Muster „... query d_k, ... key d_k -&gt; ... query key“: Welche Shape entsteht? <select class="select" id="einsumCheckShape"><option value="">Noch nicht gewählt</option><option value="b33">[B,3,3]</option><option value="b34">[B,3,4]</option><option value="b44">[B,4,4]</option></select></label><label class="field">3. Was passiert beim Muster „... query key, ... key d_v -&gt; ... query key“? <select class="select" id="einsumCheckDropped"><option value="">Noch nicht gewählt</option><option value="sum-dv">d_v wird aufsummiert; die Values gehen als Featurevektor verloren</option><option value="error">Das Muster ist ungültig und wirft einen Fehler</option><option value="same">Identisch zum korrekten Muster, nur andere Achsenreihenfolge</option></select></label><button class="button" id="einsumCheck" type="button">Kurzcheck prüfen</button><div id="einsumCheckResult" role="status" aria-live="polite"></div></fieldset></div><div class="lab-stage" role="region" aria-label="Interaktiver Einsum-Muster-Auflöser" aria-live="polite" id="einsumStage"></div></div>`;
       if(id==="pytorch-debugger") return pytorchDebuggerMarkup();
       if(id==="bpe") return `<div class="lab-layout"><div class="panel lab-controls"><h2>Mini-Korpus</h2><label class="field">Text inklusive Whitespace und Unicode <textarea class="textarea" id="bpeText">low low café &lt;|endoftext|&gt; lower newest</textarea></label><label class="field">Startrepräsentation <select class="select" id="bpeMode"><option value="bytes" selected>UTF-8 bytes · assignmentnah</option><option value="chars">Unicode-Zeichen · intuitiv</option></select></label><label class="option"><input id="bpeSpecial" type="checkbox" checked><span>&lt;|endoftext|&gt; als unteilbares Special Token schützen</span></label><div class="card-actions"><button class="button" id="bpeReset">Zurücksetzen</button><button class="button primary" id="bpeStep">Häufigstes Paar mergen</button></div><p class="lab-note">Die Pretokens folgen dem in A1 vorgegebenen GPT-2-artigen Regex und behalten führenden Whitespace dort, wo das Pattern ihn bindet. Gezählt werden alle benachbarten Paarpositionen; bei gleicher Häufigkeit gewinnt das lexikographisch größere Paar. Die Ersetzung läuft links nach rechts ohne Überlappung und nie über Pretoken- oder Special-Token-Grenzen.</p></div><div class="lab-stage" role="region" aria-label="Interaktives Ergebnis" aria-live="polite" id="bpeStage"></div></div>`;
       if(id==="attention") return `<div class="lab-layout"><div class="panel lab-controls"><h2>Kontrollen</h2><label class="field">Queryposition <select class="select" id="attnQuery">${["Der","Hund","jagt","ihn"].map((token,i)=>`<option value="${i}" ${i===2?"selected":""}>${i} · ${esc(localizedUi(token))}</option>`).join("")}</select></label><label class="field">Temperatur <input id="attnTemp" type="range" min="0.35" max="2.5" step="0.05" value="1"><output id="attnTempOut">1.00</output></label><label class="option"><input id="attnMask" type="checkbox" checked><span>Kausale Maske aktiv</span></label><p class="lab-note">Die Scores sind didaktische, feste QKᵀ/√d-Werte. Beobachte nur Softmax und Maske.</p></div><div class="lab-stage" role="region" aria-label="Interaktives Ergebnis" id="attnStage"></div></div>`;
@@ -6071,6 +6134,7 @@
     function initLab(id){
       if(LAB_OBJECTIVES[id])document.getElementById("objectiveCheck").onclick=()=>checkObjectiveLab(id);
       if(id==="shapes"){["shapeB","shapeT","shapeD","shapeH"].forEach(x=>document.getElementById(x).oninput=()=>updateShapes(x));document.getElementById("shapeCheck").onclick=checkShapeTransfer;updateShapes()}
+      if(id==="einsum-pattern"){["einsumOp","einsumLead","einsumPattern"].forEach(x=>document.getElementById(x).oninput=updateEinsumPattern);document.getElementById("einsumCheck").onclick=checkEinsumPattern;updateEinsumPattern()}
       if(id==="pytorch-debugger")document.getElementById("pytorchDebugCheck").onclick=checkPytorchDebugger;
       if(id==="bpe"){document.getElementById("bpeReset").onclick=resetBpe;document.getElementById("bpeStep").onclick=stepBpe;["bpeMode","bpeSpecial"].forEach(x=>document.getElementById(x).oninput=resetBpe);resetBpe()}
       if(id==="attention"){["attnQuery","attnTemp","attnMask"].forEach(x=>document.getElementById(x).oninput=updateAttention);updateAttention()}
@@ -6098,6 +6162,7 @@
       if(LAB_OBJECTIVES[id]){LAB_OBJECTIVES[id].answers.forEach((value,index)=>{const field=document.getElementById(`objective-${index}`);if(field)field.value=value});const result=document.getElementById("objectiveResult");if(result)result.innerHTML=objectiveSuccessMarkup(id);return}
       const presets={
         shapes:{shapeCheckQ:"correct",shapeCheckScores:"correct",shapeCheckScaling:"correct"},
+        "einsum-pattern":{einsumCheckContract:"d_in",einsumCheckShape:"b33",einsumCheckDropped:"sum-dv"},
         "pytorch-debugger":{ptCheckRegister:"correct",ptCheckDevice:"correct",ptCheckView:"correct",ptCheckGrad:"correct",ptCheckLoss:"correct"},
         "triton-tile":{tritonCheckGrid:"3",tritonCheckValid:"5"},
         "online-softmax-kata":{onlineScore:"2",onlineCheckMax:"2",onlineCheckScale:"e-1",onlineCheckSum:"1.503",onlineCheckProb:"0.665"},
@@ -6110,6 +6175,7 @@
       }[id]||{};
       Object.entries(presets).forEach(([fieldId,value])=>{const field=document.getElementById(fieldId);if(field&&field.value==="")field.value=value});
       if(id==="shapes")document.getElementById("shapeCheckResult").innerHTML=shapeSuccessMarkup();
+      if(id==="einsum-pattern")document.getElementById("einsumCheckResult").innerHTML=einsumSuccessMarkup();
       if(id==="pytorch-debugger")document.getElementById("pytorchDebugResult").innerHTML=pytorchDebuggerSuccessMarkup();
       if(id==="triton-tile")document.getElementById("tritonCheckResult").innerHTML=tritonSuccessMarkup();
       if(id==="online-softmax-kata")document.getElementById("onlineCheckResult").innerHTML=onlineSoftmaxSuccessMarkup();
@@ -6218,6 +6284,92 @@
       const grid=document.getElementById("tritonCheckGrid").value,valid=document.getElementById("tritonCheckValid").value,result=document.getElementById("tritonCheckResult"),tr=value=>esc(localizedUi(value));if(!grid||!valid){toast("Beantworte beide Kurzcheck-Felder.");return}const correct=grid==="3"&&valid==="5";
       if(correct){user.labChecks["triton-tile"]=true;saveUser(true);result.innerHTML=tritonSuccessMarkup();return}
       result.innerHTML=`<div class="callout warning" style="margin-top:.7rem"><strong>${tr("Noch nicht.")}</strong><br>${tr("Schreibe zuerst offsets = 2·16 + [0,…,15] auf. Vergleiche danach jeden Offset mit N=37; für das Grid brauchst du ceil, nicht floor.")}</div>`;
+    }
+
+    const EINSUM_OPS={
+      linear:{
+        label:"Linear Layer · y = x Wᵀ",
+        goal:"Mische die d_in Features jedes Tokens zu d_out neuen Features. Tokenpositionen werden dabei nicht gemischt.",
+        plain:"x @ W.transpose(-2, -1)",
+        extraLead:[["T",5]],
+        inputs:[{name:"x",ell:true,axes:["d_in"],dims:[4]},{name:"W",ell:false,axes:["d_out","d_in"],dims:[6,4]}],
+        patterns:[
+          {key:"correct",lhs:[["d_in"],["d_out","d_in"]],out:["d_out"],ok:true,verdict:"Genau das verlangt A1. d_in steht in beiden Inputs und fehlt rechts, wird also kontrahiert; d_out bleibt als neue Featureachse stehen, und die drei Punkte reichen alle führenden Achsen unverändert durch."},
+          {key:"wrongA",lhs:[["d_in"],["d_out","d_in"]],out:["d_in"],ok:false,verdict:"Hier wird d_out aufsummiert statt d_in. Das Ergebnis ist eine gewichtete Summe über die Ausgabefeatures und behält die Eingangsbreite. Hier fällt es an der Shape auf, weil d_in=4 und d_out=6 verschieden sind – in einer quadratischen Schicht mit d_in=d_out wäre die Shape gültig und der Fehler unsichtbar."},
+          {key:"wrongB",lhs:[["d_out"],["d_out","d_in"]],out:["d_in"],ok:false,verdict:"Das ist der klassische vergessene Transpose: Die Featureachse von x wird als d_out gelesen. Weil derselbe Name zwei verschiedene Längen binden müsste, bricht einsum sofort ab – genau wie x @ W ohne Transpose. Diese Fehlerklasse fängt schon die Namensbindung ab."}
+        ]
+      },
+      scores:{
+        label:"Attention-Scores · Q Kᵀ",
+        goal:"Vergleiche jede Queryposition mit jeder Keyposition und summiere dabei über die Featureachse d_k.",
+        plain:"Q @ K.transpose(-2, -1)",
+        extraLead:[],
+        inputs:[{name:"Q",ell:true,axes:["query","d_k"],dims:[5,4]},{name:"K",ell:true,axes:["key","d_k"],dims:[5,4]}],
+        patterns:[
+          {key:"correct",lhs:[["query","d_k"],["key","d_k"]],out:["query","key"],ok:true,verdict:"d_k steht in beiden Inputs und fehlt rechts, wird also kontrahiert. Query- und Key-Achse bleiben als die beiden äußeren Achsen erhalten; der nachfolgende Softmax normalisiert über die letzte Achse, also über die Keys."},
+          {key:"wrongA",lhs:[["query","d_k"],["key","d_k"]],out:["key","query"],ok:false,verdict:"Die Shape ist identisch zur korrekten, weil Query- und Key-Achse dieselbe Länge haben. Inhaltlich entsteht aber die transponierte Scorematrix: Der Softmax über die letzte Achse normalisiert danach über die Queries, und eine kausale Maske trifft das falsche Dreieck. Aufdecken lässt sich das nur mit T_query ≠ T_key oder einem Referenzvergleich."},
+          {key:"wrongB",lhs:[["query","d_k"],["key","d_k"]],out:["query"],ok:false,verdict:"Weil key rechts fehlt, wird zusätzlich über alle Keys summiert. Statt einer Scorematrix entsteht ein Vektor mit einem Wert pro Query. Diese Verwechslung verrät sich hier an der Shape – aber erst, wenn du sie liest."}
+        ]
+      },
+      mix:{
+        label:"Value-Mischung · A V",
+        goal:"Mische die Value-Vektoren mit den Attention-Gewichten und summiere dabei über die Keyachse.",
+        plain:"A @ V",
+        extraLead:[],
+        inputs:[{name:"A",ell:true,axes:["query","key"],dims:[5,5]},{name:"V",ell:true,axes:["key","d_v"],dims:[5,6]}],
+        patterns:[
+          {key:"correct",lhs:[["query","key"],["key","d_v"]],out:["query","d_v"],ok:true,verdict:"key steht in beiden Inputs und fehlt rechts, wird also kontrahiert – das ist die eigentliche gewichtete Summe über alle Keypositionen. Jede Query erhält ihren eigenen Value-Vektor der Breite d_v."},
+          {key:"wrongA",lhs:[["query","key"],["key","d_v"]],out:["key","d_v"],ok:false,verdict:"Hier wird query aufsummiert statt key. Die Shape bleibt gültig, weil beide Positionsachsen gleich lang sind, aber jede Zeile enthält nun eine Summe über alle Queries statt das Ergebnis einer einzelnen Query. Die Attention-Gewichte werden dadurch entlang der falschen Achse angewandt."},
+          {key:"wrongB",lhs:[["query","key"],["key","d_v"]],out:["query","key"],ok:false,verdict:"Weil d_v rechts fehlt, wird über die Value-Featureachse summiert. Übrig bleibt eine Matrix in Positionsform; die Values sind als Featurevektor verloren. Die Shape ähnelt der Scorematrix und wird deshalb leicht für ein Zwischenergebnis gehalten."}
+        ]
+      }
+    };
+    const EINSUM_LEADS={none:[],batch:[["B",2]],"batch-head":[["B",2],["H",3]]};
+
+    function einsumPatternText(pattern,op){
+      return `${pattern.lhs.map((axes,index)=>`${op.inputs[index].ell?"... ":""}${axes.join(" ")}`).join(", ")} -> ... ${pattern.out.join(" ")}`;
+    }
+
+    function resolveEinsum(op,lead,pattern){
+      const bind={},conflicts=[];
+      op.inputs.forEach((input,index)=>{
+        pattern.lhs[index].forEach((name,axis)=>{
+          const size=input.dims[axis];
+          if(bind[name]!==undefined&&bind[name]!==size)conflicts.push({name,first:bind[name],second:size,input:input.name});
+          else bind[name]=size;
+        });
+      });
+      const used=[...new Set(pattern.lhs.flat())],summed=used.filter(name=>!pattern.out.includes(name));
+      return {bind,conflicts,used,summed,shape:conflicts.length?null:[...lead.map(entry=>entry[1]),...pattern.out.map(name=>bind[name])]};
+    }
+
+    function updateEinsumPattern(){
+      const opKey=document.getElementById("einsumOp").value,op=EINSUM_OPS[opKey],select=document.getElementById("einsumPattern"),wanted=select.value||"correct",tr=value=>esc(localizedUi(value));
+      select.innerHTML=op.patterns.map(pattern=>`<option value="${pattern.key}">${esc(einsumPatternText(pattern,op))}</option>`).join("");
+      select.value=op.patterns.some(pattern=>pattern.key===wanted)?wanted:"correct";
+      const pattern=op.patterns.find(entry=>entry.key===select.value),lead=[...EINSUM_LEADS[document.getElementById("einsumLead").value],...op.extraLead],resolved=resolveEinsum(op,lead,pattern);
+      const correct=op.patterns.find(entry=>entry.ok),correctShape=resolveEinsum(op,lead,correct).shape,leadText=lead.length?lead.map(entry=>entry[0]).join(", "):"—";
+      const shapeText=list=>`[${list.join(", ")}]`;
+      const inputRows=op.inputs.map((input,index)=>`<div class="calculation-row"><span>${esc(input.name)} · ${tr("Achsennamen im gewählten Muster")}</span><strong>${esc(`${input.ell?"... ":""}${pattern.lhs[index].join(" ")}`)} = ${shapeText([...(input.ell?lead.map(entry=>entry[1]):[]),...input.dims])}</strong></div>`).join("");
+      const fate=name=>{const inCount=pattern.lhs.filter(axes=>axes.includes(name)).length,kept=pattern.out.includes(name);if(kept)return inCount>1?"gekoppelt und im Output behalten":"bleibt im Output";return inCount>1?"gekoppelt und aufsummiert · kontrahiert":"aufsummiert und verschwunden"};
+      const axisRows=resolved.used.map(name=>`<div class="calculation-row"><span><code>${esc(name)}</code> · ${tr("Länge")} ${resolved.bind[name]}</span><strong>${tr(fate(name))}</strong></div>`).join("");
+      const resultBlock=resolved.conflicts.length
+        ? `<div class="callout warning"><strong>${tr("einsum bricht ab:")}</strong> ${tr("Derselbe Achsenname müsste zwei verschiedene Längen binden.")} <code>${esc(resolved.conflicts[0].name)}</code> = ${resolved.conflicts[0].first} / ${resolved.conflicts[0].second}. ${tr("Es entsteht keine Output-Shape.")}</div>`
+        : `<div class="shape-change"><strong>${tr("Aufgelöste Output-Shape")}</strong><span>${shapeText(resolved.shape)} · ${tr("führende Achsen")}: ${esc(leadText)} · ${tr("kontrahiert")}: ${resolved.summed.length?`<code>${resolved.summed.map(esc).join("</code>, <code>")}</code>`:tr("nichts")}</span></div>`;
+      const shapeVerdict=pattern.ok?"":(resolved.conflicts.length?"shapeCatches":(correctShape&&resolved.shape&&resolved.shape.length===correctShape.length&&resolved.shape.every((value,index)=>value===correctShape[index])?"shapeHides":"shapeCatches"));
+      const verdictBlock=pattern.ok
+        ? `<div class="callout accent"><strong>${tr("Korrektes Muster.")}</strong> ${tr(pattern.verdict)}</div>`
+        : `<div class="callout warning"><strong>${tr(shapeVerdict==="shapeHides"?"Falsches Muster – und die Shape verrät es nicht.":"Falsches Muster – hier verrät es die Shape.")}</strong> ${tr(pattern.verdict)}</div>`;
+      document.getElementById("einsumStage").innerHTML=`<h2>${tr(op.label)}</h2><p class="small muted">${tr(op.goal)}</p><h3>${tr("Inputs mit benannten Achsen")}</h3><div class="calculation-ledger">${inputRows}</div><h3>${tr("Gewähltes Muster")}</h3><div class="shape-change"><strong><code>${esc(einsumPatternText(pattern,op))}</code></strong><span>${tr("Lies es als Vertrag: gleiche Namen koppeln, rechts fehlende Namen verschwinden durch Summation.")}</span></div><h3>${tr("Schicksal jeder Achse")}</h3><div class="calculation-ledger">${axisRows}</div>${resultBlock}${verdictBlock}<div class="shape-change"><strong>${tr("Dieselbe Rechnung ohne Einsum")}</strong><span><code>${esc(op.plain)}</code> — ${tr("identisches Ergebnis für das korrekte Muster, aber die Achsenbedeutung steckt nur noch in Positionen wie −2 und −1. PyTorch führt beide Wege auf dieselben Matmul-Kernels zurück; der Gewinn liegt im vermiedenen Achsenfehler, nicht in der Geschwindigkeit.")}</span></div>`;
+    }
+
+    function einsumSuccessMarkup(){const tr=value=>esc(localizedUi(value));return `<div class="callout accent" style="margin-top:.7rem"><strong>${tr("✓ Transfer-Kurzcheck bestanden")}</strong><br>${tr("d_in steht in beiden Inputs und fehlt rechts, wird also kontrahiert. Bei Q und K je [B,3,4] überleben query und key mit je Länge 3, sodass [B,3,3] entsteht. Fehlt d_v rechts vom Pfeil, wird über die Value-Features summiert – das Muster bleibt gültig und liefert stillschweigend das Falsche.")}</div>`}
+
+    function checkEinsumPattern(){
+      const contract=document.getElementById("einsumCheckContract").value,shape=document.getElementById("einsumCheckShape").value,dropped=document.getElementById("einsumCheckDropped").value,result=document.getElementById("einsumCheckResult"),tr=value=>esc(localizedUi(value));
+      if(!contract||!shape||!dropped){toast("Beantworte alle drei Kurzcheck-Felder.");return}
+      if(contract==="d_in"&&shape==="b33"&&dropped==="sum-dv"){user.labChecks["einsum-pattern"]=true;saveUser(true);result.innerHTML=einsumSuccessMarkup();return}
+      result.innerHTML=`<div class="callout warning" style="margin-top:.7rem"><strong>${tr("Noch nicht.")}</strong><br>${tr("Gehe jedes Muster in drei Schritten durch: Welche Namen stehen in beiden Inputs? Welche Namen fehlen rechts vom Pfeil? Genau die Schnittmenge daraus wird kontrahiert, alles Übrige bleibt in der Output-Shape stehen.")}</div>`;
     }
 
     function updateTritonTile(){

@@ -357,6 +357,43 @@ window.CS336_EN = Object.freeze({
         "It requires approximately 2mkn Floating-Point Operations. For each of the m·n output entries, k products and approximately the same number of additions are computed."
       ]
     },
+    "einsum-notation": {
+      "title": "Einsum Notation & einops: Naming Axes Instead of Counting Them",
+      "level": "Foundations",
+      "summary": "An einsum pattern describes a tensor operation over named axes: axes sharing a name are coupled, axes missing from the output are summed away, and three dots stand for any number of leading axes.",
+      "terms": [
+        ["einsum", "The Einstein summation convention as a function: it describes a contraction over named axes instead of axis positions."],
+        ["contraction", "Summing over an axis shared by two tensors; this is exactly what a matrix multiplication does."],
+        ["einops", "A library that expresses tensor operations over named axes; the A1 handout explicitly recommends it for this class."],
+        ["rearrange", "An einops operation that reorders, merges, or splits axes without combining any values."],
+        ["reduce", "An einops operation that removes an axis using sum, mean, max, or min."],
+        ["jaxtyping", "An annotation style such as Float[Tensor, \"batch seq d\"]: it documents axis names but does not check them at runtime."]
+      ],
+      "mental": "Think of an einsum pattern as a table caption. On the left stand the axis names of every input, on the right those of the desired output. A name appearing in both inputs couples their positions; a name missing on the right is summed over all its values and disappears. What matters is therefore no longer which position an axis sits at, but what it is called.",
+      "details": [
+        "The grammar has two parts. Left of the arrow stand the inputs, separated by commas, each with the names of its axes. Right of the arrow stands the desired output. For x with Shape [2,3,4] named batch seq d_in and W with Shape [5,4] named d_out d_in, einsum(x, W, \"... d_in, d_out d_in -> ... d_out\") yields Shape [2,3,5]. d_in appears in both inputs and is missing on the right, so it is coupled and summed away; d_out appears only in the second input and on the right, so it survives as the new feature axis. The three dots stand for any number of leading axes that are passed through unchanged.",
+        "The gain over @, transpose, and view lies in the readability of the contract. Lecture 2 puts both spellings side by side: z = x @ y.transpose(-2, -1) forces you to translate −2 and −1 back into axis meanings in your head, whereas einsum(x, y, \"... seq1 hidden, ... seq2 hidden -> ... seq1 seq2\") writes the same computation with its roles attached. The documentation is the implementation. Einsum is first of all a notation: for the usual two-operand contractions PyTorch lowers it to the same matmul kernels, so the gain lies in avoided axis mistakes, not automatically in speed.",
+        "Besides einsum, two more operations belong to the toolkit. rearrange reorders, merges, or splits axes without combining values: rearrange(x, \"... (heads d_head) -> ... heads d_head\", heads=H) splits a combined axis, and rearrange(x, \"... heads d_head -> ... (heads d_head)\") merges it again. When splitting, you must supply one of the two lengths, because the product alone does not determine the split. Bracket order is part of the contract: (heads d_head) and (d_head heads) produce the same axis length but arrange the same numbers differently. reduce removes an axis with a reduction, for example reduce(x, \"... hidden -> ...\", \"sum\").",
+        "In A1 the same three patterns keep reappearing: the Linear Layer as einsum(x, W, \"... d_in, d_out d_in -> ... d_out\"), the Attention scores as einsum(Q, K, \"... query d_k, ... key d_k -> ... query key\"), and the mixing of the Values as einsum(A, V, \"... query key, ... key d_v -> ... query d_v\"). The three dots satisfy exactly the handout's requirement that the modules tolerate any number of leading Batch-like axes — that is [T,D] as well as [B,T,D] and [B,H,T,D]. In addition, jaxtyping annotations such as Float[Tensor, \"batch seq d_in\"] document the expected axis names in the signature; they are pure documentation and check nothing at runtime."
+      ],
+      "pitfalls": [
+        "Writing a pattern by axis order instead of by meaning: as soon as two axes happen to have the same length — Query and Key at equal sequence length, or d_in and d_out in a square layer — the wrong pattern also yields a valid Shape and silently computes something else.",
+        "Overlooking that a name missing on the right is summed away: dropping key from \"-> ... query key\" quietly turns a score matrix into a sum over all Keys.",
+        "Using the same name for two different roles: in \"... d, d d -> ... d\" axes are coupled that have nothing to do with each other semantically.",
+        "Guessing bracket order when splitting: (heads d_head) and (d_head heads) have the same length but distribute the values across the Heads differently.",
+        "Mistaking einsum for an optimization or jaxtyping for a check: the former is a notation, the latter an annotation without runtime effect."
+      ],
+      "checks": [
+        "What Shape does einsum(x, W, \"... d_in, d_out d_in -> ... d_out\") produce for x [2,3,4] and W [5,4], and which axis disappears, and why?",
+        "Q and K both have [B,H,T,d_k]. Why is the pattern \"... query d_k, ... key d_k -> ... key query\" not detectable as wrong from the Shape, and what goes wrong afterwards?",
+        "How do you split [B,T,H·d_head] into [B,H,T,d_head], and which piece of information is strictly required for that?"
+      ],
+      "answers": [
+        "The result has Shape [2,3,5]. d_in appears in both inputs and is missing from the output, so it is coupled and summed away — exactly the contraction of a matrix multiplication. The leading axes 2 and 3 are passed through unchanged by the three dots, and d_out of length 5 remains as the new feature axis.",
+        "Both patterns produce [B,H,T,T], because the Query and Key axes have the same length T; the Shape therefore cannot reveal the mistake. What you get, however, is the transposed score matrix: a Softmax over the last axis then normalizes over the Queries instead of the Keys, and a causal mask hits the wrong triangle. You would notice only through nonsensical Attention weights or a test with T_query ≠ T_key.",
+        "With rearrange(x, \"... seq (heads d_head) -> ... heads seq d_head\", heads=H) in one step. Supplying one of the two lengths — here heads=H — is strictly required, because the product H·d_head alone does not determine the split. The bracket order must additionally match how the output features of the Q/K/V matrix are arranged, otherwise values land in the wrong Heads."
+      ]
+    },
     "probability": {
       "title": "Probability, Expected Value & Variance",
       "level": "Foundations",
@@ -2095,6 +2132,10 @@ window.CS336_EN = Object.freeze({
     "matmul": {
       "context": "Matrix multiplication is the recurring operation that moves token vectors into new feature spaces throughout linear layers, attention, and feed-forward networks.",
       "why": "The shared inner axis determines which quantities are combined, so a wrong axis order mixes different information than intended."
+    },
+    "einsum-notation": {
+      "context": "Assignment 1 requires modules that tolerate any number of leading batch axes and explicitly recommends einsum notation for that; Lecture 2 introduces the same spelling together with einops and jaxtyping.",
+      "why": "Addressing axes by position instead of by name produces patterns that yield a valid shape whenever two axes share a length and still contract the wrong quantity — a mistake no shape check can surface."
     },
     "probability": {
       "context": "The model first produces unnormalized scores, from which next-token probabilities, expectations, and variability for training and evaluation are derived.",
@@ -4878,8 +4919,8 @@ window.CS336_EN = Object.freeze({
           "derive": "For each primitive, record the input axes, parameter Shape, initialization rule, reduction axis, output Shape, and one hand-computable case. Derive σ and the ±3σ bounds for one Linear Layer, then compute two A1 RoPE angles with adjacent pairs—without assembling the full model yet.",
           "evidence": "You can distinguish the exact Linear, Embedding, and RMSNorm initialization rules, justify arbitrary leading batch axes and Broadcasting, and test RoPE against its angle formula, adjacent Pairing, and shared non-persistent Buffer.",
           "failure": "First lead: If Shapes look correct, inspect std versus variance, A1 Pairing versus Half-Split, reduction axes, Parameter/Buffer registration, and unintended Broadcasting separately.",
-          "concepts": ["pytorch-tensors", "pytorch-state", "shapes", "parameter-initialization", "rmsnorm", "swiglu", "rope"],
-          "labs": ["pytorch-debugger", "shapes"]
+          "concepts": ["pytorch-tensors", "pytorch-state", "shapes", "einsum-notation", "parameter-initialization", "rmsnorm", "swiglu", "rope"],
+          "labs": ["pytorch-debugger", "shapes", "einsum-pattern"]
         },
         {
           "id": "attention-lm",
@@ -4888,8 +4929,8 @@ window.CS336_EN = Object.freeze({
           "derive": "Maintain a Shape Ledger from token_ids [B,T] to logits [B,T,V], marking exactly where positions are mixed, features are mixed, Heads are separated, and future positions are excluded.",
           "evidence": "You can derive non-square Query/Key lengths, mask Broadcasting, the QKV Head split, Residual paths, and parameter and FLOP terms without trial and error.",
           "failure": "First lead: Test causal invariance—a change to a future token must not alter earlier logits—and then isolate the first failing Block.",
-          "concepts": ["attention", "causal-mask", "transformer-block", "resource-accounting", "transformer-ledger"],
-          "labs": ["attention", "shapes", "resources", "transformer-ledger"]
+          "concepts": ["attention", "causal-mask", "transformer-block", "resource-accounting", "transformer-ledger", "einsum-notation"],
+          "labs": ["attention", "shapes", "resources", "transformer-ledger", "einsum-pattern"]
         },
         {
           "id": "optimization",
@@ -5419,6 +5460,18 @@ window.CS336_EN = Object.freeze({
       "misconception": "H does not create H full copies of model dimension D. D is split across H Heads with d_head = D/H features each. Projection here means a learned feature mixer, not a mixing of Token positions and usually not an orthogonal geometric projection.",
       "transferQuestion": "Which shapes change when only the sequence length doubles, and which parameter counts stay the same?",
       "transferAnswer": "If only T doubles, activations like B×T×D as well as Q, K, and V with B×H×T×d_head become twice as long along the sequence axis. In contrast, attention scores with B×H×T×T contain four times as many elements because both position axes grow. Parameter counts like V_vocab×D for the Embedding or D×D_out for weight matrices remain unchanged, as trainable matrices do not depend on the length of a specific input sequence."
+    },
+    "einsum-pattern": {
+      "title": "Einsum Pattern Workshop",
+      "time": "12 min",
+      "desc": "Write the axis pattern for the three A1 core operations, see the resolved shape immediately, and expose patterns that contract the wrong axis despite a valid shape.",
+      "mental": "An einsum pattern is a contract about axis names, not axis positions. Read it in three steps: which names appear in both inputs? Which names are missing to the right of the arrow? Exactly the names that are shared and missing on the right get contracted, that is multiplied and summed. Everything else stays — and three dots pass through any number of leading axes unchanged.",
+      "formula": "einsum(x, W, \"... d_in, d_out d_in -> ... d_out\")  ·  einsum(Q, K, \"... query d_k, ... key d_k -> ... query key\")  ·  einsum(A, V, \"... query key, ... key d_v -> ... query d_v\")",
+      "symbols": [["...","Ellipsis: any number of leading axes passed through unchanged. A1 requires exactly this tolerance from every module."],["shared name","A name in both inputs couples their positions elementwise."],["missing on the right","A name that does not appear in the output is summed over all its values and disappears."],["d_in, d_out","Input and output width of a Linear Layer; only d_in is contracted."],["query, key","The two position axes of Attention. They often have equal length and are therefore indistinguishable from the shape."],["d_k, d_v","Feature width per Head for Keys and Values respectively; d_k is contracted in the scores, d_v survives the Value mixing."]],
+      "observe": "Pick an operation, change the leading axes, and observe that the pattern does not change at all. Then switch to a wrong pattern and read only the resolved shape first: in two of the three operations it stays valid.",
+      "misconception": "A matching output shape does not prove a correct pattern. As soon as two axes happen to have the same length — Query and Key at equal sequence length, or d_in and d_out in a square layer — the wrong pattern also produces a plausible shape and silently contracts the wrong axis.",
+      "transferQuestion": "Why does a swapped Query-Key pattern not raise a shape error on square scores, and which test would reliably expose it?",
+      "transferAnswer": "In self-attention, the Query and Key axes have the same length T. The swapped pattern therefore also produces [..., T, T]; the shape simply cannot show the difference. What you get, however, is the transposed score matrix, so Softmax normalizes over the Queries instead of the Keys and a causal mask hits the wrong triangle. A test with different Query and Key lengths exposes it reliably — cross-attention, or a KV-cache step with T_query=1 and T_key=8: there the wrong pattern fails on the shape immediately. In addition, a reference comparison against torch.nn.functional.scaled_dot_product_attention on the same input reveals the bug even for square scores."
     },
     "pytorch-debugger": {
       "title": "PyTorch Contract Debugger",
@@ -7874,6 +7927,61 @@ window.CS336_EN = Object.freeze({
     "Pretokens / aktuelle Tokens": "Pretokens / current tokens",
     "Tie-Break": "Tie-break",
     "Bei gleichem count gewinnt wie in A1 das lexikographisch größere Paar.": "At equal count, the lexicographically greater pair wins, as specified in A1.",
+    "Operation und Muster": "Operation and pattern",
+    "A1-Kernoperation": "A1 core operation",
+    "Führende Achsen im Ellipsis-Teil": "Leading axes inside the ellipsis",
+    "keine · ein einzelnes Beispiel": "none · a single example",
+    "Batch B=2 und Heads H=3": "Batch B=2 and Heads H=3",
+    "Gewähltes Muster": "Selected pattern",
+    "Sage vor jedem Wechsel voraus, welche Achse kontrahiert wird und welche Shape herauskommt. Erst danach die Auflösung lesen. Die führenden Achsen ändern das Muster nie – genau das ist der Zweck der drei Punkte.": "Before every change, predict which axis gets contracted and which shape comes out. Only then read the resolution. The leading axes never change the pattern — that is exactly what the three dots are for.",
+    "Feste Fälle ohne Regler. Leite zuerst selbst her.": "Fixed cases without sliders. Derive them yourself first.",
+    "1. Für x [2,3,4] und W [5,4] mit dem Muster „... d_in, d_out d_in -> ... d_out“: Welche Achse wird kontrahiert?": "1. For x [2,3,4] and W [5,4] with the pattern \"... d_in, d_out d_in -> ... d_out\": which axis is contracted?",
+    "2. Für Q und K je [B,3,4] mit dem Muster „... query d_k, ... key d_k -> ... query key“: Welche Shape entsteht?": "2. For Q and K both [B,3,4] with the pattern \"... query d_k, ... key d_k -> ... query key\": which shape results?",
+    "3. Was passiert beim Muster „... query key, ... key d_v -> ... query key“?": "3. What happens with the pattern \"... query key, ... key d_v -> ... query key\"?",
+    "keine · beide bleiben erhalten": "none · both are preserved",
+    "d_v wird aufsummiert; die Values gehen als Featurevektor verloren": "d_v is summed away; the Values are lost as a feature vector",
+    "Das Muster ist ungültig und wirft einen Fehler": "The pattern is invalid and raises an error",
+    "Identisch zum korrekten Muster, nur andere Achsenreihenfolge": "Identical to the correct pattern, only with a different axis order",
+    "Interaktiver Einsum-Muster-Auflöser": "Interactive einsum pattern resolver",
+    "Beantworte alle drei Kurzcheck-Felder.": "Answer all three quick-check fields.",
+    "Linear Layer · y = x Wᵀ": "Linear Layer · y = x Wᵀ",
+    "Attention-Scores · Q Kᵀ": "Attention scores · Q Kᵀ",
+    "Value-Mischung · A V": "Value mixing · A V",
+    "Mische die d_in Features jedes Tokens zu d_out neuen Features. Tokenpositionen werden dabei nicht gemischt.": "Mix the d_in features of every token into d_out new features. Token positions are not mixed in the process.",
+    "Vergleiche jede Queryposition mit jeder Keyposition und summiere dabei über die Featureachse d_k.": "Compare every Query position with every Key position, summing over the feature axis d_k.",
+    "Mische die Value-Vektoren mit den Attention-Gewichten und summiere dabei über die Keyachse.": "Mix the Value vectors using the Attention weights, summing over the Key axis.",
+    "Genau das verlangt A1. d_in steht in beiden Inputs und fehlt rechts, wird also kontrahiert; d_out bleibt als neue Featureachse stehen, und die drei Punkte reichen alle führenden Achsen unverändert durch.": "This is exactly what A1 requires. d_in appears in both inputs and is missing on the right, so it is contracted; d_out remains as the new feature axis, and the three dots pass every leading axis through unchanged.",
+    "Hier wird d_out aufsummiert statt d_in. Das Ergebnis ist eine gewichtete Summe über die Ausgabefeatures und behält die Eingangsbreite. Hier fällt es an der Shape auf, weil d_in=4 und d_out=6 verschieden sind – in einer quadratischen Schicht mit d_in=d_out wäre die Shape gültig und der Fehler unsichtbar.": "Here d_out is summed away instead of d_in. The result is a weighted sum over the output features and keeps the input width. The shape exposes it here because d_in=4 and d_out=6 differ — in a square layer with d_in=d_out the shape would be valid and the mistake invisible.",
+    "Das ist der klassische vergessene Transpose: Die Featureachse von x wird als d_out gelesen. Weil derselbe Name zwei verschiedene Längen binden müsste, bricht einsum sofort ab – genau wie x @ W ohne Transpose. Diese Fehlerklasse fängt schon die Namensbindung ab.": "This is the classic forgotten transpose: the feature axis of x is read as d_out. Because the same name would have to bind two different lengths, einsum aborts immediately — exactly like x @ W without the transpose. This class of mistake is already caught by name binding.",
+    "d_k steht in beiden Inputs und fehlt rechts, wird also kontrahiert. Query- und Key-Achse bleiben als die beiden äußeren Achsen erhalten; der nachfolgende Softmax normalisiert über die letzte Achse, also über die Keys.": "d_k appears in both inputs and is missing on the right, so it is contracted. The Query and Key axes remain as the two outer axes; the following Softmax normalizes over the last axis, that is over the Keys.",
+    "Die Shape ist identisch zur korrekten, weil Query- und Key-Achse dieselbe Länge haben. Inhaltlich entsteht aber die transponierte Scorematrix: Der Softmax über die letzte Achse normalisiert danach über die Queries, und eine kausale Maske trifft das falsche Dreieck. Aufdecken lässt sich das nur mit T_query ≠ T_key oder einem Referenzvergleich.": "The shape is identical to the correct one, because the Query and Key axes have the same length. What you actually get is the transposed score matrix: a Softmax over the last axis then normalizes over the Queries, and a causal mask hits the wrong triangle. Only T_query ≠ T_key or a reference comparison can expose it.",
+    "Weil key rechts fehlt, wird zusätzlich über alle Keys summiert. Statt einer Scorematrix entsteht ein Vektor mit einem Wert pro Query. Diese Verwechslung verrät sich hier an der Shape – aber erst, wenn du sie liest.": "Because key is missing on the right, everything is additionally summed over all Keys. Instead of a score matrix you get a vector with one value per Query. This confusion does reveal itself in the shape here — but only if you read it.",
+    "key steht in beiden Inputs und fehlt rechts, wird also kontrahiert – das ist die eigentliche gewichtete Summe über alle Keypositionen. Jede Query erhält ihren eigenen Value-Vektor der Breite d_v.": "key appears in both inputs and is missing on the right, so it is contracted — that is the actual weighted sum over all Key positions. Every Query receives its own Value vector of width d_v.",
+    "Hier wird query aufsummiert statt key. Die Shape bleibt gültig, weil beide Positionsachsen gleich lang sind, aber jede Zeile enthält nun eine Summe über alle Queries statt das Ergebnis einer einzelnen Query. Die Attention-Gewichte werden dadurch entlang der falschen Achse angewandt.": "Here query is summed away instead of key. The shape stays valid because both position axes have the same length, but every row now holds a sum over all Queries instead of the result of a single Query. The Attention weights are thereby applied along the wrong axis.",
+    "Weil d_v rechts fehlt, wird über die Value-Featureachse summiert. Übrig bleibt eine Matrix in Positionsform; die Values sind als Featurevektor verloren. Die Shape ähnelt der Scorematrix und wird deshalb leicht für ein Zwischenergebnis gehalten.": "Because d_v is missing on the right, the Value feature axis is summed away. What remains is a matrix in position form; the Values are lost as a feature vector. The shape resembles the score matrix and is therefore easily mistaken for an intermediate result.",
+    "Achsennamen im gewählten Muster": "Axis names in the selected pattern",
+    "Länge": "length",
+    "gekoppelt und im Output behalten": "coupled and kept in the output",
+    "bleibt im Output": "stays in the output",
+    "gekoppelt und aufsummiert · kontrahiert": "coupled and summed away · contracted",
+    "aufsummiert und verschwunden": "summed away and gone",
+    "einsum bricht ab:": "einsum aborts:",
+    "Derselbe Achsenname müsste zwei verschiedene Längen binden.": "The same axis name would have to bind two different lengths.",
+    "Es entsteht keine Output-Shape.": "No output shape is produced.",
+    "Aufgelöste Output-Shape": "Resolved output shape",
+    "führende Achsen": "leading axes",
+    "kontrahiert": "contracted",
+    "nichts": "nothing",
+    "Korrektes Muster.": "Correct pattern.",
+    "Falsches Muster – und die Shape verrät es nicht.": "Wrong pattern — and the shape does not reveal it.",
+    "Falsches Muster – hier verrät es die Shape.": "Wrong pattern — here the shape reveals it.",
+    "Inputs mit benannten Achsen": "Inputs with named axes",
+    "Lies es als Vertrag: gleiche Namen koppeln, rechts fehlende Namen verschwinden durch Summation.": "Read it as a contract: equal names couple, names missing on the right disappear through summation.",
+    "Schicksal jeder Achse": "Fate of every axis",
+    "Dieselbe Rechnung ohne Einsum": "The same computation without einsum",
+    "identisches Ergebnis für das korrekte Muster, aber die Achsenbedeutung steckt nur noch in Positionen wie −2 und −1. PyTorch führt beide Wege auf dieselben Matmul-Kernels zurück; der Gewinn liegt im vermiedenen Achsenfehler, nicht in der Geschwindigkeit.": "identical result for the correct pattern, but the meaning of each axis now lives only in positions such as −2 and −1. PyTorch lowers both routes to the same matmul kernels; the gain is the avoided axis mistake, not speed.",
+    "d_in steht in beiden Inputs und fehlt rechts, wird also kontrahiert. Bei Q und K je [B,3,4] überleben query und key mit je Länge 3, sodass [B,3,3] entsteht. Fehlt d_v rechts vom Pfeil, wird über die Value-Features summiert – das Muster bleibt gültig und liefert stillschweigend das Falsche.": "d_in appears in both inputs and is missing on the right, so it is contracted. With Q and K both [B,3,4], query and key survive with length 3 each, producing [B,3,3]. If d_v is missing to the right of the arrow, the Value features are summed away — the pattern stays valid and silently returns the wrong thing.",
+    "Gehe jedes Muster in drei Schritten durch: Welche Namen stehen in beiden Inputs? Welche Namen fehlen rechts vom Pfeil? Genau die Schnittmenge daraus wird kontrahiert, alles Übrige bleibt in der Output-Shape stehen.": "Work through every pattern in three steps: which names appear in both inputs? Which names are missing to the right of the arrow? Exactly their intersection is contracted, everything else remains in the output shape.",
     "Launch-Konfiguration": "Launch configuration",
     "Vektorlänge N": "Vector length N",
     "Program ID": "Program ID",
