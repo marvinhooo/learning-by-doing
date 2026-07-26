@@ -584,6 +584,7 @@
     .problem-map .problem-verify { grid-column: 1 / -1; display: grid; gap: .2rem; margin-top: .35rem; padding-top: .35rem; border-top: 1px dashed var(--border); }
     .problem-map .problem-verify-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: .35rem; }
     .problem-map .problem-verify-label { flex: none; min-width: 3.6rem; color: var(--muted); font-size: .7rem; text-transform: uppercase; letter-spacing: .04em; }
+    .problem-map .problem-verify .button.small { padding: .18rem .5rem; font-size: .74rem; font-weight: 600; }
     .problem-map .problem-verify code { font-size: .74rem; padding: .05rem .3rem; border-radius: 5px; background: var(--surface); border: 1px solid var(--border); user-select: all; }
     @media (max-width: 540px) { .problem-row { grid-template-columns: minmax(0, 1fr); } .problem-meta { justify-content: flex-start; } }
     .group-description { margin: 0; padding: .8rem .75rem; color: var(--muted); border-top: 1px solid var(--border); }
@@ -834,7 +835,7 @@
       *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
     }
   </style>
-  <script src="i18n-en.js?v=47"></script>
+  <script src="i18n-en.js?v=48"></script>
   <script src="config.js"></script>
   <script src="vendor/supabase.js"></script>
 </head>
@@ -4494,6 +4495,134 @@
       "a5:dpo_training":[4,"cr",1,"DPO training"]
     };
 
+    // A topic block lists every concept its problems need together, which is the right granularity for
+    // planning but the wrong one when a single problem fails. This narrows the block list to the concepts
+    // that actually decide one problem's contract, so the route from "this test is red" to the explanation
+    // is one click instead of a scan. Only blocks with several problems appear here: where a block holds a
+    // single problem its own concept list is already exact. Every id is checked against the concepts this
+    // assignment reaches (its own blocks plus the shared foundations), so no link claims unreached material.
+    const PROBLEM_CONCEPTS = {
+      "a1:unicode1":["unicode"],
+      "a1:unicode2":["unicode","python-engineering"],
+      "a1:train_bpe":["bpe","python-engineering"],
+      "a1:train_bpe_tinystories":["bpe","python-engineering"],
+      "a1:train_bpe_expts_owt":["bpe","tokenizer-tradeoffs"],
+      "a1:tokenizer":["bpe","python-engineering"],
+      "a1:tokenizer_experiments":["tokenizer-tradeoffs"],
+      "a1:linear":["parameter-initialization","einsum-notation","pytorch-state"],
+      "a1:embedding":["parameter-initialization","pytorch-state"],
+      "a1:rmsnorm":["rmsnorm"],
+      "a1:positionwise_feedforward":["swiglu"],
+      "a1:rope":["rope"],
+      "a1:softmax":["logs","shapes"],
+      "a1:scaled_dot_product_attention":["attention","causal-mask"],
+      "a1:multihead_self_attention":["attention","einsum-notation","causal-mask"],
+      "a1:transformer_block":["transformer-block"],
+      "a1:transformer_lm":["transformer-block","transformer-ledger"],
+      "a1:transformer_accounting":["resource-accounting","transformer-ledger"],
+      "a1:cross_entropy":["cross-entropy","logs"],
+      "a1:learning_rate_tuning":["schedules","adamw"],
+      "a1:adamw":["adamw"],
+      "a1:adamw_accounting":["adamw","resource-accounting"],
+      "a1:learning_rate_schedule":["schedules"],
+      "a1:gradient_clipping":["clipping"],
+      "a1:data_loading":["token-array-loading"],
+      "a1:checkpointing":["pytorch-state"],
+      "a1:training_together":["training-loop","pytorch-state"],
+      "a1:experiment_log":["training-loop"],
+      "a1:decoding":["sampling"],
+      "a1:learning_rate":["schedules","benchmark-validity"],
+      "a1:batch_size_experiment":["benchmark-validity","training-loop"],
+      "a1:generate":["sampling"],
+      "a1:layer_norm_ablation":["rmsnorm","benchmark-validity"],
+      "a1:pre_norm_ablation":["transformer-block","benchmark-validity"],
+      "a1:no_pos_emb":["rope","benchmark-validity"],
+      "a1:swiglu_ablation":["swiglu","benchmark-validity"],
+      "a1:main_experiment":["training-loop","benchmark-validity"],
+      "a1:leaderboard":["training-loop","benchmark-validity"],
+      "a2:benchmarking_script":["profiling","gpu-model"],
+      "a2:nsys_profile":["profiling"],
+      "a2:mixed_precision_accumulation":["pytorch-tensors","gpu-model"],
+      "a2:benchmarking_mixed_precision":["pytorch-tensors","profiling"],
+      "a2:memory_profiling":["profiling","resource-accounting"],
+      "a2:gradient_checkpointing":["checkpointing"],
+      "a2:pytorch_attention":["profiling","flash-attention"],
+      "a2:torch_compile":["profiling","fusion-tiling"],
+      "a2:flash_forward":["flash-attention","triton-kernels","kernel-contracts"],
+      "a2:flash_backward":["flash-attention","kernel-contracts"],
+      "a2:flash_benchmarking":["flash-attention","profiling","roofline"],
+      "a2:distributed_communication_single_node":["collectives","distributed-runtime"],
+      "a2:naive_ddp":["ddp-zero-fsdp","distributed-runtime"],
+      "a2:naive_ddp_benchmarking":["ddp-zero-fsdp","profiling"],
+      "a2:minimal_ddp_flat_benchmarking":["ddp-zero-fsdp","collectives"],
+      "a2:ddp_overlap_individual_parameters":["ddp-zero-fsdp"],
+      "a2:ddp_overlap_individual_parameters_benchmarking":["ddp-zero-fsdp","profiling"],
+      "a2:alternate_ring_all_reduce":["collectives"],
+      "a2:optimizer_state_sharding":["ddp-zero-fsdp"],
+      "a2:optimizer_state_sharding_accounting":["ddp-zero-fsdp","resource-accounting"],
+      "a2:fsdp":["ddp-zero-fsdp","collectives"],
+      "a2:fsdp_accounting":["ddp-zero-fsdp","resource-accounting"],
+      "a2:data_parallel_calcs":["ddp-zero-fsdp","resource-accounting"],
+      "a2:fsdp_calcs":["ddp-zero-fsdp","resource-accounting"],
+      "a2:tp_calcs":["model-parallelism","collectives"],
+      "a2:fsdp_tp_calcs":["model-parallelism","ddp-zero-fsdp"],
+      "a2:leaderboard":["roofline","profiling"],
+      "a4:look_at_cc":["data-pipeline"],
+      "a4:extract_text":["python-engineering","data-pipeline"],
+      "a4:language_identification":["filtering-mechanics"],
+      "a4:mask_pii":["pii-harm"],
+      "a4:harmful_content":["pii-harm","filtering-mechanics"],
+      "a4:gopher_quality_filters":["quality-filtering"],
+      "a4:exact_deduplication":["dedup","bloom-filters"],
+      "a4:minhash_deduplication":["dedup"],
+      "a4:filter_data":["data-pipeline","quality-filtering","dedup"],
+      "a4:inspect_filtered_data":["data-pipeline","benchmark-validity"],
+      "a4:tokenize_data":["tokenizer-tradeoffs"],
+      "a4:train_model":["training-loop","benchmark-validity"],
+      "a5:tokenize_prompt_and_output":["pytorch-tensors","shapes"],
+      "a5:get_response_log_probs":["cross-entropy","logs"],
+      "a5:compute_rollout_rewards":["rl-setup"],
+      "a5:compute_group_normalized_rewards_grpo":["grpo"],
+      "a5:compute_policy_gradient_loss_on_policy":["policy-gradient","grpo"],
+      "a5:aggregate_loss_across_microbatch_sequence":["grpo","pytorch-state"],
+      "a5:grpo_train_step_standard_on_policy":["grpo","pytorch-state"],
+      "a5:grpo_experiments_standard_on_policy":["grpo","benchmark-validity"],
+      "a5:grpo_learning_rate":["benchmark-validity","grpo"],
+      "a5:grpo_prompt_ablation":["benchmark-validity","grpo"],
+      "a5:think_about_length_normalization":["grpo-variants"],
+      "a5:compute_group_normalized_rewards_drgrpo":["grpo-variants"],
+      "a5:aggregate_loss_across_microbatch_constant":["grpo-variants"],
+      "a5:think_about_rft":["grpo-variants"],
+      "a5:derive_difficulty_reweightings":["grpo-variants","policy-gradient"],
+      "a5:think_about_advantage_normalization":["grpo-variants","policy-gradient"],
+      "a5:compute_group_normalized_rewards_maxrl":["grpo-variants"],
+      "a5:grpo_train_step_variants_on_policy":["grpo-variants","grpo"],
+      "a5:grpo_experiments_variants_on_policy":["benchmark-validity","grpo-variants"],
+      "a5:derive_surrogate_objectives":["off-policy","policy-gradient"],
+      "a5:compute_policy_gradient_loss_off_policy":["off-policy"],
+      "a5:think_about_importance_reweighting":["off-policy"],
+      "a5:compute_policy_gradient_loss_off_policy_gspo":["off-policy"],
+      "a5:grpo_train_step_off_policy":["off-policy","rlvr-systems"],
+      "a5:grpo_experiments_off_policy":["off-policy","benchmark-validity"],
+      "a5:try_your_own":["policy-gradient","grpo-variants"],
+      "a5:mmlu_baseline":["benchmark-validity"],
+      "a5:gsm8k_baseline":["benchmark-validity"],
+      "a5:alpaca_eval_baseline":["benchmark-validity"],
+      "a5:sst_baseline":["benchmark-validity"],
+      "a5:look_at_sft":["sft"],
+      "a5:data_loading":["sft","pytorch-tensors"],
+      "a5:sft_script":["sft","pytorch-state"],
+      "a5:sft":["sft"],
+      "a5:mmlu_sft":["benchmark-validity","sft"],
+      "a5:gsm8k_sft":["benchmark-validity","sft"],
+      "a5:alpaca_eval_sft":["benchmark-validity","reward-models"],
+      "a5:sst_sft":["benchmark-validity"],
+      "a5:red_teaming":["benchmark-validity","rlhf"],
+      "a5:look_at_hh":["reward-models"],
+      "a5:dpo_loss":["dpo"],
+      "a5:dpo_training":["dpo"]
+    };
+
     const ASSIGNMENT_MISSION_GUIDES = {
       "text-tokenizer":{
         plain:{de:"Du baust zuerst eine verlässliche Übersetzung zwischen lesbarem Text und Token-Zahlen. Danach lernst du aus einem kleinen Text häufige Bytefolgen als längere Tokens.",en:"First, you build a reliable translation between readable text and token numbers. Then you learn longer tokens from byte sequences that occur often in a small text."},
@@ -5787,11 +5916,14 @@
     // Both strings come verbatim from the handout: the adapter hooks it names for a problem and the
     // pytest invocation it prints right after them. They are the shortest path from "I understood this"
     // to "the provided test is green", so they belong next to the problem name instead of only in the PDF.
-    function problemVerifyMarkup(p){
+    function problemVerifyMarkup(assignmentId,p){
       const adapters=String(p.adapters||"").split(",").filter(Boolean);
       const tests=String(p.tests||"").split(",").filter(Boolean);
-      if(!adapters.length&&!tests.length)return"";
+      const concepts=(PROBLEM_CONCEPTS[`${assignmentId}:${p.id}`]||[]).map(id=>byId(CONCEPTS,id)).filter(Boolean);
+      if(!adapters.length&&!tests.length&&!concepts.length)return"";
       const rows=[];
+      // Understanding comes before verification, so the explanation sits above the adapter and test handles.
+      if(concepts.length)rows.push(`<span class="problem-verify-row"><span class="problem-verify-label">${currentLanguage==="en"?"Concept":"Konzept"}</span>${concepts.map(concept=>`<button class="button ghost small" data-open-concept="${concept.id}">${esc(concept.title)}</button>`).join("")}</span>`);
       if(adapters.length)rows.push(`<span class="problem-verify-row"><span class="problem-verify-label">${currentLanguage==="en"?"Adapter":"Adapter"}</span>${adapters.map(name=>`<code data-no-i18n>adapters.${esc(name)}</code>`).join("")}</span>`);
       if(tests.length)rows.push(`<span class="problem-verify-row"><span class="problem-verify-label">${currentLanguage==="en"?"Test":"Test"}</span>${tests.map(args=>`<code data-no-i18n>uv run pytest ${esc(args)}</code>`).join("")}</span>`);
       return `<span class="problem-verify">${rows.join("")}</span>`;
@@ -5804,7 +5936,7 @@
         const modes=problemModeLabels(p.modes).map(label=>`<span class="problem-mode">${esc(label)}</span>`).join("");
         const points=p.points?`<span class="problem-points">${p.points} ${p.points===1?(currentLanguage==="en"?"point":"Punkt"):(currentLanguage==="en"?"points":"Punkte")}</span>`:"";
         const gpu=p.gpu?`<span class="problem-mode">${p.gpu} ${currentLanguage==="en"?"GPU h":"GPU-Std."}</span>`:"";
-        return `<div class="problem-row"><span><code data-no-i18n>${esc(p.id)}</code>${p.title?`<span class="problem-title" data-no-i18n>${esc(p.title)}</span>`:""}</span><span class="problem-meta">${modes}${gpu}${points}</span>${problemVerifyMarkup(p)}</div>`;
+        return `<div class="problem-row"><span><code data-no-i18n>${esc(p.id)}</code>${p.title?`<span class="problem-title" data-no-i18n>${esc(p.title)}</span>`:""}</span><span class="problem-meta">${modes}${gpu}${points}</span>${problemVerifyMarkup(assignmentId,p)}</div>`;
       }).join("");
       const parts=[`${summary.count} ${currentLanguage==="en"?(summary.count===1?"problem":"problems"):(summary.count===1?"Problem":"Probleme")}`,`${summary.points} ${currentLanguage==="en"?"points":"Punkte"}`];
       if(summary.gpu)parts.push(`${summary.gpu} ${currentLanguage==="en"?"GPU hours":"GPU-Stunden"}`);
@@ -5820,7 +5952,7 @@
     }
     function assignmentMissionMarkup(a,mission,index){
       const key=`${a.id}:${mission.id}`,open=appState.openAssignmentMissionIds.has(key)?" open":"",guide=ASSIGNMENT_MISSION_GUIDES[mission.id],concepts=(mission.concepts||[]).map(id=>byId(CONCEPTS,id)).filter(Boolean),labs=(mission.labs||[]).map(id=>byId(LABS,id)).filter(Boolean),formulas=[...new Set(concepts.flatMap(concept=>concept.formulas))].map(id=>byId(FORMULAS,id)).filter(Boolean);
-      return `<details class="accordion-item mission-item" data-assignment-mission="${esc(key)}"${open}><summary><span class="accordion-summary-main"><span class="accordion-heading"><span class="badge">${currentLanguage==="en"?"Topic":"Thema"} ${index+1}</span><span class="accordion-title">${esc(mission.title)}</span></span><span class="accordion-preview">${esc(localeValue(guide.plain))}</span></span><span class="accordion-chevron" aria-hidden="true">⌄</span></summary><div class="accordion-body"><div class="callout accent"><strong>${currentLanguage==="en"?"What you build here":"Was du hier baust"}</strong><p>${esc(localeValue(guide.plain))}</p><p><strong>${currentLanguage==="en"?"Why this block matters":"Warum dieser Block nötig ist"}:</strong> ${esc(localeValue(guide.why))}</p></div><div class="accordion-fact"><span>${currentLanguage==="en"?"Explanations for the ideas and useful experiments":"Erklärungen der Ideen und passende Experimente"}</span><div class="accordion-actions">${concepts.map(c=>`<button class="button ghost small" data-open-concept="${c.id}">${esc(c.title)}</button>`).join("")}${labs.map(l=>`<button class="button ghost small" data-open-lab="${l.id}">${esc(l.title)}</button>`).join("")}</div></div>${formulas.length?`<div class="accordion-fact"><span>${currentLanguage==="en"?"Formula lessons: example first, equation last":"Formelerklärungen: Beispiel zuerst, Gleichung zuletzt"}</span><div class="accordion-actions">${formulas.map(f=>`<button class="button ghost small" data-open-formula="${f.id}">${esc(f.title)}</button>`).join("")}</div></div>`:""}<div class="accordion-body-grid"><div class="accordion-fact"><span>${currentLanguage==="en"?"Exact technical task from the Handout":"Exakter technischer Auftrag aus dem Handout"}</span>${esc(mission.derive)}</div><div class="accordion-fact"><span>${currentLanguage==="en"?"How to test your solution":"So prüfst du deine Lösung"}</span>${esc(mission.evidence)}</div><div class="accordion-fact"><span>${currentLanguage==="en"?"If it fails, check this first":"Wenn es scheitert, prüfe zuerst"}</span>${esc(mission.failure)}</div></div><div class="accordion-fact"><span>${currentLanguage==="en"?"Problems in this block — names, weight and kind of work":"Probleme in diesem Block – Namen, Gewicht und Art der Arbeit"}</span><p class="muted small">${currentLanguage==="en"?"Names and point values come from the original handout. “code” means an implementation the provided tests check, “write-up” a derivation or short answer, “measure” a run whose result you report. Where the handout names one, “Adapter” is the hook in adapters.py your code has to fill and “Test” is the command that checks it — both quoted verbatim, so you can go from reading straight to a green test. Nothing here is a deadline or a target.":"Namen und Punktwerte stammen aus dem Original-Handout. „Code“ heißt eine Implementierung, die die mitgelieferten Tests prüfen, „Schreiben“ eine Herleitung oder kurze Antwort, „Messen“ einen Lauf, dessen Ergebnis du berichtest. Wo das Handout sie nennt, ist „Adapter“ der Hook in adapters.py, den dein Code füllen muss, und „Test“ der Befehl, der ihn prüft – beides wörtlich übernommen, damit du vom Lesen direkt zum grünen Test kommst. Nichts davon ist ein Termin oder ein Soll."}</p>${problemMapMarkup(a.id,mission.scope)}</div></div></details>`;
+      return `<details class="accordion-item mission-item" data-assignment-mission="${esc(key)}"${open}><summary><span class="accordion-summary-main"><span class="accordion-heading"><span class="badge">${currentLanguage==="en"?"Topic":"Thema"} ${index+1}</span><span class="accordion-title">${esc(mission.title)}</span></span><span class="accordion-preview">${esc(localeValue(guide.plain))}</span></span><span class="accordion-chevron" aria-hidden="true">⌄</span></summary><div class="accordion-body"><div class="callout accent"><strong>${currentLanguage==="en"?"What you build here":"Was du hier baust"}</strong><p>${esc(localeValue(guide.plain))}</p><p><strong>${currentLanguage==="en"?"Why this block matters":"Warum dieser Block nötig ist"}:</strong> ${esc(localeValue(guide.why))}</p></div><div class="accordion-fact"><span>${currentLanguage==="en"?"Explanations for the ideas and useful experiments":"Erklärungen der Ideen und passende Experimente"}</span><div class="accordion-actions">${concepts.map(c=>`<button class="button ghost small" data-open-concept="${c.id}">${esc(c.title)}</button>`).join("")}${labs.map(l=>`<button class="button ghost small" data-open-lab="${l.id}">${esc(l.title)}</button>`).join("")}</div></div>${formulas.length?`<div class="accordion-fact"><span>${currentLanguage==="en"?"Formula lessons: example first, equation last":"Formelerklärungen: Beispiel zuerst, Gleichung zuletzt"}</span><div class="accordion-actions">${formulas.map(f=>`<button class="button ghost small" data-open-formula="${f.id}">${esc(f.title)}</button>`).join("")}</div></div>`:""}<div class="accordion-body-grid"><div class="accordion-fact"><span>${currentLanguage==="en"?"Exact technical task from the Handout":"Exakter technischer Auftrag aus dem Handout"}</span>${esc(mission.derive)}</div><div class="accordion-fact"><span>${currentLanguage==="en"?"How to test your solution":"So prüfst du deine Lösung"}</span>${esc(mission.evidence)}</div><div class="accordion-fact"><span>${currentLanguage==="en"?"If it fails, check this first":"Wenn es scheitert, prüfe zuerst"}</span>${esc(mission.failure)}</div></div><div class="accordion-fact"><span>${currentLanguage==="en"?"Problems in this block — names, weight and kind of work":"Probleme in diesem Block – Namen, Gewicht und Art der Arbeit"}</span><p class="muted small">${currentLanguage==="en"?"Names and point values come from the original handout. “code” means an implementation the provided tests check, “write-up” a derivation or short answer, “measure” a run whose result you report. Where the handout names one, “Adapter” is the hook in adapters.py your code has to fill and “Test” is the command that checks it — both quoted verbatim, so you can go from reading straight to a green test. “Concept” narrows the block's explanations to the ones that decide this single problem. Nothing here is a deadline or a target.":"Namen und Punktwerte stammen aus dem Original-Handout. „Code“ heißt eine Implementierung, die die mitgelieferten Tests prüfen, „Schreiben“ eine Herleitung oder kurze Antwort, „Messen“ einen Lauf, dessen Ergebnis du berichtest. Wo das Handout sie nennt, ist „Adapter“ der Hook in adapters.py, den dein Code füllen muss, und „Test“ der Befehl, der ihn prüft – beides wörtlich übernommen, damit du vom Lesen direkt zum grünen Test kommst. „Konzept“ engt die Erklärungen des Blocks auf die ein, die genau dieses Problem entscheiden. Nichts davon ist ein Termin oder ein Soll."}</p>${problemMapMarkup(a.id,mission.scope)}</div></div></details>`;
     }
     function formulaMarkup(f){ return String(f.expr).replace(/\u00a0/g," "); }
     function formulaText(value){ return esc(String(value??"").replace(/&(lt|gt|amp);/g,entity=>({"&lt;":"<","&gt;":">","&amp;":"&"}[entity]))); }

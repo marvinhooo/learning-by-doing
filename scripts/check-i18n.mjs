@@ -633,8 +633,43 @@ const verifiable = Object.values(handoutProblems).filter(entry => entry.length =
 if (verifiable.length < 45) throw new Error(`handout problems: only ${verifiable.length} problems carry the handout's adapter/test handles, expected at least 45`);
 if (verifiable.filter(entry => entry[5]).length < 45) throw new Error("handout problems: every problem with a verification handle must keep its pytest command");
 const problemMapRenderer = source.slice(source.indexOf("function problemVerifyMarkup"), source.indexOf("function assignmentEffortMarkup"));
-for (const required of ["p.adapters", "p.tests", "adapters.${esc(name)}", "uv run pytest ${esc(args)}", "problemVerifyMarkup(p)"]) if (!problemMapRenderer.includes(required)) throw new Error(`problem map: verification handles must stay rendered (missing ${required})`);
-console.log(`handout problems OK: ${scopedProblemKeys.size} problems, ${Object.values(handoutProblems).reduce((sum, entry) => sum + entry[0], 0)} points, ${Object.values(handoutProblems).reduce((sum, entry) => sum + entry[2], 0)} GPU hours, ${verifiable.length} with adapter/test handles`);
+for (const required of ["p.adapters", "p.tests", "adapters.${esc(name)}", "uv run pytest ${esc(args)}", "problemVerifyMarkup(assignmentId,p)", "PROBLEM_CONCEPTS[`${assignmentId}:${p.id}`]", "data-open-concept"]) if (!problemMapRenderer.includes(required)) throw new Error(`problem map: verification handles and per-problem concepts must stay rendered (missing ${required})`);
+if (!(problemMapRenderer.indexOf("Konzept") < problemMapRenderer.indexOf("Adapter"))) throw new Error("problem map: the concept explanation must be offered before the adapter and test handles");
+
+// Per-problem concepts only narrow what a block already offers; they must never point at material this
+// assignment does not reach. Allowed for a problem: any concept from one of its assignment's own blocks,
+// from the assignment's linked list, or from the shared foundations module.
+const problemConcepts = readConstant("PROBLEM_CONCEPTS");
+const conceptIds = new Set(base.concepts.map(concept => concept.id));
+const foundationConcepts = base.modules.find(module => module.id === "foundations")?.concepts || [];
+const missionOfProblem = new Map();
+const reachableByAssignment = new Map();
+for (const assignment of base.assignments) {
+  const reachable = new Set([...foundationConcepts, ...(assignment.concepts || [])]);
+  for (const mission of assignment.missions || []) {
+    (mission.concepts || []).forEach(id => reachable.add(id));
+    for (const part of String(mission.scope).split("·").map(value => value.trim()).filter(Boolean)) {
+      missionOfProblem.set(`${assignment.id}:${part}`, mission);
+    }
+  }
+  reachableByAssignment.set(assignment.id, reachable);
+}
+for (const [key, ids] of Object.entries(problemConcepts)) {
+  if (!handoutProblems[key]) throw new Error(`problem concepts: ${key} is not a handout problem`);
+  if (!Array.isArray(ids) || !ids.length || ids.length > 3) throw new Error(`problem concepts: ${key} must name one to three concepts`);
+  if (new Set(ids).size !== ids.length) throw new Error(`problem concepts: ${key} repeats a concept`);
+  const reachable = reachableByAssignment.get(key.slice(0, key.indexOf(":")));
+  for (const id of ids) {
+    if (!conceptIds.has(id)) throw new Error(`problem concepts: ${key} points at unknown concept ${id}`);
+    if (!reachable.has(id)) throw new Error(`problem concepts: ${key} points at ${id}, which this assignment never reaches`);
+  }
+  const mission = missionOfProblem.get(key);
+  if (mission && ids.length >= (mission.concepts || []).length && (mission.scope.split("·").length > 1)) throw new Error(`problem concepts: ${key} does not narrow its block, which already lists ${(mission.concepts || []).length} concepts`);
+}
+// Single-problem blocks are already exact, so they are deliberately absent; every other problem needs a link.
+const missingProblemConcepts = [...scopedProblemKeys].filter(key => !problemConcepts[key] && String(missionOfProblem.get(key)?.scope || "").split("·").length > 1);
+if (missingProblemConcepts.length) throw new Error(`problem concepts: ${missingProblemConcepts.length} problems in multi-problem blocks have no concept link (${missingProblemConcepts.slice(0, 3).join(", ")})`);
+console.log(`handout problems OK: ${scopedProblemKeys.size} problems, ${Object.values(handoutProblems).reduce((sum, entry) => sum + entry[0], 0)} points, ${Object.values(handoutProblems).reduce((sum, entry) => sum + entry[2], 0)} GPU hours, ${verifiable.length} with adapter/test handles, ${Object.keys(problemConcepts).length} with a per-problem concept link`);
 const transformerModule = base.modules.find(module => module.id === "transformer");
 const initIndex = transformerModule?.concepts.indexOf("parameter-initialization") ?? -1;
 const rmsIndex = transformerModule?.concepts.indexOf("rmsnorm") ?? -1;
