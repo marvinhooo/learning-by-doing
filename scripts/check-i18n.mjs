@@ -632,6 +632,10 @@ const verifiable = Object.values(handoutProblems).filter(entry => entry.length =
 // remove the bridge from an explanation to a passing test, so guard the floor found when they were extracted.
 if (verifiable.length < 45) throw new Error(`handout problems: only ${verifiable.length} problems carry the handout's adapter/test handles, expected at least 45`);
 if (verifiable.filter(entry => entry[5]).length < 45) throw new Error("handout problems: every problem with a verification handle must keep its pytest command");
+// A pytest command without the adapter name leaves the reader with a test but no function to write. Wherever
+// the handout prints both — it does for every A4 implementation problem — both must survive together.
+const testWithoutAdapter = Object.entries(handoutProblems).filter(([, entry]) => entry.length === 6 && entry[5] && !entry[4]).map(([key]) => key);
+for (const key of testWithoutAdapter) if (key.startsWith("a4:")) throw new Error(`handout problems: ${key} names a pytest command but no adapter hook, although the A4 handout prints one`);
 const problemMapRenderer = source.slice(source.indexOf("function problemVerifyMarkup"), source.indexOf("function assignmentEffortMarkup"));
 for (const required of ["p.adapters", "p.tests", "adapters.${esc(name)}", "uv run pytest ${esc(args)}", "problemVerifyMarkup(assignmentId,p)", "PROBLEM_CONCEPTS[`${assignmentId}:${p.id}`]", "data-open-concept"]) if (!problemMapRenderer.includes(required)) throw new Error(`problem map: verification handles and per-problem concepts must stay rendered (missing ${required})`);
 if (!(problemMapRenderer.indexOf("Konzept") < problemMapRenderer.indexOf("Adapter"))) throw new Error("problem map: the concept explanation must be offered before the adapter and test handles");
@@ -712,6 +716,29 @@ for (const lectureId of Object.keys(base.lectureGuides)) {
 const approachable = [...decidingConcepts].filter(([, ids]) => ids.every(id => outlookCovered.has(id)));
 if (approachable.length < 100) throw new Error(`lecture outlook: only ${approachable.length} problems ever become approachable, which means the lecture concept lists have drifted`);
 console.log(`lecture outlook OK: ${openedAt.size} problems announced by a lecture, ${approachable.length} of ${decidingConcepts.size} approachable after Lecture 17`);
+
+// The counterpart on the assignment page: it names exactly the deciding concepts the lecture path never
+// hands over, so the reader learns about them before the problem instead of during it. It has to stay
+// derived, has to sit above the topic blocks (it is a prerequisite, not a footnote), and its result has to
+// keep matching the assignment-only list above — a silently empty section would be the worst outcome.
+const selfStudyRenderer = source.slice(source.indexOf("function assignmentSelfStudyConcepts"), source.indexOf("function renderAssignmentDetail"));
+for (const required of ["problemDecidingConcepts(a.id,problem.id,mission)", 'byId(MODULES,"foundations")', "LECTURE_IDS.forEach", "taught.has(conceptId)", "data-open-concept", "missionProblems(a.id,mission.scope)"]) if (!selfStudyRenderer.includes(required)) throw new Error(`assignment self-study: the derivation must stay data-driven (missing ${required})`);
+const assignmentTemplate = source.slice(source.indexOf("function renderAssignmentDetail"), source.indexOf("function copyText"));
+if (!assignmentTemplate.includes("${assignmentSelfStudyMarkup(a)}")) throw new Error("assignment self-study: the assignment page must render the section");
+if (!(assignmentTemplate.indexOf("assignmentSelfStudyMarkup(a)") < assignmentTemplate.indexOf('"What is required?"'))) throw new Error("assignment self-study: the section belongs above the topic blocks, next to the other prerequisites");
+const selfStudyByAssignment = new Map();
+for (const [key, ids] of decidingConcepts) {
+  const assignmentId = key.split(":")[0];
+  for (const id of ids) {
+    if (lectureTaughtConcepts.has(id) || foundationConcepts.includes(id)) continue;
+    if (!selfStudyByAssignment.has(assignmentId)) selfStudyByAssignment.set(assignmentId, new Set());
+    selfStudyByAssignment.get(assignmentId).add(id);
+  }
+}
+const surfaced = new Set([...selfStudyByAssignment.values()].flatMap(ids => [...ids]));
+if (!surfaced.size) throw new Error("assignment self-study: no assignment surfaces a self-study concept any more, so the section renders nowhere");
+for (const id of surfaced) if (!selfStudyConcepts.includes(id)) throw new Error(`assignment self-study: ${id} is needed by a problem but missing from the assignment-only list`);
+console.log(`assignment self-study OK: ${surfaced.size} concepts no lecture teaches, surfaced on ${selfStudyByAssignment.size} assignment pages`);
 const transformerModule = base.modules.find(module => module.id === "transformer");
 const initIndex = transformerModule?.concepts.indexOf("parameter-initialization") ?? -1;
 const rmsIndex = transformerModule?.concepts.indexOf("rmsnorm") ?? -1;
