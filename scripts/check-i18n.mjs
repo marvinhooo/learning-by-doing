@@ -670,6 +670,48 @@ for (const [key, ids] of Object.entries(problemConcepts)) {
 const missingProblemConcepts = [...scopedProblemKeys].filter(key => !problemConcepts[key] && String(missionOfProblem.get(key)?.scope || "").split("·").length > 1);
 if (missingProblemConcepts.length) throw new Error(`problem concepts: ${missingProblemConcepts.length} problems in multi-problem blocks have no concept link (${missingProblemConcepts.slice(0, 3).join(", ")})`);
 console.log(`handout problems OK: ${scopedProblemKeys.size} problems, ${Object.values(handoutProblems).reduce((sum, entry) => sum + entry[0], 0)} points, ${Object.values(handoutProblems).reduce((sum, entry) => sum + entry[2], 0)} GPU hours, ${verifiable.length} with adapter/test handles, ${Object.keys(problemConcepts).length} with a per-problem concept link`);
+
+// The lecture page derives which problems a lecture opens by checking whether every concept a problem turns
+// on is already covered. That derivation is only honest while the renderer, the deciding-concept source, and
+// the reachability of those concepts all hold, so each of the three is guarded here.
+const outlookRenderer = source.slice(source.indexOf("function problemDecidingConcepts"), source.indexOf("function renderLectureDetail"));
+for (const required of ["PROBLEM_CONCEPTS[`${assignmentId}:${problemId}`]", "mission.concepts", 'byId(MODULES,"foundations")', "LECTURE_IDS.slice(0,index)", "gap.length!==1", "data-open-assignment", "data-open-concept", "problemModeLabels"]) if (!outlookRenderer.includes(required)) throw new Error(`lecture outlook: the derivation must stay data-driven (missing ${required})`);
+for (const framing of ["never a gate", "kein Gate"]) if (!outlookRenderer.includes(framing)) throw new Error(`lecture outlook: the section must keep stating that it is orientation, not a gate (missing "${framing}")`);
+const lectureTemplate = source.slice(source.indexOf("function renderLectureDetail"), source.indexOf("function renderModuleDetail"));
+if (!lectureTemplate.includes("${lectureProblemOutlookMarkup(id)}")) throw new Error("lecture outlook: the lecture page must render the problem outlook");
+if (!(lectureTemplate.indexOf("lectureProblemOutlookMarkup(id)") < lectureTemplate.indexOf('"Original material"'))) throw new Error("lecture outlook: the outlook belongs in the reading flow before the original material");
+
+// Mirrors the app's derivation. A deciding concept that neither a lecture nor the shared foundations teaches
+// would hide its problem from every lecture page forever, so the few assignment-only concepts are listed
+// explicitly: adding to that list has to be a decision, not an accident.
+const lectureTaughtConcepts = new Set(Object.values(base.lectureGuides).flatMap(guide => guide.concepts || []));
+const selfStudyConcepts = ["lm-objective", "causal-mask", "cross-entropy", "adamw", "clipping", "sampling"];
+for (const id of selfStudyConcepts) {
+  if (!conceptIds.has(id)) throw new Error(`lecture outlook: assignment-only concept ${id} no longer exists`);
+  if (lectureTaughtConcepts.has(id)) throw new Error(`lecture outlook: ${id} is taught by a lecture now and must leave the assignment-only list`);
+}
+const decidingConcepts = new Map([...scopedProblemKeys].map(key => {
+  const named = problemConcepts[key];
+  return [key, named && named.length ? named : (missionOfProblem.get(key)?.concepts || [])];
+}));
+for (const [key, ids] of decidingConcepts) {
+  if (!ids.length) throw new Error(`lecture outlook: ${key} has no deciding concepts, so no lecture can ever list it`);
+  for (const id of ids) if (!lectureTaughtConcepts.has(id) && !foundationConcepts.includes(id) && !selfStudyConcepts.includes(id)) throw new Error(`lecture outlook: ${key} turns on ${id}, which no lecture and no foundation covers`);
+}
+const openedAt = new Map();
+let outlookCovered = new Set(foundationConcepts);
+for (const lectureId of Object.keys(base.lectureGuides)) {
+  const before = new Set(outlookCovered);
+  (base.lectureGuides[lectureId].concepts || []).forEach(id => outlookCovered.add(id));
+  for (const [key, ids] of decidingConcepts) {
+    if (!ids.every(id => outlookCovered.has(id)) || ids.every(id => before.has(id))) continue;
+    if (openedAt.has(key)) throw new Error(`lecture outlook: ${key} is announced as newly approachable twice (${openedAt.get(key)}, ${lectureId})`);
+    openedAt.set(key, lectureId);
+  }
+}
+const approachable = [...decidingConcepts].filter(([, ids]) => ids.every(id => outlookCovered.has(id)));
+if (approachable.length < 100) throw new Error(`lecture outlook: only ${approachable.length} problems ever become approachable, which means the lecture concept lists have drifted`);
+console.log(`lecture outlook OK: ${openedAt.size} problems announced by a lecture, ${approachable.length} of ${decidingConcepts.size} approachable after Lecture 17`);
 const transformerModule = base.modules.find(module => module.id === "transformer");
 const initIndex = transformerModule?.concepts.indexOf("parameter-initialization") ?? -1;
 const rmsIndex = transformerModule?.concepts.indexOf("rmsnorm") ?? -1;

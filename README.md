@@ -9,9 +9,10 @@ Der Lernpfad folgt direkt den 17 Lectures. Jede Lecture beginnt mit einer einfac
 1. Lecture 1 öffnen und zuerst Kontext, Nutzen und erklärte Voraussetzungen lesen.
 2. Die ausgewählten Kernkonzepte in der angegebenen Reihenfolge durcharbeiten; unbekannte Abkürzungen und Symbole werden bei ihrer ersten Verwendung erklärt.
 3. Formeln in der vorgegebenen Reihenfolge durcharbeiten: Problem und Zweck, Namen, Symbole und Operatoren, vollständig eingesetztes und gerechnetes kleines Beispiel, allgemeine Formel, Intuition und Fallstrick. Geschlossene Formelkarten zeigen bewusst noch keine Gleichung und schreiben alle dort benötigten erkannten Abkürzungen direkt aus.
-4. Selbstchecks und Labs als Feedback nutzen. Nur fest auswertbare Fragen zeigen einen lokalen Bestanden-Status; dieser ist keine Kompetenzwertung.
-5. Im Assignment Coach zuerst die einfach erklärten Voraussetzungen samt Beispiel lesen. Danach folgen Konzepte, Formelwege, Prüfstrategie und typische Fehler; der rohe Scope-Wortlaut des Handouts steht zuletzt als Referenz. Dort trägt jedes Problem zusätzlich die Konzepte, die genau dieses Problem entscheiden, und – wo das Handout sie nennt – den Adapter-Hook und den Testbefehl. Hinweise sind direkt zugänglich und enthalten keinen Abgabecode.
-6. Diagnose und Abrufkarten nur bei Bedarf verwenden. Sie sortieren Auffrischungen beziehungsweise Übungskarten, schalten aber nichts frei und erzeugen kein Mastery-Level.
+4. Am Ende einer Lecture zeigt „Welche Assignment-Probleme das jetzt öffnet“, welche Handout-Probleme damit vollständig auf abgedecktem Stoff stehen und welche Konzepte den übrigen noch fehlen. Das ist Orientierung für den nächsten Schritt, kein Gate.
+5. Selbstchecks und Labs als Feedback nutzen. Nur fest auswertbare Fragen zeigen einen lokalen Bestanden-Status; dieser ist keine Kompetenzwertung.
+6. Im Assignment Coach zuerst die einfach erklärten Voraussetzungen samt Beispiel lesen. Danach folgen Konzepte, Formelwege, Prüfstrategie und typische Fehler; der rohe Scope-Wortlaut des Handouts steht zuletzt als Referenz. Dort trägt jedes Problem zusätzlich die Konzepte, die genau dieses Problem entscheiden, und – wo das Handout sie nennt – den Adapter-Hook und den Testbefehl. Hinweise sind direkt zugänglich und enthalten keinen Abgabecode.
+7. Diagnose und Abrufkarten nur bei Bedarf verwenden. Sie sortieren Auffrischungen beziehungsweise Übungskarten, schalten aber nichts frei und erzeugen kein Mastery-Level.
 
 Freitext, Selbsteinstufungen, Seitenaufrufe und manuelle Haken zählen nirgends als Nachweis. Persönliche Notizen sind optional und bleiben getrennt vom Lernstatus.
 
@@ -23,7 +24,7 @@ Die Plattform spart Lecture-Nacharbeit und Suchzeit, ersetzt aber nicht das eige
 - Supabase Auth schützt den persönlichen Lernstand und die privaten Kurs-PDFs.
 - `localStorage` speichert Änderungen sofort auf dem Gerät; Supabase synchronisiert sie nach dem Login.
 - Eine Progressive Web App (PWA) ermöglicht die Installation auf iPhone und iPad.
-- Service-Worker-Cache und Sprachbundle verwenden aktuell Version 48.
+- Service-Worker-Cache und Sprachbundle verwenden aktuell Version 49.
 - Die PDFs werden durch `.gitignore` vom öffentlichen Repository ausgeschlossen.
 - Auf iPhone und iPad besitzen zentrale Controls mindestens 44 Pixel große Touch-Ziele; Labs stapeln im Portrait-Modus für lesbare Erklärungen und Antwortoptionen.
 
