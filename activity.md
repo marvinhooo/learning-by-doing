@@ -297,12 +297,13 @@ Iteration Counter: 1
 - Ein abschliessender Sprachreview fand noch stillschweigend vorausgesetzte Operatoren sowie vier zu knapp gerechnete Beispiele. Die zentrale Notationshilfe erklaert nun unter anderem `~`, `N(...)`, `∈` und `√` vor der Regel; Parameterinitialisierung zeigt die vollstaendige Einsetzung `2/(d_in+d_out)=2/(2+6)=2/8`, und Linear Layer, Residualupdate sowie MFU rechnen jeden Schritt sichtbar aus. Geschlossene Karten schreiben alle im Zweck verwendeten erkannten Abkuerzungen aus.
 - Service-Worker-Cache und Sprachbundle werden auf Version 41 angehoben. Der Iteration Counter bleibt 1, da dieser Run manuell/interaktiv gestartet wurde.
 
-## 2026-07-29 - Seitenposition innerhalb einer Lecture (manueller Run)
+## 2026-07-29 - Vollstaendige Seitenposition innerhalb einer Lecture (manueller Run)
 
 - Status: lokal umgesetzt und verifiziert; kein Commit, Push oder Deployment ausgefuehrt.
-- Kernkonzeptseiten zeigen nun direkt in der Kopfzeile `Lecture N · Seite X von Y · Level`. Ein kompakter segmentierter Streifen wiederholt die Seitenzahl und markiert genau die aktuelle Seite, ohne vorherige Seiten als abgeschlossen darzustellen.
-- Der Weiter-Button nennt die kommende Seitenzahl, beispielsweise `Naechste Seite · 3 von 3`. Voraussetzungen und Vertiefungen, die nicht zu den kuratierten Kernseiten der Lecture gehoeren, behalten ihre eigene Kennzeichnung und erhalten keine erfundene Seitenzahl.
-- Deutsch und Englisch sind vollstaendig abgedeckt. Ein Regressionstest sichert Kopfzeile, Positionsstreifen, aktuelle Segmentmarkierung und Seitenzahl im Weiter-Button.
+- Produktionsdiagnose: Commit `be6b6c7` und Service-Worker-Version 51 waren bereits live, zaehlten aber nur die drei Kernkonzepte von Lecture 1. Vorgeschaltete Lernseiten konnten deshalb weiterhin ohne Seitenzahl erscheinen.
+- Die Seitenfolge umfasst nun alle navigierbaren Konzeptseiten einer Lecture: zuerst Voraussetzungskonzepte, die nicht ohnehin Kernkonzept sind, danach die kuratierten Kernkonzepte ohne Duplikate. Jede Seite zeigt direkt in der Kopfzeile `Lecture N · Seite X / Y · Level`.
+- Ein kompakter segmentierter Streifen wiederholt die Seitenzahl und markiert genau die aktuelle Seite, ohne vorherige Seiten als abgeschlossen darzustellen. Der Weiter-Button nennt die kommende Seitenzahl, beispielsweise `Naechste Seite · 3 / 4`.
+- Deutsch und Englisch sind vollstaendig abgedeckt. Ein Regressionstest sichert die deduplizierte Lecture-Seitenfolge, Kopfzeile, Positionsstreifen, aktuelle Segmentmarkierung und Seitenzahl im Weiter-Button.
 - Verifiziert: Locale- und Semantikcheck fuer 75 Concepts, 79 Formeln, 72 Symbole, 70 Glossareintraege, 27 Labs, 29 Missions und 1102 UI-Texte; Inline-JavaScript und Service Worker parsen; reproduzierbarer `_site`-Build und `git diff --check` sind sauber.
-- Browserpruefung: Lecture 1 zeigt auf den drei Kernseiten korrekt `1 von 3`, `2 von 3` und `3 von 3`; der Weiter-Button wechselt von Seite 2 auf Seite 3. Deutsch und Englisch, 390 x 844 Pixel ohne horizontalen Ueberlauf und eine leere Fehler-/Warnungskonsole wurden geprueft.
-- Service-Worker-Cache und Sprachbundle stehen auf Version 51. Der Iteration Counter bleibt 1, da dieser Run manuell/interaktiv gestartet wurde.
+- Browserpruefung: Lecture 1 zeigt im vollstaendigen Ablauf korrekt `1 / 4`, `2 / 4`, `3 / 4` und `4 / 4`; der Weiter-Button wechselt von der vorgeschalteten Seite 1 auf Seite 2. Deutsch und Englisch, 390 x 844 Pixel ohne horizontalen Ueberlauf und eine leere Fehler-/Warnungskonsole wurden geprueft.
+- Service-Worker-Cache und Sprachbundle stehen auf Version 52. Der Iteration Counter bleibt 1, da dieser Run manuell/interaktiv gestartet wurde.
