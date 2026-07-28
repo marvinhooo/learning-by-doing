@@ -1,0 +1,758 @@
+Trace - lecture_12                                                                                                        13.07.2026, 23:59
+
+
+
+
+    lecture_12.py
+
+
+         1   from execute_util import text, link, image
+         2   from lecture_util import x_link, blog_link
+         3   from references import deepseek_r1, llama4, olmo2_32b, mmlu
+         4
+         5   def main():
+         6       Evaluation: given a fixed model, how "good" is it?
+         7
+         8       what_you_see()
+         9       how_to_think_about_evaluation()
+        10
+        11       perplexity()
+        12
+        13       knowledge_benchmarks()
+        14       instruction_following_benchmarks()
+        15       agent_benchmarks()
+        16       pure_reasoning_benchmarks()
+        17       safety_benchmarks()
+        18
+        19       realism()
+        20       validity()
+        21       what_are_we_evaluating()
+        22
+        23       Takeaways
+        24           There is no one true evaluation; choose the evaluation depending on what you're trying to measure.
+        25           Always look at the individual instances and the predictions.
+        26           There are many aspects to consider: capabilities, safety, costs, realism.
+        27           Clearly state the rules of the game (methods versus models/systems).
+        28
+        29
+        30   def what_you_see():
+        31
+                 Benchmark scores
+        32
+
+
+
+
+                 [DeepSeek-AI+ 2025]
+
+
+
+https://cs336.stanford.edu/spring2025-lectures/?trace=var/traces/lecture_12.json                                               Page 1 of 22
+Trace - lecture_12                                                                                                             13.07.2026, 23:59
+
+
+        33
+
+
+
+
+                 Llama 4
+        34
+
+
+
+
+                 OLMo 2 (32B)
+        35
+        36       Recent language models are evaluated on similar, but not entirely identical, benchmarks (MMLU, MATH, etc.).
+        37       What are these benchmarks?
+        38       What do these numbers mean?
+        39
+
+
+
+
+https://cs336.stanford.edu/spring2025-lectures/?trace=var/traces/lecture_12.json                                                    Page 2 of 22
+Trace - lecture_12                                                                                     13.07.2026, 23:59
+
+
+        40
+
+
+
+
+        41       [HELM capabilities]
+        42
+        43       Pay close attention to the costs!
+        44
+
+
+
+
+                 [Artificial Analysis]
+        45
+        46       Maybe a model is good if people choose to use it (and pay for it)...
+        47                                                                              [OpenRouter]
+
+
+
+
+        48
+
+
+
+
+https://cs336.stanford.edu/spring2025-lectures/?trace=var/traces/lecture_12.json                            Page 3 of 22
+Trace - lecture_12                                                                 13.07.2026, 23:59
+
+
+        49
+
+
+
+
+        50       [Chatbot Arena]
+        51
+        52
+                 Vibes
+        53       [X]
+        54
+
+
+
+
+        55
+        56       A crisis...
+
+
+
+
+https://cs336.stanford.edu/spring2025-lectures/?trace=var/traces/lecture_12.json        Page 4 of 22
+Trace - lecture_12                                                                                                             13.07.2026, 23:59
+
+
+        57
+
+
+
+
+        58
+        59
+        60   def how_to_think_about_evaluation():
+        61       You might think evaluation is a mechanical process (take existing model, throw prompts at it, average some
+                 numbers)...
+        62       Actually, evaluation is a profound and rich topic...
+        63       ...and it determines the future of language models.
+        64
+        65       What's the point of evaluation?
+        66       There is no one true evaluation; it depends on what question you're trying to answer.
+        67      1. User or company wants to make a purchase decision (model A or model B) for their use case (e.g., customer
+                   service chatbots).
+        68      2. Researchers want to measure the raw capabilities of a model (e.g., intelligence).
+        69      3. We want to understand the benefits + harms of a model (for business and policy reasons).
+        70      4. Model developers want to get feedback to improve the model.
+        71       In each case, there is an abstract goal that needs to be translated into a concrete evaluation.
+        72
+        73       Framework
+        74      1. What are the inputs?
+        75      2. How do call the language model?
+        76      3. How do you evaluate the outputs?
+        77      4. How to interpret the results?
+        78
+        79       What are the inputs?
+        80      1. What use cases are covered?
+        81      2. Do we have representation of difficult inputs in the tail?
+        82      3. Are the inputs adapted to the model (e.g., multi-turn)?
+        83
+        84       How do you call the language model?
+        85      1. How do you prompt the language model?
+        86      2. Does the language model use chain-of-thought, tools, RAG, etc.?
+        87      3. Are we evaluating the language model or an agentic system (model developer wants former, user wants
+                     latter)?
+        88
+        89       How do you evaluate the outputs?
+
+
+https://cs336.stanford.edu/spring2025-lectures/?trace=var/traces/lecture_12.json                                                    Page 5 of 22
+Trace - lecture_12                                                                                                                   13.07.2026, 23:59
+
+
+        90      1. Are the reference outputs used for evaluation error-free?
+        91      2. What metrics do you use (e.g., pass@k)?
+        92      3. How do you factor in cost (e.g., inference + training)?
+        93      4. How do you factor in asymmetric errors (e.g., hallucinations in a medical setting)?
+        94      5. How do you handle open-ended generation (no ground truth)?
+        95
+        96       How do you inteprret the metrics?
+        97      1. How do you interpret a number (e.g., 91%) - is it ready for deployment?
+        98      2. How do we assess generalization in the face of train-test overlap?
+        99      3. Are we evaluating the final model or the method?
+       100
+       101       Summary: lots of questions to think through when doing evaluation
+       102
+       103 def perplexity():
+       104       Recall: that a language model is a probability distribution p(x) over sequences of tokens.
+       105       Perplexity (1/p(D))^(1/|D|) measures whether p assigns high probability to some dataset D.
+       106
+       107       In pre-training, you minimize perplexity on the training set.
+       108       The obvious thing is to measure perplexity on the test set.
+       109
+       110       Standard datasets: Penn Treebank (WSJ), WikiText-103 (Wikipedia), One Billion Word Benchmark (from
+                 machine translation WMT11 - EuroParl, UN, news)
+       111       Papers trained on a dataset (training split) and evaluated on the same dataset (test split)
+       112       Pure CNNs+LSTMs on the One Billion Word Benchmark (perplexity 51.3 -> 30.0) [Jozefowicz+ 2016]
+       113
+       114       GPT-2 trained on WebText (40GB text, websites linked from Reddit), zero-shot on standard datasets
+       115       This is out-of-distribution evaluation (but idea is that training covers a lot)
+       116
+
+
+
+
+       117       Works better on small datasets (transfer is helpful), but not larger datasets (1BW)
+       118
+       119       Since GPT-2 and GPT-3, language modeling papers have shifted more towards downstream task accuracy.
+       120       But reasons why perplexity is still useful:
+       121         Smoother than downstream task accuracy (for fitting scaling laws)
+       122         Is universal (why we use it for training) whereas task accuracy might miss some nuances
+       123           Note: can measure conditional perplexity on downstream task too (used for scaling laws) [Bhagia+ 2024]
+       124
+       125       Warning (if you're running a leaderboard): evaluator needs to trust the language model
+       126       For task accuracy, can just take output generated from a blackbox model and compute the desired metrics
+       127       For perplexity, need LM to generate probabilities and trust that they sum to 1 (even worse with UNKs back in
+                 the day)
+       128
+       129       The perplexity maximalist view:
+       130         Your true distribution is t, model is p
+       131         Best possible perplexity is H(t) obtained iff p = t
+       132           If have t, then solve all the tasks
+       133           So by pushing down on perplexity, will eventually reach AGI
+       134           Caveat: this might not be the most efficient way to get there (pushing down on parts of the distribution that
+                 don't matter)
+       135
+       136       Things that are spiritually perplexity:
+       137       Similar idea: cloze tasks like LAMBADA [Paperno+ 2016]
+
+
+https://cs336.stanford.edu/spring2025-lectures/?trace=var/traces/lecture_12.json                                                          Page 6 of 22
+Trace - lecture_12                                                                                             13.07.2026, 23:59
+
+
+       138
+
+
+
+
+       139       HellaSwag [Zellers+ 2019]
+       140
+
+
+
+
+       141
+       142
+       143 def knowledge_benchmarks():
+       144
+                 Massive Multitask Language Understanding (MMLU)
+
+       145       [Hendrycks+ 2020]
+       146         57 subjects (e.g., math, US history, law, morality), multiple-choice
+       147           "collected by graduate and undergraduate students from freely available sources online"
+       148           Really about testing knowledge, not language understanding
+       149           Evaluated on GPT-3 using few-shot prompting
+
+
+
+
+https://cs336.stanford.edu/spring2025-lectures/?trace=var/traces/lecture_12.json                                    Page 7 of 22
+Trace - lecture_12                                                                     13.07.2026, 23:59
+
+
+       150
+
+
+
+
+       151       [HELM MMLU for visualizing predictions]
+       152
+       153
+                 MMLU-Pro
+
+       154       [Wang+ 2024]
+       155         Removed noisy/trivial questions from MMLU
+       156         Expanded 4 choices to 10 choices
+       157           Evaluated using chain of thought (gives model more of a chance)
+       158           Accuracy of models drop by 16% to 33% (not as saturated)
+       159
+
+
+
+
+       160       [HELM MMLU-Pro for visualizing predictions]
+       161
+       162
+                 Graduate-Level Google-Proof Q&A (GPQA)
+
+       163       [Rein+ 2023]
+       164         Questions written by 61 PhD contractors from Upwork
+
+
+
+
+https://cs336.stanford.edu/spring2025-lectures/?trace=var/traces/lecture_12.json            Page 8 of 22
+Trace - lecture_12                                                                               13.07.2026, 23:59
+
+
+       165
+
+
+
+
+       166           PhD experts achieve 65% accuracy
+       167           Non-experts achieve 34% over 30 minutes with access to Google
+       168           GPT-4 achieves 39%
+       169       [HELM GPQA for visualizing predictions]
+       170
+       171
+                 Humanity's Last Exam
+
+       172       [Phan+ 2025]
+       173           2500 questions: multimodal, many subjects, multiple-choice + short-answer
+
+
+
+
+https://cs336.stanford.edu/spring2025-lectures/?trace=var/traces/lecture_12.json                      Page 9 of 22
+Trace - lecture_12                                                                   13.07.2026, 23:59
+
+
+       174
+
+
+
+
+       175           Awarded $500K prize pool + co-authorship to question creators
+       176           Filtered by frontier LLMs, multiple stages of review
+       177
+
+
+
+
+https://cs336.stanford.edu/spring2025-lectures/?trace=var/traces/lecture_12.json         Page 10 of 22
+Trace - lecture_12                                                                                  13.07.2026, 23:59
+
+
+       178
+
+
+
+
+       179       [latest leaderboard]
+       180
+       181
+       182 def instruction_following_benchmarks():
+       183       So far, we've been evaluating on fairly structured tasks.
+       184       Instruction following (as popularized by ChatGPT): just follow the instructions.
+       185       Challenge: how to evaluate an open-ended response?
+       186
+       187
+
+                 Chatbot Arena
+
+       188       [Chiang+ 2024]
+       189       How it works:
+       190         Random person from the Internet types in prompt
+       191           They get response from two random (anonymized) models
+       192           They rate which one is better
+       193           ELO scores are computed based on the pairwise comparisons
+       194           Features: live (not static) inputs, can accomodate new models
+       195
+
+
+
+
+       196       [Chatbot Arena]
+       197
+       198
+                 Instruction-Following Eval (IFEval)
+
+       199       [Zhou+ 2023]
+
+
+
+
+https://cs336.stanford.edu/spring2025-lectures/?trace=var/traces/lecture_12.json                        Page 11 of 22
+Trace - lecture_12                                                                                        13.07.2026, 23:59
+
+
+       200
+
+
+
+
+       201           Add simple synthetic constraints to instructions
+       202         Constraints can be automatically verified, but not the semantics of the response
+       203         Fairly simple instructions, constraints are a bit artificial
+       204       [HELM IFEval for visualizing predictions]
+       205
+       206
+                 AlpacaEval
+
+       207       https://tatsu-lab.github.io/alpaca_eval/
+       208         805 instructions from various sources
+       209           Metric: win rate against GPT-4 preview as judged by GPT-4 preview (potential bias)
+
+
+
+
+https://cs336.stanford.edu/spring2025-lectures/?trace=var/traces/lecture_12.json                              Page 12 of 22
+Trace - lecture_12                                                                                                      13.07.2026, 23:59
+
+
+       210
+
+
+
+
+       211
+       212
+                 WildBench
+
+       213       [Lin+ 2024]
+       214         Sourced 1024 examples from 1M human-chatbot conversations
+       215           Uses GPT-4 turbo as a judge with a checklist (like CoT for judging) + GPT-4 as a judge
+       216           Well-correlated (0.95) with Chatbot Arena (seems to be the de facto sanity check for benchmarks)
+       217
+
+
+
+
+       218       [HELM WildBench for visualizing predictions]
+       219
+       220
+       221 def agent_benchmarks():
+       222       Consider tasks that require tool use (e.g., running code) and iterating over a period of time
+       223       Agent = language model + agent scaffolding (logic for deciding how to use the LM)
+       224
+       225
+                 SWEBench
+
+       226       [Jimenez+ 2023]
+       227           2294 tasks across 12 Python repositories
+
+
+https://cs336.stanford.edu/spring2025-lectures/?trace=var/traces/lecture_12.json                                            Page 13 of 22
+Trace - lecture_12                                                                 13.07.2026, 23:59
+
+
+       228           Given codebase + issue description, submit a PR
+       229           Evaluation metric: unit tests
+       230
+
+
+
+
+       231
+       232
+                 CyBench
+
+       233       [Zhang+ 2024]
+       234           40 Capture the Flag (CTF) tasks
+       235           Use first-solve time as a measure of difficulty
+       236
+
+
+
+
+https://cs336.stanford.edu/spring2025-lectures/?trace=var/traces/lecture_12.json       Page 14 of 22
+Trace - lecture_12                                                                           13.07.2026, 23:59
+
+
+       237
+
+
+
+
+       238
+
+
+
+
+       239
+       240
+                 MLEBench
+
+       241       [Chan+ 2024]
+       242         75 Kaggle competitions (require training models, processing data, etc.)
+       243
+
+
+
+
+https://cs336.stanford.edu/spring2025-lectures/?trace=var/traces/lecture_12.json                 Page 15 of 22
+Trace - lecture_12                                                                                                   13.07.2026, 23:59
+
+
+       244
+
+
+
+
+       245
+       246
+       247 def pure_reasoning_benchmarks():
+       248       All of the tasks so far require linguistic and world knowledge
+       249       Can we isolate reasoning from knowledge?
+       250       Arguably, reasoning captures a more pure form of intelligence (isn't just about memorizing facts)
+       251
+       252       ARC-AGI
+       253       Introduced in 2019 by Francois Chollet
+       254
+       255       ARC-AGI-1
+       256
+
+
+
+
+       257
+
+
+
+
+       258
+       259       ARC-AGI-2: harder
+
+
+
+
+https://cs336.stanford.edu/spring2025-lectures/?trace=var/traces/lecture_12.json                                         Page 16 of 22
+Trace - lecture_12                                                                 13.07.2026, 23:59
+
+
+       260
+
+
+
+
+       261
+       262
+       263 def safety_benchmarks():
+       264
+
+
+
+
+       265       What does safety mean for AI?
+       266
+       267       [HELM safety: curated set of benchmarks]
+       268
+       269
+                 HarmBench
+
+       270       [Mazeika+ 2024]
+       271         Based on 510 harmful behaviors that violate laws or norms
+       272       [HarmBench on HELM]
+       273       [Example of safety failure]
+       274
+       275
+                 AIR-Bench
+
+       276       [Zeng+ 2024]
+       277         Based on regulatory frameworks and company policies
+       278         Taxonomized into 314 risk categories, 5694 prompts
+
+
+
+https://cs336.stanford.edu/spring2025-lectures/?trace=var/traces/lecture_12.json       Page 17 of 22
+Trace - lecture_12                                                                                                   13.07.2026, 23:59
+
+
+       279
+
+
+
+
+       280       [HELM AIR-Bench]
+       281
+       282
+                 Jailbreaking
+
+       283           Language models are trained to refuse harmful instructions
+       284           Greedy Coordinate Gradient (GCG) automatically optimizes prompts to bypass safety [Zou+ 2023]
+       285           Transfers from open-weight models (Llama) to closed models (GPT-4)
+       286
+
+
+
+
+       287
+
+
+https://cs336.stanford.edu/spring2025-lectures/?trace=var/traces/lecture_12.json                                         Page 18 of 22
+Trace - lecture_12                                                                                                                13.07.2026, 23:59
+
+
+       288
+                 Pre-deployment testing
+
+       289           US Safety Institute + UK AI Safety Institute working together
+       290           Company gives safety institutes access to model before release (currently voluntary)
+       291         Safety institutes run evaluations and produce a report to company
+       292       [report]
+       293
+       294
+                 But what is safety?
+
+       295           Many aspects of safety are strongly contextual (politics, law, social norms - which vary across countries)
+       296           Naively, one might think safety is about refusal and is at odds with capability, but there's more...
+       297           Hallucinations in a medical setting makes systems more capable and more safe
+       298
+       299       Two aspects of a model that reduce safety: capabilities + propensity
+       300         A system could be capable of doing something, but refuse to do it
+       301         For API models, propensity matters
+       302           For open weight models, capability matters (since can easily fine-tune safety away)
+       303
+       304       Dual-use: capable cybersecurity agents (do well on CyBench) can be used to hack into a system or to do
+                 penetration testing
+       305       CyBench is used by the safety institute as a safety evaluation, but is it really a capability evaluation?
+       306
+       307
+       308 def realism():
+       309       Language models are used heavily in practice:
+       310                                                                                              [tweet]
+
+
+
+
+       311                                                                                              [tweet]
+
+
+
+
+       312
+       313       However, most existing benchmarks (e.g., MMLU) are far away from real-world use.
+       314       Live traffic from real people contain garbage, that's not always what we want either.
+       315
+       316       Two types of prompts:
+       317      1. Quizzing: User knows the answer and trying to test the system (think standardized exams).
+       318      2. Asking: User doesn't know the answer is trying to use the system to get it.
+       319       Asking is more realistic and produces value for the user.
+       320
+       321
+                 Clio (Anthropic)
+
+       322       [Tamkin+ 2024]
+       323         Use language models to analyze real user data
+
+
+
+https://cs336.stanford.edu/spring2025-lectures/?trace=var/traces/lecture_12.json                                                      Page 19 of 22
+Trace - lecture_12                                                                                         13.07.2026, 23:59
+
+
+       324           Share general patterns of what people are asking
+       325
+
+
+
+
+       326
+       327
+                 MedHELM
+
+       328       [Tamkin+ 2024]
+       329         Previous medical benchmarks were based on standardized exams
+       330         121 clinical tasks sourced from 29 clinicians, mixture of private and public datasets
+       331
+
+
+
+
+       332       [MedHELM]
+       333
+       334       Unfortunately, realism and privacy are sometimes at odds with each other.
+       335
+       336
+       337 def validity():
+       338       How do we know our evaluations are valid?
+       339
+       340
+                 Train-test overlap
+
+       341           Machine learning 101: don't train on your test set
+       342           Pre-foundation models (ImageNet, SQuAD): well-defined train-test splits
+       343           Nowadays: train on the Internet and don't tell people about your data
+       344
+       345       Route 1: try to infer train-test overlap from model
+
+
+https://cs336.stanford.edu/spring2025-lectures/?trace=var/traces/lecture_12.json                              Page 20 of 22
+Trace - lecture_12                                                                                   13.07.2026, 23:59
+
+
+       346           Exploit exchangeability of data points[Oren+ 2023]
+       347
+
+
+
+
+       348
+       349       Route 2: encourage reporting norms (e.g., people report confidence intervals)
+       350         Model providers should report train-test overlap [Zhang+ 2024]
+       351
+       352
+                 Dataset quality
+
+       353           Fixed up SWE-Bench to produce SWE-Bench Verified [blog]
+       354           Create Platinum versions of benchmarks[Vendrow+ 2025]
+       355
+
+
+
+
+       356
+
+
+
+
+       357
+       358
+       359 def what_are_we_evaluating():
+       360       What are we even evaluating?
+       361       In other words, what are the rules of a game?
+       362
+       363       Pre-foundation models, we evaluated methods (standardized train-test splits).
+       364       Today, we're evaluating models/systems (anything goes).
+       365
+       366       There are some exceptions...
+       367       nanogpt speedrun: fixed data, compute time to get to a particular validation loss
+
+
+
+
+https://cs336.stanford.edu/spring2025-lectures/?trace=var/traces/lecture_12.json                         Page 21 of 22
+Trace - lecture_12                                                                                                     13.07.2026, 23:59
+
+
+       368                                                                                       [X]
+
+
+
+
+       369
+       370       DataComp-LM: given a raw dataset, get the best accuracy using standard training pipeline [Li+ 2024]
+       371
+       372       Evaluating methods encourage algorithmic innovation from researchers.
+       373       Evaluating models/systems is useful for downstream users.
+       374
+       375       Either way, we need to define the rules of the game!
+       376
+       377
+       378 if __name__ == "__main__":
+       379       main()
+
+
+
+
+https://cs336.stanford.edu/spring2025-lectures/?trace=var/traces/lecture_12.json                                          Page 22 of 22
+

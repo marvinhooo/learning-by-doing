@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "cs336-static",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8347", "--directory", "/Users/martin/Documents/Python Folder/CS336"],
+      "port": 8347
+    }
+  ]
+}

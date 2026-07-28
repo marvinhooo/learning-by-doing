@@ -1,0 +1,582 @@
+Trace - lecture_08                                                                                                14.07.2026, 00:04
+
+
+
+
+    lecture_08.py
+
+
+         1   import torch
+         2   import time
+         3   import os
+         4   from typing import List, Callable
+         5   import torch.nn.functional as F
+         6   import torch.distributed as dist
+         7   import torch.distributed.fsdp
+         8   from execute_util import text, image, link, system_text
+         9   from torch_util import get_device
+        10   from lecture_util import article_link
+        11   from lecture_08_utils import spawn, int_divide, summarize_tensor, get_init_params, render_duration
+        12
+        13   def main():
+        14      Last week: parallelism within a single GPU
+        15      This week: parallelism across multiple GPUs
+        16
+
+
+
+
+        17
+        18      In both cases, compute (arithmetic logic units) is far from inputs/outputs (data).
+        19      Unifying theme: orchestrate computation to avoid data transfer bottlenecks
+        20
+        21      Last week: reduce memory accesses via fusion/tiling
+        22      This week: reduce communication across GPUs/nodes via replication/sharding
+        23
+        24      Generalized hierarchy (from small/fast to big/slow):
+        25       Single node, single GPU: L1 cache / shared memory
+        26           Single node, single GPU: HBM
+        27           Single node, multi-GPU: NVLink
+        28           Multi-node, multi-GPU: NVSwitch
+        29
+        30      This lecture: concretize the concepts from last lecture in code
+        31
+        32      [stdout for this lecture]
+
+
+https://cs336.stanford.edu/spring2025-lectures/?trace=var/traces/lecture_08.json                                       Page 1 of 11
+Trace - lecture_08                                                                                                              14.07.2026, 00:04
+
+
+        33
+        34
+                Part 1: building blocks of distributed communication/computation
+
+        35       collective_operations()          # Conceptual programming interface
+        36       torch_distributed()              # How this is implemented in NCCL/PyTorch
+        37       benchmarking()                   # Measure actual NCCL bandwidth
+        38
+        39
+                Part 2: distributed training
+
+        40      Walk through bare-bones implementations of each strategy on deep MLPs.
+        41      Recall that MLPs are the compute bottleneck in Transformers, so this is representative.
+        42       data_parallelism()               # Cut up along the batch dimension
+        43       tensor_parallelism()             # Cut up along the width dimension
+        44       pipeline_parallelism()           # Cut up along the depth dimension
+        45
+        46      What's missing?
+        47           More general models (with attention, etc.)
+        48           More communication/computation overlap
+        49           This require more complex code with more bookkeeping
+        50           Jax/TPUs: just define the model, the sharding strategy, and the Jax compiler handles the rest [levanter]
+        51           But we're doing PyTorch so you can see how one builds up from the primitives
+        52
+        53
+                Summary
+
+        54           Many ways to parallelize: data (batch), tensor/expert (width), pipeline (depth), sequence (length)
+        55           Can re-compute or store in memory or store in another GPUs memory and communicate
+        56           Hardware is getting faster, but will always want bigger models, so will have this hierarchical structure
+        57
+        58
+        59   def collective_operations():
+        60      Collective operations are the conceptual primitives used for distributed programming [article]
+        61       Collective means that you specify communication pattern across many (e.g., 256) nodes.
+        62           These are classic in the parallel programming literature from the 1980s.
+        63           Better/faster abstraction than managing point-to-point communication yourself.
+        64
+        65      Terminology:
+        66        World size: number of devices (e.g., 4)
+        67           Rank: a device (e.g., 0, 1, 2, 3)
+        68
+        69
+                Broadcast
+
+
+
+
+        70
+
+
+
+
+https://cs336.stanford.edu/spring2025-lectures/?trace=var/traces/lecture_08.json                                                     Page 2 of 11
+Trace - lecture_08                                                                 14.07.2026, 00:04
+
+
+        71
+                Scatter
+
+
+
+
+        72
+        73
+                Gather
+
+
+
+
+        74
+        75
+                Reduce
+
+
+
+
+        76
+        77
+                All-gather
+
+
+
+
+        78
+        79
+                Reduce-scatter
+
+
+
+
+        80
+
+
+
+
+https://cs336.stanford.edu/spring2025-lectures/?trace=var/traces/lecture_08.json        Page 3 of 11
+Trace - lecture_08                                                                                                14.07.2026, 00:04
+
+
+        81
+                All-reduce = reduce-scatter + all-gather
+
+
+
+
+        82
+        83      Way to remember the terminology:
+        84       Reduce: performs some associative/commutative operation (sum, min, max)
+        85           Broadcast/scatter is inverse of gather
+        86           All: means destination is all devices
+        87
+        88
+        89   def torch_distributed():
+        90
+                Hardware
+
+        91      Classic (in the home):
+        92
+
+
+
+
+        93           GPUs on same node communicate via a PCI(e) bus (v7.0, 16 lanes => 242 GB/s) [article]
+        94           GPUs on different nodes communicate via Ethernet (~200 MB/s)
+        95
+        96      Modern (in the data center):
+        97
+
+
+
+
+        98           Within a node: NVLink connects GPUs directly, bypass CPU
+        99           Across nodes: NVSwitch connects GPUs directly, bypass Ethernet
+      100
+      101       Each H100 has 18 NVLink 4.0 links, for a total of 900GB/s [article]
+      102       In comparison, memory bandwidth for HBM is 3.9 TB/s [article]
+      103
+      104       Let's check what our hardware setup is. [article]
+      105       if torch.cuda.is_available():
+      106              os.system("nvidia-smi topo -m")
+      107              Note GPUs are connected via NV18, also connected to NICs (for PCIe)
+      108
+      109
+                NVIDIA Collective Communication Library (NCCL)
+
+      110       NCCL translates collective operations into low-level packets that are sent between GPUs. [talk]
+      111            Detects topology of hardware (e.g., number of nodes, switches, NVLink/PCIe)
+
+
+https://cs336.stanford.edu/spring2025-lectures/?trace=var/traces/lecture_08.json                                       Page 4 of 11
+Trace - lecture_08                                                                                                          14.07.2026, 00:04
+
+
+      112            Optimizes the path between GPUs
+      113            Launches CUDA kernels to send/receive data
+      114
+      115
+                PyTorch distributed library (torch.distributed)
+
+      116       [Documentation]
+      117
+      118            Provides clean interface for collective operations (e.g., all_gather_into_tensor)
+      119            Supports multiple backends for different hardware: gloo (CPU), nccl (GPU)
+      120            Also supports higher-level algorithms (e.g., FullyShardedDataParallel) [not used in this course]
+      121
+      122       Let's walk through some examples.
+      123       spawn(collective_operations_main, world_size=4)
+      124
+      125
+      126 def collective_operations_main(rank: int, world_size: int):
+      127       """This function is running asynchronously for each process (rank = 0, ..., world_size - 1)."""
+      128       setup(rank, world_size)
+      129
+      130       # All-reduce
+      131       dist.barrier()      # Waits for all processes to get to this point (in this case, for print statements)
+      132
+      133       tensor = torch.tensor([0., 1, 2, 3], device=get_device(rank)) + rank           # Both input and output
+      134
+      135       print(f"Rank {rank} [before all-reduce]: {tensor}", flush=True)
+      136       dist.all_reduce(tensor=tensor, op=dist.ReduceOp.SUM, async_op=False)           # Modifies tensor in place
+      137       print(f"Rank {rank} [after all-reduce]: {tensor}", flush=True)
+      138
+      139       # Reduce-scatter
+      140       dist.barrier()
+      141
+      142       input = torch.arange(world_size, dtype=torch.float32, device=get_device(rank)) + rank            # Input
+      143       output = torch.empty(1, device=get_device(rank))         # Allocate output
+      144
+      145       print(f"Rank {rank} [before reduce-scatter]: input = {input}, output = {output}", flush=True)
+      146       dist.reduce_scatter_tensor(output=output, input=input, op=dist.ReduceOp.SUM, async_op=False)
+      147       print(f"Rank {rank} [after reduce-scatter]: input = {input}, output = {output}", flush=True)
+      148
+      149       # All-gather
+      150       dist.barrier()
+      151
+      152       input = output      # Input is the output of reduce-scatter
+      153       output = torch.empty(world_size, device=get_device(rank))          # Allocate output
+      154
+      155       print(f"Rank {rank} [before all-gather]: input = {input}, output = {output}", flush=True)
+      156       dist.all_gather_into_tensor(output_tensor=output, input_tensor=input, async_op=False)
+      157       print(f"Rank {rank} [after all-gather]: input = {input}, output = {output}", flush=True)
+      158
+      159       Indeed, all-reduce = reduce-scatter + all-gather!
+      160
+      161       cleanup()
+      162
+      163
+      164 def benchmarking():
+      165       Let's see how fast communication happens (restrict to one node).
+      166
+      167       # All-reduce
+
+
+
+https://cs336.stanford.edu/spring2025-lectures/?trace=var/traces/lecture_08.json                                                 Page 5 of 11
+Trace - lecture_08                                                                                                        14.07.2026, 00:04
+
+
+      168       spawn(all_reduce, world_size=4, num_elements=100 * 1024**2)
+      169
+      170       # Reduce-scatter
+      171       spawn(reduce_scatter, world_size=4, num_elements=100 * 1024**2)
+      172
+      173       # References
+      174       How to reason about operations
+      175       Sample code
+      176
+      177
+      178 def all_reduce(rank: int, world_size: int, num_elements: int):
+      179       setup(rank, world_size)
+      180
+      181       # Create tensor
+      182       tensor = torch.randn(num_elements, device=get_device(rank))
+      183
+      184       # Warmup
+      185       dist.all_reduce(tensor=tensor, op=dist.ReduceOp.SUM, async_op=False)
+      186       if torch.cuda.is_available():
+      187            torch.cuda.synchronize()      # Wait for CUDA kernels to finish
+      188            dist.barrier()                # Wait for all the processes to get here
+      189
+      190       # Perform all-reduce
+      191       start_time = time.time()
+      192       dist.all_reduce(tensor=tensor, op=dist.ReduceOp.SUM, async_op=False)
+      193       if torch.cuda.is_available():
+      194            torch.cuda.synchronize()      # Wait for CUDA kernels to finish
+      195            dist.barrier()                # Wait for all the processes to get here
+      196       end_time = time.time()
+      197
+      198       duration = end_time - start_time
+      199       print(f"[all_reduce] Rank {rank}: all_reduce(world_size={world_size}, num_elements={num_elements}) took
+    {render_duration(duration)}", flush=True)
+      200
+      201       # Measure the effective bandwidth
+      202       dist.barrier()
+      203       size_bytes = tensor.element_size() * tensor.numel()
+      204       sent_bytes = size_bytes * 2 * (world_size - 1)         # 2x because send input and receive output
+      205       total_duration = world_size * duration
+      206       bandwidth = sent_bytes / total_duration
+      207       print(f"[all_reduce] Rank {rank}: all_reduce measured bandwidth = {round(bandwidth / 1024**3)} GB/s", flush=True)
+      208
+      209       cleanup()
+      210
+      211
+      212 def reduce_scatter(rank: int, world_size: int, num_elements: int):
+      213       setup(rank, world_size)
+      214
+      215       # Create input and outputs
+      216       input = torch.randn(world_size, num_elements, device=get_device(rank))        # Each rank has a matrix
+      217       output = torch.empty(num_elements, device=get_device(rank))
+      218
+      219       # Warmup
+      220       dist.reduce_scatter_tensor(output=output, input=input, op=dist.ReduceOp.SUM, async_op=False)
+      221       if torch.cuda.is_available():
+      222            torch.cuda.synchronize()      # Wait for CUDA kerels to finish
+      223            dist.barrier()                # Wait for all the processes to get here
+      224
+
+
+
+https://cs336.stanford.edu/spring2025-lectures/?trace=var/traces/lecture_08.json                                               Page 6 of 11
+Trace - lecture_08                                                                                                       14.07.2026, 00:04
+
+
+      225       # Perform reduce-scatter
+      226       start_time = time.time()
+      227       dist.reduce_scatter_tensor(output=output, input=input, op=dist.ReduceOp.SUM, async_op=False)
+      228       if torch.cuda.is_available():
+      229              torch.cuda.synchronize()    # Wait for CUDA kerels to finish
+      230              dist.barrier()              # Wait for all the processes to get here
+      231       end_time = time.time()
+      232
+      233       duration = end_time - start_time
+      234       print(f"[reduce_scatter] Rank {rank}: reduce_scatter(world_size={world_size}, num_elements={num_elements}) took
+    {render_duration(duration)}", flush=True)
+      235
+      236       # Measure the effective bandwidth
+      237       dist.barrier()
+      238       data_bytes = output.element_size() * output.numel()          # How much data in the output
+      239       sent_bytes = data_bytes * (world_size - 1)        # How much needs to be sent (no 2x here)
+      240       total_duration = world_size * duration        # Total time for transmission
+      241       bandwidth = sent_bytes / total_duration
+      242       print(f"[reduce_scatter] Rank {rank}: reduce_scatter measured bandwidth = {round(bandwidth / 1024**3)} GB/s",
+    flush=True)
+      243
+      244       cleanup()
+      245
+      246
+      247 def data_parallelism():
+      248
+
+
+
+
+      249       Sharding strategy: each rank gets a slice of the data
+      250
+      251       data = generate_sample_data()
+      252       spawn(data_parallelism_main, world_size=4, data=data, num_layers=4, num_steps=1)
+      253
+      254       Notes:
+      255            Losses are different across ranks (computed on local data)
+      256            Gradients are all-reduced to be the same across ranks
+      257            Therefore, parameters remain the same across ranks
+      258
+      259
+      260 def generate_sample_data():
+      261       batch_size = 128
+      262       num_dim = 1024
+      263       data = torch.randn(batch_size, num_dim)
+
+
+
+https://cs336.stanford.edu/spring2025-lectures/?trace=var/traces/lecture_08.json                                                Page 7 of 11
+Trace - lecture_08                                                                                                      14.07.2026, 00:04
+
+
+      264       return data
+      265
+      266
+      267 def data_parallelism_main(rank: int, world_size: int, data: torch.Tensor, num_layers: int, num_steps: int):
+      268       setup(rank, world_size)
+      269
+      270       # Get the slice of data for this rank (in practice, each rank should load only its own data)
+      271       batch_size = data.size(0)      # @inspect batch_size
+      272       num_dim = data.size(1)      # @inspect num_dim
+      273       local_batch_size = int_divide(batch_size, world_size)          # @inspect local_batch_size
+      274       start_index = rank * local_batch_size        # @inspect start_index
+      275       end_index = start_index + local_batch_size        # @inspect end_index
+      276       data = data[start_index:end_index].to(get_device(rank))
+      277
+      278       # Create MLP parameters params[0], ..., params[num_layers - 1] (each rank has all parameters)
+      279       params = [get_init_params(num_dim, num_dim, rank) for i in range(num_layers)]
+      280       optimizer = torch.optim.AdamW(params, lr=1e-3)         # Each rank has own optimizer state
+      281
+      282       for step in range(num_steps):
+      283            # Forward pass
+      284            x = data
+      285            for param in params:
+      286                x = x @ param
+      287                x = F.gelu(x)
+      288            loss = x.square().mean()      # Loss function is average squared magnitude
+      289
+      290            # Backward pass
+      291            loss.backward()
+      292
+      293            # Sync gradients across workers (only difference between standard training and DDP)
+      294            for param in params:
+      295                dist.all_reduce(tensor=param.grad, op=dist.ReduceOp.AVG, async_op=False)
+      296
+      297            # Update parameters
+      298            optimizer.step()
+      299
+      300            print(f"[data_parallelism] Rank {rank}: step = {step}, loss = {loss.item()}, params =
+    {[summarize_tensor(params[i]) for i in range(num_layers)]}", flush=True)
+      301
+      302       cleanup()
+      303
+      304
+      305 def tensor_parallelism():
+
+
+
+
+https://cs336.stanford.edu/spring2025-lectures/?trace=var/traces/lecture_08.json                                             Page 8 of 11
+Trace - lecture_08                                                                                                        14.07.2026, 00:04
+
+
+      306
+
+
+
+
+      307       Sharding strategy: each rank gets part of each layer, transfer all data/activations
+      308
+      309       data = generate_sample_data()
+      310       spawn(tensor_parallelism_main, world_size=4, data=data, num_layers=4)
+      311
+      312
+      313 def tensor_parallelism_main(rank: int, world_size: int, data: torch.Tensor, num_layers: int):
+      314       setup(rank, world_size)
+      315
+      316       data = data.to(get_device(rank))
+      317       batch_size = data.size(0)      # @inspect batch_size
+      318       num_dim = data.size(1)      # @inspect num_dim
+      319       local_num_dim = int_divide(num_dim, world_size)         # Shard `num_dim`   @inspect local_num_dim
+      320
+      321       # Create model (each rank gets 1/world_size of the parameters)
+      322       params = [get_init_params(num_dim, local_num_dim, rank) for i in range(num_layers)]
+      323
+      324       # Forward pass
+      325       x = data
+      326       for i in range(num_layers):
+      327            # Compute activations (batch_size x local_num_dim)
+      328            x = x @ params[i]     # Note: this is only on a slice of the parameters
+      329            x = F.gelu(x)
+      330
+      331            # Allocate memory for activations (world_size x batch_size x local_num_dim)
+      332            activations = [torch.empty(batch_size, local_num_dim, device=get_device(rank)) for _ in range(world_size)]
+      333
+      334            # Send activations via all gather
+      335            dist.all_gather(tensor_list=activations, tensor=x, async_op=False)
+      336
+      337            # Concatenate them to get batch_size x num_dim
+      338            x = torch.cat(activations, dim=1)
+      339
+      340       print(f"[tensor_parallelism] Rank {rank}: forward pass produced activations {summarize_tensor(x)}", flush=True)
+      341
+      342       # Backward pass: homework exercise
+      343
+      344       cleanup()
+      345
+      346
+      347 def pipeline_parallelism():
+
+
+
+
+https://cs336.stanford.edu/spring2025-lectures/?trace=var/traces/lecture_08.json                                                  Page 9 of 11
+Trace - lecture_08                                                                                                     14.07.2026, 00:04
+
+
+      348
+
+
+
+
+      349       Sharding strategy: each rank gets subset of layers, transfer all data/activations
+      350
+      351       data = generate_sample_data()
+      352       spawn(pipeline_parallelism_main, world_size=2, data=data, num_layers=4, num_micro_batches=4)
+      353
+      354
+      355 def pipeline_parallelism_main(rank: int, world_size: int, data: torch.Tensor, num_layers: int, num_micro_batches: int):
+      356       setup(rank, world_size)
+      357
+      358       # Use all the data
+      359       data = data.to(get_device(rank))
+      360       batch_size = data.size(0)      # @inspect batch_size
+      361       num_dim = data.size(1)      # @inspect num_dim
+      362
+      363       # Split up layers
+      364       local_num_layers = int_divide(num_layers, world_size)          # @inspect local_num_layers
+      365
+      366       # Each rank gets a subset of layers
+      367       local_params = [get_init_params(num_dim, num_dim, rank) for i in range(local_num_layers)]
+      368
+      369       # Forward pass
+      370
+      371       # Break up into micro batches to minimize the bubble
+      372       micro_batch_size = int_divide(batch_size, num_micro_batches)         # @inspect micro_batch_size
+      373       if rank == 0:
+      374            # The data
+      375            micro_batches = data.chunk(chunks=num_micro_batches, dim=0)
+      376       else:
+      377            # Allocate memory for activations
+      378            micro_batches = [torch.empty(micro_batch_size, num_dim, device=get_device(rank)) for _ in
+    range(num_micro_batches)]
+      379
+      380       for x in micro_batches:
+      381            # Get activations from previous rank
+      382            if rank - 1 >= 0:
+      383                dist.recv(tensor=x, src=rank - 1)
+      384
+      385            # Compute layers assigned to this rank
+      386            for param in local_params:
+      387                x = x @ param
+      388                x = F.gelu(x)
+
+
+
+
+https://cs336.stanford.edu/spring2025-lectures/?trace=var/traces/lecture_08.json                                            Page 10 of 11
+Trace - lecture_08                                                                                                        14.07.2026, 00:04
+
+
+      389
+      390            # Send to the next rank
+      391            if rank + 1 < world_size:
+      392                print(f"[pipeline_parallelism] Rank {rank}: sending {summarize_tensor(x)} to rank {rank + 1}", flush=True)
+      393                dist.send(tensor=x, dst=rank + 1)
+      394
+      395       Not handled: overlapping communication/computation to eliminate pipeline bubbles
+      396
+      397       # Backward pass: homework exercise
+      398
+      399       cleanup()
+      400
+      401 ############################################################
+      402
+      403 def setup(rank: int, world_size: int):
+      404       # Specify where master lives (rank 0), used to coordinate (actual data goes through NCCL)
+      405       os.environ["MASTER_ADDR"] = "localhost"
+      406       os.environ["MASTER_PORT"] = "15623"
+      407
+      408       if torch.cuda.is_available():
+      409            dist.init_process_group("nccl", rank=rank, world_size=world_size)
+      410       else:
+      411            dist.init_process_group("gloo", rank=rank, world_size=world_size)
+      412
+      413
+      414 def cleanup():
+      415       torch.distributed.destroy_process_group()
+      416
+      417
+      418 if __name__ == "__main__":
+      419       main()
+
+
+
+
+https://cs336.stanford.edu/spring2025-lectures/?trace=var/traces/lecture_08.json                                               Page 11 of 11
+

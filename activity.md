@@ -296,3 +296,13 @@ Iteration Counter: 1
 - Verifiziert: Alle 79 Formelkarten besitzen in beiden Sprachen einen Zahlenfall mit sichtbarer Rechnung und Ergebnis; der Regressionstest deckt Reihenfolge, Symbolerklaerungen, geschlossene Karten, Lecture-Kuratierung und alle 29 Assignment-Themen ab. Im Browser folgen Parameterinitialisierung und Assignment 1 dem neuen Erklaerpfad, enthalten keine Schein-Evidence und laufen bei 390 x 844 Pixeln ohne horizontalen Ueberlauf; die Konsole blieb ohne Fehler oder Warnungen.
 - Ein abschliessender Sprachreview fand noch stillschweigend vorausgesetzte Operatoren sowie vier zu knapp gerechnete Beispiele. Die zentrale Notationshilfe erklaert nun unter anderem `~`, `N(...)`, `∈` und `√` vor der Regel; Parameterinitialisierung zeigt die vollstaendige Einsetzung `2/(d_in+d_out)=2/(2+6)=2/8`, und Linear Layer, Residualupdate sowie MFU rechnen jeden Schritt sichtbar aus. Geschlossene Karten schreiben alle im Zweck verwendeten erkannten Abkuerzungen aus.
 - Service-Worker-Cache und Sprachbundle werden auf Version 41 angehoben. Der Iteration Counter bleibt 1, da dieser Run manuell/interaktiv gestartet wurde.
+
+## 2026-07-29 - Seitenposition innerhalb einer Lecture (manueller Run)
+
+- Status: lokal umgesetzt und verifiziert; kein Commit, Push oder Deployment ausgefuehrt.
+- Kernkonzeptseiten zeigen nun direkt in der Kopfzeile `Lecture N · Seite X von Y · Level`. Ein kompakter segmentierter Streifen wiederholt die Seitenzahl und markiert genau die aktuelle Seite, ohne vorherige Seiten als abgeschlossen darzustellen.
+- Der Weiter-Button nennt die kommende Seitenzahl, beispielsweise `Naechste Seite · 3 von 3`. Voraussetzungen und Vertiefungen, die nicht zu den kuratierten Kernseiten der Lecture gehoeren, behalten ihre eigene Kennzeichnung und erhalten keine erfundene Seitenzahl.
+- Deutsch und Englisch sind vollstaendig abgedeckt. Ein Regressionstest sichert Kopfzeile, Positionsstreifen, aktuelle Segmentmarkierung und Seitenzahl im Weiter-Button.
+- Verifiziert: Locale- und Semantikcheck fuer 75 Concepts, 79 Formeln, 72 Symbole, 70 Glossareintraege, 27 Labs, 29 Missions und 1102 UI-Texte; Inline-JavaScript und Service Worker parsen; reproduzierbarer `_site`-Build und `git diff --check` sind sauber.
+- Browserpruefung: Lecture 1 zeigt auf den drei Kernseiten korrekt `1 von 3`, `2 von 3` und `3 von 3`; der Weiter-Button wechselt von Seite 2 auf Seite 3. Deutsch und Englisch, 390 x 844 Pixel ohne horizontalen Ueberlauf und eine leere Fehler-/Warnungskonsole wurden geprueft.
+- Service-Worker-Cache und Sprachbundle stehen auf Version 51. Der Iteration Counter bleibt 1, da dieser Run manuell/interaktiv gestartet wurde.
