@@ -145,6 +145,7 @@ for (const lectureId of lectureIds) {
       if (!itemSources?.includes(lectureId)) throw new Error(`lecture guides.${lectureId}.${target}: ${id} does not cite ${lectureId}`);
     }
   }
+  if (!guide.labs.length) throw new Error(`lecture guides.${lectureId}: no interactive lab, so this lecture can only be read and never practised`);
 }
 if (JSON.stringify(Object.keys(base.assignmentPrerequisiteGuides)) !== JSON.stringify(base.assignments.map(assignment => assignment.id))) throw new Error("assignment prerequisite guides: every assignment must appear exactly once and in source order");
 for (const assignment of base.assignments) {
@@ -561,6 +562,39 @@ for (const [id, answers] of Object.entries({
   "rlvr-system-transfer":["dr","surrogate","four"]
 })) if (JSON.stringify(labObjectives[id]?.answers) !== JSON.stringify(answers)) throw new Error(`labObjectives.${id}: fixed answer regression`);
 
+// The DPO lab only teaches anything as long as every wrong variant stays bit-identical to the
+// correct one on at least one preference pair and exposed on at least one other. Recompute
+// Equation (3) here independently of the app so a tweaked token value cannot silently break that.
+const dpoBeta = readConstant("DPO_BETA");
+const dpoCases = readConstant("DPO_CASES");
+const dpoVariants = readConstant("DPO_VARIANTS");
+if (dpoBeta !== 0.1) throw new Error(`DPO_BETA: the A5 supplement prescribes 0.1, found ${dpoBeta}`);
+if (dpoVariants.filter(variant => variant.ok).length !== 1) throw new Error("DPO_VARIANTS: exactly one variant may be marked correct");
+const dpoLoss = (item, variantKey) => {
+  const f32 = value => Math.fround(value);
+  const sum = list => list.reduce((total, value) => f32(total + value), 0);
+  const side = entry => entry.theta ? { theta: sum(entry.theta), ref: sum(entry.ref), length: entry.theta.length }
+    : { theta: f32(entry.thetaSum), ref: f32(entry.refSum), length: entry.length };
+  const scale = (entry, key) => variantKey === "meanNormalize" ? f32(entry[key] / entry.length) : entry[key];
+  const margin = entry => variantKey === "noRef" ? scale(entry, "theta") : f32(scale(entry, "theta") - scale(entry, "ref"));
+  const chosen = side(item.chosen), rejected = side(item.rejected);
+  let logit = f32(dpoBeta * f32(margin(chosen) - margin(rejected)));
+  if (variantKey === "swapped") logit = f32(-logit);
+  if (variantKey === "sigmoidThenLog") return f32(-Math.log(f32(1 / f32(1 + f32(Math.exp(f32(-logit)))))));
+  return logit >= 0 ? f32(Math.log1p(f32(Math.exp(f32(-logit))))) : f32(f32(-logit) + f32(Math.log1p(f32(Math.exp(f32(logit))))));
+};
+for (const variant of dpoVariants) {
+  if (variant.ok) continue;
+  const hidden = [], exposed = [];
+  for (const [caseKey, item] of Object.entries(dpoCases)) {
+    (dpoLoss(item, variant.key).toFixed(6) === dpoLoss(item, "correct").toFixed(6) ? hidden : exposed).push(caseKey);
+  }
+  if (!hidden.length) throw new Error(`DPO_CASES: variant ${variant.key} is exposed on every preference pair, so the lab's core lesson no longer holds`);
+  if (!exposed.length) throw new Error(`DPO_CASES: variant ${variant.key} is hidden on every preference pair, so nothing ever reveals it`);
+}
+if (dpoLoss(dpoCases.confident, "sigmoidThenLog") !== Infinity) throw new Error("DPO_CASES.confident: the sigmoid-then-log variant no longer overflows, which is the case the transfer answer explains");
+if (dpoLoss(dpoCases.tied, "correct").toFixed(6) !== Math.log(2).toFixed(6)) throw new Error("DPO_CASES.tied: h is no longer exactly zero, so the loss is no longer log 2");
+
 for (const forbidden of ["Implementierungen können andere Pairings", "Implementations may use different pairings"]) {
   if (`${prose(baseConcepts.rope)} ${prose(baseFormulas.rope)} ${prose(englishConcepts.rope)} ${prose(englishFormulas.rope)}`.includes(forbidden)) throw new Error(`A1 RoPE contract became permissive again: ${forbidden}`);
 }
@@ -808,7 +842,16 @@ for (const key of [
   "Original-Handout-Scope",
   "Arbeitsreihenfolge auf hoher Ebene",
   "Fester Mini-Rollout",
-  "Gathered log p und response_mask"
+  "Gathered log p und response_mask",
+  "Präferenzpaar und Variante",
+  "Präferenzpaar (x, y_w, y_l)",
+  "DPO-Loss aus Gleichung (3) in simulierter float32-Arithmetik",
+  "Die vier Sequenz-Logwahrscheinlichkeiten",
+  "Margen, Logit und Loss unter der gewählten Variante",
+  "Marge_w der bevorzugten Antwort",
+  "Marge_l der abgelehnten Antwort",
+  "Referenz nach Gleichung (3)",
+  "Was ein einzelnes Testpaar beweisen kann"
 ]) {
   if (typeof pack.ui?.[key] !== "string" || !pack.ui[key].trim() || pack.ui[key] === key) throw new Error(`ui.${key}: English translation is missing`);
 }
