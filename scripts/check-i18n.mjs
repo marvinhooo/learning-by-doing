@@ -763,6 +763,14 @@ const a1 = base.assignments.find(assignment => assignment.id === "a1");
 const a1Mission = id => a1?.missions.find(mission => mission.id === id);
 if (!a1Mission("tensor-primitives")?.concepts.includes("parameter-initialization")) throw new Error("A1 tensor-primitives mission is missing parameter initialization");
 if (!a1Mission("training-state")?.concepts.includes("token-array-loading")) throw new Error("A1 training-state mission is missing memory-mapped token-array loading");
+const textTokenizer = a1Mission("text-tokenizer");
+if (!textTokenizer?.labs.includes("bpe-encode")) throw new Error("A1 text-tokenizer mission is missing the encoding lab; a1:tokenizer would have no interactive object");
+const encodeLab = base.labs.find(lab => lab.id === "bpe-encode");
+if (encodeLab?.module !== "tokenization") throw new Error("labs.bpe-encode: must live in the tokenization module so Lecture 1 can cite it");
+if (!/encode_iterable/.test(source)) throw new Error("encode_iterable is required by the A1 tokenizer problem and must appear in the platform");
+for (const field of ["mental", "misconception"]) {
+  if (!/rang/i.test(encodeLab?.[field] || "")) throw new Error(`labs.bpe-encode.${field}: must state that encoding applies merges in creation rank order`);
+}
 
 const assignmentSource = keyed(base.assignments);
 for (const [assignmentId, translated] of Object.entries(pack.assignments)) {
