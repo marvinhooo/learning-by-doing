@@ -738,6 +738,16 @@ const lectureTemplate = source.slice(source.indexOf("function renderLectureDetai
 if (!lectureTemplate.includes("${lectureProblemOutlookMarkup(id)}")) throw new Error("lecture outlook: the lecture page must render the problem outlook");
 if (!(lectureTemplate.indexOf("lectureProblemOutlookMarkup(id)") < lectureTemplate.indexOf('"Original material"'))) throw new Error("lecture outlook: the outlook belongs in the reading flow before the original material");
 
+// The dashboard's opening panel tells the learner which sections to look for by quoting their headings.
+// A renamed heading would turn that into a wrong instruction on the very first page, so the quotes are
+// checked against the headings the renderers actually emit, in both languages.
+const dashboard = source.slice(source.indexOf("function renderDashboard"), source.indexOf("function diagnosticSummaryHtml"));
+for (const heading of ["Welche Assignment-Probleme das jetzt öffnet", "Which assignment problems this opens up", "Was dieses Assignment braucht, aber keine Lecture liefert", "What this assignment needs but no lecture hands you"]) {
+  if (!dashboard.includes(heading)) throw new Error(`dashboard workflow: the opening panel no longer points at "${heading}"`);
+  if (source.split(heading).length - 1 < 2) throw new Error(`dashboard workflow: the panel quotes "${heading}", but no renderer emits that heading any more`);
+}
+for (const framing of ["keine Termine und nichts, was freigeschaltet werden muss", "no deadlines here and nothing that has to be unlocked"]) if (!dashboard.includes(framing)) throw new Error(`dashboard workflow: the panel must keep stating that nothing is scheduled or gated (missing "${framing}")`);
+
 // Mirrors the app's derivation. A deciding concept that neither a lecture nor the shared foundations teaches
 // would hide its problem from every lecture page forever, so the few assignment-only concepts are listed
 // explicitly: adding to that list has to be a decision, not an accident.
