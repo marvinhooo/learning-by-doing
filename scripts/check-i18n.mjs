@@ -637,8 +637,20 @@ for (const [key, entry] of Object.entries(handoutProblems)) {
 const verifiable = Object.values(handoutProblems).filter(entry => entry.length === 6);
 // The handouts name an adapter hook and/or a pytest command for these problems. Losing them would quietly
 // remove the bridge from an explanation to a passing test, so guard the floor found when they were extracted.
-if (verifiable.length < 45) throw new Error(`handout problems: only ${verifiable.length} problems carry the handout's adapter/test handles, expected at least 45`);
-if (verifiable.filter(entry => entry[5]).length < 45) throw new Error("handout problems: every problem with a verification handle must keep its pytest command");
+if (verifiable.length < 50) throw new Error(`handout problems: only ${verifiable.length} problems carry the handout's adapter/test handles, expected at least 50`);
+if (verifiable.filter(entry => entry[5]).length < 50) throw new Error("handout problems: every problem with a verification handle must keep its pytest command");
+// The A5 supplement is a separate PDF, and its handles were missed when the others were first extracted.
+// Pin them verbatim so a future pass cannot drop the supplement again.
+const supplementHandles = {
+  "a5:mmlu_baseline": ["run_parse_mmlu_response", "-k test_parse_mmlu_response"],
+  "a5:gsm8k_baseline": ["run_parse_gsm8k_response", "-k test_parse_gsm8k_response"],
+  "a5:data_loading": ["get_packed_sft_dataset,run_iterate_batches", "-k test_packed_sft_dataset,-k test_iterate_batches"],
+  "a5:dpo_loss": ["run_compute_per_instance_dpo_loss", "-k test_per_instance_dpo_loss"]
+};
+for (const [key, [adapters, tests]] of Object.entries(supplementHandles)) {
+  const entry = handoutProblems[key];
+  if (entry?.[4] !== adapters || entry?.[5] !== tests) throw new Error(`handout problems: ${key} must keep the A5 supplement's verbatim adapter/test handles`);
+}
 // A pytest command without the adapter name leaves the reader with a test but no function to write. Wherever
 // the handout prints both — it does for every A4 implementation problem — both must survive together.
 const testWithoutAdapter = Object.entries(handoutProblems).filter(([, entry]) => entry.length === 6 && entry[5] && !entry[4]).map(([key]) => key);

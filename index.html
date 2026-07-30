@@ -4507,12 +4507,12 @@
       "a5:grpo_train_step_off_policy":[2.5,"c",0,"Off-policy GRPO train step","run_grpo_train_step","-k test_grpo_train_step_off_policy"],
       "a5:grpo_experiments_off_policy":[10,"r",8,"Compare the performance of different off-policy algorithms"],
       "a5:try_your_own":[10,"r",0,"Try your own policy gradient estimator"],
-      "a5:mmlu_baseline":[4,"cw",0,"Zero-shot MMLU baseline"],
-      "a5:gsm8k_baseline":[4,"cw",0,"Zero-shot GSM8K baseline"],
+      "a5:mmlu_baseline":[4,"cw",0,"Zero-shot MMLU baseline","run_parse_mmlu_response","-k test_parse_mmlu_response"],
+      "a5:gsm8k_baseline":[4,"cw",0,"Zero-shot GSM8K baseline","run_parse_gsm8k_response","-k test_parse_gsm8k_response"],
       "a5:alpaca_eval_baseline":[4,"cw",0,"Zero-shot AlpacaEval baseline"],
       "a5:sst_baseline":[4,"cw",0,"Zero-shot SimpleSafetyTests baseline"],
       "a5:look_at_sft":[4,"w",0,"Inspect instruction tuning data"],
-      "a5:data_loading":[3,"c",0,"Implement data loading"],
+      "a5:data_loading":[3,"c",0,"Implement data loading","get_packed_sft_dataset,run_iterate_batches","-k test_packed_sft_dataset,-k test_iterate_batches"],
       "a5:sft_script":[4,"c",0,"Training script: instruction tuning"],
       "a5:sft":[6,"wr",3,"Instruction tuning"],
       "a5:mmlu_sft":[4,"w",0,"Evaluate SFT on MMLU"],
@@ -4521,7 +4521,7 @@
       "a5:sst_sft":[4,"w",0,"Evaluate SFT on SimpleSafetyTests"],
       "a5:red_teaming":[4,"w",0,"Red-team the instruction-tuned model"],
       "a5:look_at_hh":[2,"w",0,"Inspect HH preference data"],
-      "a5:dpo_loss":[2,"c",0,"DPO loss"],
+      "a5:dpo_loss":[2,"c",0,"DPO loss","run_compute_per_instance_dpo_loss","-k test_per_instance_dpo_loss"],
       "a5:dpo_training":[4,"cr",1,"DPO training"]
     };
 
