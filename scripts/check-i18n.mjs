@@ -37,6 +37,35 @@ function readConstant(name) {
   return Function(`"use strict"; return (${source.slice(start, index)});`)();
 }
 
+// Returns the raw text of a top-level `const NAME = ...;` or `function NAME(...) {...}` declaration,
+// so a guard can rerun the app's own code instead of a copy that may silently drift away from it.
+function sliceDeclaration(text, name) {
+  const constIndex = text.indexOf(`const ${name} =`);
+  if (constIndex >= 0) {
+    let index = constIndex, stack = [], quote = "", escaped = false, started = false;
+    for (; index < text.length; index++) {
+      const char = text[index];
+      if (quote) { if (escaped) escaped = false; else if (char === "\\") escaped = true; else if (char === quote) quote = ""; continue; }
+      if (char === '"' || char === "'" || char === "`") { quote = char; continue; }
+      if ("[({".includes(char)) { stack.push(char); started = true; }
+      else if ("])}".includes(char)) stack.pop();
+      else if (char === ";" && !stack.length && (started || index > constIndex)) break;
+    }
+    return text.slice(constIndex, index + 1);
+  }
+  const functionIndex = text.indexOf(`function ${name}(`);
+  if (functionIndex < 0) throw new Error(`sliceDeclaration: ${name} not found`);
+  let index = text.indexOf("{", functionIndex), depth = 0, quote = "", escaped = false;
+  for (; index < text.length; index++) {
+    const char = text[index];
+    if (quote) { if (escaped) escaped = false; else if (char === "\\") escaped = true; else if (char === quote) quote = ""; continue; }
+    if (char === '"' || char === "'" || char === "`") { quote = char; continue; }
+    if (char === "{") depth++;
+    else if (char === "}") { depth--; if (!depth) break; }
+  }
+  return text.slice(functionIndex, index + 1);
+}
+
 const base = {
   nav: readConstant("NAV_ITEMS"),
   sources: readConstant("SOURCES"),
@@ -728,6 +757,88 @@ for (const required of ["8/3", "Vielfaches von 64"]) if (!normFfnLab.formula.inc
 const normFfnRenderer = source.slice(source.indexOf("function normLabStageMarkup"), source.indexOf("function normFfnSuccessMarkup"));
 for (const required of ["normLabResult(item,\"correct\")", "ffnLabResult(item,\"correct\")", "Größte Abweichung", "normFfnDff(512)", "normFfnDff(1600)"]) if (!normFfnRenderer.includes(required)) throw new Error(`norm-and-ffn renderer: must stay data-driven and keep ${required}`);
 if (Math.round(8 * 1600 / 3 / 64) * 64 !== 4288) throw new Error("d_ff rounding no longer reproduces the handout's own worked example d_model=1600 -> 4288");
+
+// --- comm-crossover lab: section 8 of the A2 handout, equations (20)-(59).
+// The whole lab is one claim: which quantity survives the cancellation in T_comm/T_comp.
+// Recompute the FLOP counts, the ring costs, and every crossover here from the handout,
+// sharing no code with the app, and additionally brute-force each closed form.
+const commBytes = readConstant("COMM_BYTES_PER_ELEMENT");
+const commCases = readConstant("COMM_CASES");
+const commStrategies = readConstant("COMM_STRATEGIES");
+if (commBytes !== 2) throw new Error(`COMM_BYTES_PER_ELEMENT: section 8 assumes FP16, so two bytes, found ${commBytes}`);
+if (JSON.stringify(commStrategies.map(entry => entry.key)) !== JSON.stringify(["dp", "fsdp", "tp"])) throw new Error("COMM_STRATEGIES: the lab compares exactly data parallel, FSDP, and tensor parallel");
+for (const key of ["node", "cluster", "smallBatch", "wide"]) if (!commCases[key]) throw new Error(`COMM_CASES.${key}: the four cases the lab's observe text walks through must all exist`);
+// forward: x*W1, x*W2, z*W3 -> 3 matmuls of 2*B*D*DFF; backward: dz, dx (two), dW3, dW2, dW1 -> 6 such matmuls
+const commFlops = (pass, c) => (pass === "fwd" ? 6 : 12) * c.B * c.D * c.DFF;
+const ringGather = (S, N, W) => N <= 1 ? 0 : (N - 1) / N * S / W;
+const ringReduce = (S, N, W) => N <= 1 ? 0 : 2 * (N - 1) / N * S / W;
+const commTimes = (strategy, pass, N, c) => {
+  const weights = 3 * c.D * c.DFF * commBytes, activations = c.B * c.D * commBytes;
+  let comm = 0;
+  if (strategy === "dp" && pass === "bwd") comm = ringReduce(weights, N, c.W);
+  if (strategy === "fsdp") comm = ringGather(weights, N, c.W) + (pass === "bwd" ? ringGather(weights, N, c.W) : 0);
+  if (strategy === "tp") comm = ringReduce(activations, N, c.W);
+  return { tComp: commFlops(pass, c) / N / c.C, tComm: comm };
+};
+const commClosed = (strategy, pass, c) => {
+  if (strategy === "dp") return pass === "fwd" ? Infinity : 1 + c.B * c.W / c.C;
+  if (strategy === "fsdp") return 1 + c.B * c.W / c.C;
+  return 1 + (pass === "fwd" ? 1.5 : 3) * c.DFF * c.W / c.C;
+};
+const appCommTimes = (strategy, pass, N, c) => { const r = commSingleFromApp(strategy, pass, N, c); return { tComp: r.tComp, tComm: r.tComm } };
+const commSingleFromApp = new Function(`"use strict"; ${[
+  "COMM_BYTES_PER_ELEMENT", "commRingGather", "commRingReduce", "commWeightBytes", "commActivationBytes", "commSingle", "commLimit", "commTwoD"
+].map(name => sliceDeclaration(source, name)).join("\n")} return commSingle;`)();
+const appCommLimit = new Function(`"use strict"; ${sliceDeclaration(source, "commLimit")} return commLimit;`)();
+const appCommTwoD = new Function(`"use strict"; ${[
+  "COMM_BYTES_PER_ELEMENT", "commRingGather", "commRingReduce", "commWeightBytes", "commTwoD"
+].map(name => sliceDeclaration(source, name)).join("\n")} return commTwoD;`)();
+for (const [caseKey, c] of Object.entries(commCases)) {
+  for (const strategy of ["dp", "fsdp", "tp"]) for (const pass of ["fwd", "bwd"]) {
+    for (const N of [2, 4, 8, 16, 32, 64, 128, 256]) {
+      const mine = commTimes(strategy, pass, N, c), theirs = appCommTimes(strategy, pass, N, c);
+      if (Math.abs(mine.tComp - theirs.tComp) > 1e-15 || Math.abs(mine.tComm - theirs.tComm) > 1e-15) throw new Error(`comm-crossover ${caseKey}/${strategy}/${pass}/N=${N}: app disagrees with the handout recomputation`);
+    }
+    const closed = commClosed(strategy, pass, c), app = appCommLimit(strategy, pass, c);
+    if (Math.abs(closed - app) > 1e-9 && closed !== app) throw new Error(`comm-crossover ${caseKey}/${strategy}/${pass}: closed form ${app} does not match ${closed}`);
+    if (Number.isFinite(closed)) {
+      let brute = 1;
+      for (let N = 2; N <= 4e6; N++) { const t = commTimes(strategy, pass, N, c); if (t.tComm < t.tComp) brute = N; else break; }
+      if (brute !== Math.max(1, Math.ceil(closed) - 1)) throw new Error(`comm-crossover ${caseKey}/${strategy}/${pass}: brute force stops at ${brute} but the closed form promises ${closed}`);
+    }
+  }
+}
+// The lab's four cases only teach anything if each one isolates exactly one quantity.
+const dpLimitOf = key => commClosed("dp", "bwd", commCases[key]), tpLimitOf = key => commClosed("tp", "fwd", commCases[key]);
+if (dpLimitOf("node") !== dpLimitOf("wide")) throw new Error("COMM_CASES.wide: a wider FFN must leave the data parallel limit untouched, which is the point of that case");
+if (tpLimitOf("node") !== tpLimitOf("smallBatch")) throw new Error("COMM_CASES.smallBatch: a smaller batch must leave the tensor parallel limit untouched, which is the point of that case");
+if (!(tpLimitOf("wide") > tpLimitOf("node") && dpLimitOf("smallBatch") < dpLimitOf("node"))) throw new Error("COMM_CASES: the wide case must raise the TP limit and the small-batch case must lower the DP limit");
+if (commCases.cluster.W >= commCases.node.W || commCases.cluster.B !== commCases.node.B || commCases.cluster.DFF !== commCases.node.DFF) throw new Error("COMM_CASES.cluster: only the bandwidth may differ from the node case, or 'only W changes' becomes false");
+if (Math.abs(commClosed("dp", "bwd", commCases.node) - commClosed("fsdp", "fwd", commCases.node)) > 1e-9) throw new Error("comm-crossover: FSDP forward and DP backward must share one limit, which is the second transfer answer");
+// 2D: overlapped limits multiply, and a shared link costs a factor of four.
+const twoDCase = commCases.node, tpLimit = commClosed("tp", "fwd", twoDCase), fsdpLimit = commClosed("fsdp", "fwd", twoDCase);
+const alpha = 1 / (tpLimit - 1), beta = 1 / (fsdpLimit - 1), serialClosed = (1 + alpha + beta) ** 2 / (4 * alpha * beta);
+let bestOverlap = 0, bestSerial = 0;
+for (let t = 1; t <= 2 ** 14; t *= 2) for (let f = 1; f <= 2 ** 14; f *= 2) {
+  const r = appCommTwoD(t, f, twoDCase);
+  const expectedComp = 6 * twoDCase.B * twoDCase.D * twoDCase.DFF / (t * f) / twoDCase.C;
+  const expectedTP = ringReduce(twoDCase.B / f * twoDCase.D * commBytes, t, twoDCase.W);
+  const expectedFSDP = ringGather(3 * twoDCase.D * twoDCase.DFF * commBytes / t, f, twoDCase.W);
+  if (Math.abs(r.tComp - expectedComp) > 1e-15 || Math.abs(r.tTP - expectedTP) > 1e-15 || Math.abs(r.tFSDP - expectedFSDP) > 1e-15) throw new Error(`comm-crossover 2D ${t}x${f}: app disagrees with the handout recomputation`);
+  if (Math.max(r.tTP, r.tFSDP) < r.tComp) bestOverlap = Math.max(bestOverlap, t * f);
+  if (r.tTP + r.tFSDP < r.tComp) bestSerial = Math.max(bestSerial, t * f);
+}
+if (!(bestOverlap <= tpLimit * fsdpLimit && bestSerial <= serialClosed)) throw new Error("comm-crossover 2D: a grid search beats the closed-form maximum, so one of the two formulas is wrong");
+if (!(bestSerial < bestOverlap)) throw new Error("comm-crossover 2D: sharing the link must cost devices, or the third transfer answer is empty");
+if (Math.abs(serialClosed / (tpLimit * fsdpLimit) - 0.25) > 0.05) throw new Error(`comm-crossover 2D: the serial optimum must stay near a quarter of the overlapped one, found ${(serialClosed / (tpLimit * fsdpLimit)).toFixed(3)}`);
+const commLab = base.labs.find(lab => lab.id === "comm-crossover");
+if (commLab?.module !== "distributed") throw new Error("labs.comm-crossover: must live in the Distributed module so Lectures 7 and 8 can cite it");
+for (const lectureId of ["l07", "l08"]) if (!base.lectureGuides[lectureId].labs.includes("comm-crossover")) throw new Error(`lecture guides.${lectureId}: the communication limit is decided there and its lab belongs there`);
+const a2Missions = base.assignments.find(assignment => assignment.id === "a2").missions;
+for (const missionId of ["parallel-accounting", "sharding-fsdp"]) if (!a2Missions.find(mission => mission.id === missionId).labs.includes("comm-crossover")) throw new Error(`A2 ${missionId} mission is missing the comm-crossover lab, so the section 8 calculations would have no interactive object`);
+for (const required of ["B·W/C", "D_FF·W/C", "(N−1)/N"]) if (!commLab.formula.includes(required)) throw new Error(`labs.comm-crossover.formula: must keep ${required}, which is the whole result of section 8`);
+const commRenderer = source.slice(source.indexOf("function commSingleStageMarkup"), source.indexOf("function commCrossoverSuccessMarkup"));
+for (const required of ["commSingle(strategy,pass,N,c)", "commLimit(strategy,pass,c)", "commTwoD(NTP,NFSDP,c)", "T_comm / T_comp"]) if (!commRenderer.includes(required)) throw new Error(`comm-crossover renderer: must stay data-driven and keep ${required}`);
 
 const orientationRenderer = source.slice(source.indexOf("function conceptOrientationMarkup"), source.indexOf("function conceptContinuation"));
 for (const required of ["Worum geht es?", "Wo ordnet sich das ein?", "Warum ist das wichtig?", "Begriffe vor dem ersten Schritt", "c.summary", "c.context", "c.why", "conceptPrimerTerms(c)"]) if (!orientationRenderer.includes(required)) throw new Error(`concept orientation renderer: missing ${required}`);

@@ -4,7 +4,7 @@
     {
       "name": "cs336-static",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "8347", "--directory", "/Users/martin/Documents/Python Folder/CS336"],
+      "runtimeArgs": ["-m", "http.server", "8347"],
       "port": 8347
     }
   ]

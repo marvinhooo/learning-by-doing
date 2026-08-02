@@ -2,7 +2,7 @@
 
 Inoffizielle, zweisprachige Lernplattform für Stanford CS336 „Language Models from Scratch“. Englisch ist die Standardsprache, Deutsch lässt sich jederzeit zuschalten. Das Projekt ist nicht mit Stanford verbunden und erzeugt keine Assignment-Lösungen.
 
-Der Lernpfad folgt direkt den 17 Lectures. Jede Lecture beginnt mit einer einfachen Einordnung: Worum geht es, warum ist das wichtig und welches Vorwissen wird vorausgesetzt? Danach folgen die wichtigsten Konzepte, die für diese Lecture kuratierten Formeln, passende Experimente und der seitengenaue Link zur Originalquelle. Jede Formelerklärung beginnt mit einer konkreten Frage, erklärt Namen, Symbole und ungewohnte Operatoren in Alltagssprache, setzt einen kleinen Zahlenfall vollständig ein und rechnet ihn vor; erst danach erscheint die allgemeine Gleichung. Vertiefend stehen 75 Konzepte, 79 Formeln, 72 Symbole, 70 Glossarbegriffe und 32 interaktive Labs bereit.
+Der Lernpfad folgt direkt den 17 Lectures. Jede Lecture beginnt mit einer einfachen Einordnung: Worum geht es, warum ist das wichtig und welches Vorwissen wird vorausgesetzt? Danach folgen die wichtigsten Konzepte, die für diese Lecture kuratierten Formeln, passende Experimente und der seitengenaue Link zur Originalquelle. Jede Formelerklärung beginnt mit einer konkreten Frage, erklärt Namen, Symbole und ungewohnte Operatoren in Alltagssprache, setzt einen kleinen Zahlenfall vollständig ein und rechnet ihn vor; erst danach erscheint die allgemeine Gleichung. Vertiefend stehen 75 Konzepte, 79 Formeln, 72 Symbole, 70 Glossarbegriffe und 33 interaktive Labs bereit.
 
 ## Empfohlener Lernfluss
 
@@ -24,7 +24,7 @@ Die Plattform spart Lecture-Nacharbeit und Suchzeit, ersetzt aber nicht das eige
 - Supabase Auth schützt den persönlichen Lernstand und die privaten Kurs-PDFs.
 - `localStorage` speichert Änderungen sofort auf dem Gerät; Supabase synchronisiert sie nach dem Login.
 - Eine Progressive Web App (PWA) ermöglicht die Installation auf iPhone und iPad.
-- Service-Worker-Cache und Sprachbundle verwenden aktuell Version 50.
+- Service-Worker-Cache und Sprachbundle verwenden aktuell Version 58.
 - Die PDFs werden durch `.gitignore` vom öffentlichen Repository ausgeschlossen.
 - Auf iPhone und iPad besitzen zentrale Controls mindestens 44 Pixel große Touch-Ziele; Labs stapeln im Portrait-Modus für lesbare Erklärungen und Antwortoptionen.
 
