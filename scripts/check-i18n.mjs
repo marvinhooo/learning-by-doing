@@ -840,6 +840,113 @@ for (const required of ["B·W/C", "D_FF·W/C", "(N−1)/N"]) if (!commLab.formul
 const commRenderer = source.slice(source.indexOf("function commSingleStageMarkup"), source.indexOf("function commCrossoverSuccessMarkup"));
 for (const required of ["commSingle(strategy,pass,N,c)", "commLimit(strategy,pass,c)", "commTwoD(NTP,NFSDP,c)", "T_comm / T_comp"]) if (!commRenderer.includes(required)) throw new Error(`comm-crossover renderer: must stay data-driven and keep ${required}`);
 
+// --- answer-parsing lab: A5 section 3.3 (format/answer reward) and the supplement's two parser problems.
+// The graders and rules below are typed out again from the handout and share no code with the app.
+const parsePrompts = readConstant("PARSE_PROMPTS");
+const parseGraders = readConstant("PARSE_GRADERS");
+const parseBenchmarks = readConstant("PARSE_BENCHMARKS");
+const parseGold = readConstant("PARSE_GOLD_GSM8K");
+const refNorm = value => {
+  if (value === null || value === undefined) return null;
+  const cleaned = String(value).replace(/[\s$]/g, "").replace(/,(?=\d{3}\b)/g, "").replace(/\.$/, "");
+  return /^-?\d+(\.\d+)?$/.test(cleaned) ? String(Number(cleaned)) : cleaned;
+};
+const refNumbers = text => text.match(/-?\d(?:[\d,]*\d)?(?:\.\d+)?/g) || [];
+const refGrade = (grader, text) => {
+  if (grader === "r1zero") { const m = /<\/think>\s*<answer>([\s\S]*?)<\/answer>\s*$/.exec(text); return m ? { format: 1, extracted: m[1].trim() } : { format: 0, extracted: null }; }
+  if (grader === "boxed") { const m = /\\boxed\{(.*?)\}/.exec(text); return m ? { format: 1, extracted: m[1].trim() } : { format: 0, extracted: null }; }
+  const numbers = refNumbers(text);
+  return { format: 1, extracted: numbers.length ? numbers[numbers.length - 1] : null };
+};
+const refRule = (benchmark, rule, item) => {
+  if (benchmark === "mmlu") {
+    const stated = /[Tt]he correct answer is ([A-D])\b/.exec(item.gen);
+    if (rule === "stated") return stated ? stated[1] : null;
+    const standalone = item.gen.match(/(?<![A-Za-z])[A-D](?![A-Za-z])/g);
+    if (rule === "firstLetter") return standalone ? standalone[0] : null;
+    if (rule === "lastLetter") return standalone ? standalone[standalone.length - 1] : null;
+    if (stated) return stated[1];
+    const hit = item.options.findIndex(option => item.gen.toLowerCase().includes(option.toLowerCase()));
+    return hit >= 0 ? "ABCD"[hit] : null;
+  }
+  const numbers = refNumbers(item.gen);
+  if (rule === "lastNumber") return numbers.length ? numbers[numbers.length - 1] : null;
+  if (rule === "firstNumber") return numbers.length ? numbers[0] : null;
+  if (rule === "lastDigits") { const digits = item.gen.match(/\d+/g); return digits ? digits[digits.length - 1] : null; }
+  const cue = /answer is\s+(-?\d(?:[\d,]*\d)?(?:\.\d+)?)/.exec(item.gen);
+  return cue ? cue[1] : null;
+};
+const appParseReward = new Function(`"use strict"; ${["parseNumbersIn", "parseNormalizeAnswer", "parseGrade", "parseRolloutReward"].map(name => sliceDeclaration(source, name)).join("\n")} return parseRolloutReward;`)();
+const appParseRule = new Function(`"use strict"; ${["parseNumbersIn", "parseNormalizeAnswer", "parseApplyRule"].map(name => sliceDeclaration(source, name)).join("\n")} return parseApplyRule;`)();
+const appParseRuleReport = new Function(`"use strict"; const PARSE_BENCHMARKS = ${JSON.stringify(parseBenchmarks)}; ${["parseNumbersIn", "parseNormalizeAnswer", "parseApplyRule", "parseRuleReport"].map(name => sliceDeclaration(source, name)).join("\n")} return parseRuleReport;`)();
+if (parseGraders.length !== 3 || JSON.stringify(parseGraders.map(entry => entry.key)) !== JSON.stringify(["r1zero", "boxed", "lastNumber"])) throw new Error("PARSE_GRADERS: the lab compares exactly the two A5 reward functions and one naive grader");
+if (JSON.stringify(parsePrompts.map(entry => entry.key)) !== JSON.stringify(["questionOnly", "r1zero", "r1zeroFewShot"])) throw new Error("PARSE_PROMPTS: the three prompts of prompting_baselines must all exist and stay in handout order");
+const parseAccuracy = {};
+for (const prompt of parsePrompts) {
+  if (prompt.rollouts.length !== 6) throw new Error(`PARSE_PROMPTS.${prompt.key}: the observe text and the transfer check both count six rollouts`);
+  for (const grader of parseGraders) {
+    let scored = 0, formatted = 0, lost = 0;
+    prompt.rollouts.forEach((rollout, index) => {
+      const graded = refGrade(grader.key, rollout.text);
+      const answer = graded.format === 1 && graded.extracted !== null && refNorm(graded.extracted) === refNorm(parseGold) ? 1 : 0;
+      const app = appParseReward(grader.key, rollout, parseGold);
+      if (app.format !== graded.format || app.answer !== answer || app.extracted !== graded.extracted) throw new Error(`answer-parsing ${prompt.key}/${grader.key}/rollout ${index}: app disagrees with the handout recomputation`);
+      if (app.total !== app.answer) throw new Error("answer-parsing: A5 gives no partial credit, so the total reward must equal the answer reward");
+      if (app.format === 0 && app.answer === 1) throw new Error("answer-parsing: format 0 with answer 1 would be a fourth category the handout does not have");
+      scored += answer; formatted += graded.format;
+      if (rollout.human && answer === 0) lost++;
+    });
+    parseAccuracy[`${prompt.key}/${grader.key}`] = { scored, formatted, lost, human: prompt.rollouts.filter(rollout => rollout.human).length };
+  }
+}
+// the didactic diagonal: applying the other prompt's reward function must score zero, not crash
+if (parseAccuracy["questionOnly/r1zero"].scored !== 0 || parseAccuracy["r1zero/boxed"].scored !== 0 || parseAccuracy["r1zeroFewShot/boxed"].scored !== 0) throw new Error("answer-parsing: a mismatched reward function must score zero everywhere, which is the point of the matrix");
+if (parseAccuracy["questionOnly/r1zero"].human < 4) throw new Error("answer-parsing: the first transfer answer needs at least four rollouts that read as correct under the question_only prompt");
+// few-shot must buy more format than substance, which is the whole transfer question
+const fewShotGain = parseAccuracy["r1zeroFewShot/r1zero"].scored - parseAccuracy["r1zero/r1zero"].scored;
+const humanGain = parseAccuracy["r1zeroFewShot/r1zero"].human - parseAccuracy["r1zero/r1zero"].human;
+if (!(fewShotGain === 2 && humanGain === 1)) throw new Error(`answer-parsing: few-shot must add two scored rollouts but only one substantively correct one, found ${fewShotGain} and ${humanGain}`);
+if (!(parseAccuracy["r1zeroFewShot/r1zero"].formatted === 6 && parseAccuracy["r1zero/r1zero"].formatted === 5)) throw new Error("answer-parsing: the format rate must rise from 5/6 to 6/6 under few-shot, or the transfer answer is wrong");
+if (parseAccuracy["r1zeroFewShot/r1zero"].lost !== 1) throw new Error("answer-parsing: the „72 clips“ rollout must survive few-shot as a category 2 case");
+const parseRuleStats = {};
+for (const [benchmarkKey, benchmark] of Object.entries(parseBenchmarks)) {
+  if (benchmark.items.length !== 8) throw new Error(`PARSE_BENCHMARKS.${benchmarkKey}: the transfer check and the ledger text both count eight answers`);
+  for (const rule of benchmark.rules) {
+    let parsed = 0, correct = 0;
+    const appReport = appParseRuleReport(benchmarkKey, rule.key);
+    benchmark.items.forEach((item, index) => {
+      const mine = refRule(benchmarkKey, rule.key, item), theirs = appParseRule(benchmarkKey, rule.key, item);
+      if (mine !== theirs) throw new Error(`answer-parsing ${benchmarkKey}/${rule.key}/item ${index}: app extracted ${theirs} but the handout rule gives ${mine}`);
+      const gold = benchmarkKey === "mmlu" ? item.gold : refNorm(item.gold);
+      const ok = mine !== null && (benchmarkKey === "mmlu" ? mine : refNorm(mine)) === gold;
+      if (appReport.rows[index].correct !== ok) throw new Error(`answer-parsing ${benchmarkKey}/${rule.key}/item ${index}: app scores it ${appReport.rows[index].correct} but the handout comparison gives ${ok}`);
+      if (mine === null) return;
+      parsed++;
+      if (ok) correct++;
+    });
+    if (appReport.parsed !== parsed || appReport.correct !== correct) throw new Error(`answer-parsing ${benchmarkKey}/${rule.key}: app reports ${appReport.parsed}/${appReport.correct} against the recomputed ${parsed}/${correct}`);
+    parseRuleStats[`${benchmarkKey}/${rule.key}`] = { parsed, correct, all: correct / 8, onParsed: parsed ? correct / parsed : 0 };
+  }
+}
+if (!(parseRuleStats["mmlu/stated"].parsed === 5 && Math.abs(parseRuleStats["mmlu/stated"].onParsed - 0.8) < 1e-9 && Math.abs(parseRuleStats["mmlu/stated"].all - 0.5) < 1e-9)) throw new Error("answer-parsing: the third transfer question quotes 5 of 8 parsed at 80 %, which must equal 50 % over all");
+for (const [key, stats] of Object.entries(parseRuleStats)) if (stats.parsed < 8 && !(stats.onParsed > stats.all)) throw new Error(`answer-parsing ${key}: dropping unparsed cases must inflate the score, or the closing note is empty`);
+if (!(parseRuleStats["gsm8k/afterCue"].onParsed > parseRuleStats["gsm8k/lastNumber"].all - 0.3 && parseRuleStats["gsm8k/afterCue"].all < parseRuleStats["gsm8k/lastNumber"].all)) throw new Error("answer-parsing: the cue rule must look respectable on parsed cases and poor overall");
+const mmluFirst = parseRuleStats["mmlu/firstLetter"], mmluText = parseRuleStats["mmlu/statedElseText"];
+if (!(mmluFirst.parsed === mmluText.parsed && mmluFirst.correct === mmluText.correct)) throw new Error("answer-parsing: the two MMLU rules must report identical aggregates, which is the closing note's example");
+const mmluDiff = parseBenchmarks.mmlu.items.filter(item => refRule("mmlu", "firstLetter", item) !== refRule("mmlu", "statedElseText", item)).length;
+if (mmluDiff !== 2) throw new Error(`answer-parsing: exactly two MMLU items must differ between the two rules, found ${mmluDiff}`);
+const parseLab = base.labs.find(lab => lab.id === "answer-parsing");
+if (parseLab?.module !== "evaluation") throw new Error("labs.answer-parsing: must live in the Evaluation module so Lecture 12 can cite it");
+if (!base.lectureGuides.l12.labs.includes("answer-parsing")) throw new Error("lecture guides.l12: the evaluation lecture asks how outputs are scored, so its lab belongs there");
+const a5Missions = base.assignments.find(assignment => assignment.id === "a5").missions;
+for (const missionId of ["prompting", "supplement"]) if (!a5Missions.find(mission => mission.id === missionId).labs.includes("answer-parsing")) throw new Error(`A5 ${missionId} mission is missing the answer-parsing lab, so its parser problems would have no interactive object`);
+for (const required of ["k/n", "k/n_geparst", "SE = √(p(1−p)/n)"]) if (!parseLab.formula.includes(required)) throw new Error(`labs.answer-parsing.formula: must keep ${required}, which is what the ledger prints`);
+for (const required of ["k/n", "k/n_parsed", "SE = √(p(1−p)/n)"]) if (!pack.labs["answer-parsing"].formula.includes(required)) throw new Error(`labs.answer-parsing.formula (English): must keep ${required}`);
+const parseRendererA = source.slice(source.indexOf("function parseGraderStageMarkup"), source.indexOf("function parseRuleStageMarkup"));
+for (const required of ["parsePromptReport(promptKey,graderKey,PARSE_GOLD_GSM8K)", "row.rollout.human", "report.buckets[0]", "report.lostToParser"]) if (!parseRendererA.includes(required)) throw new Error(`answer-parsing grader renderer: must stay data-driven and keep ${required}`);
+const parseRendererB = source.slice(source.indexOf("function parseRuleStageMarkup"), source.indexOf("function updateAnswerParsing"));
+for (const required of ["parseRuleReport(benchmarkKey,rule.key)", "parseStandardError(report.accuracyAll,report.n)", "report.accuracyParsed", "1.96*se"]) if (!parseRendererB.includes(required)) throw new Error(`answer-parsing rule renderer: must stay data-driven and keep ${required}`);
+
 const orientationRenderer = source.slice(source.indexOf("function conceptOrientationMarkup"), source.indexOf("function conceptContinuation"));
 for (const required of ["Worum geht es?", "Wo ordnet sich das ein?", "Warum ist das wichtig?", "Begriffe vor dem ersten Schritt", "c.summary", "c.context", "c.why", "conceptPrimerTerms(c)"]) if (!orientationRenderer.includes(required)) throw new Error(`concept orientation renderer: missing ${required}`);
 const conceptRenderer = source.slice(source.indexOf("function renderConceptDetail"), source.indexOf("function renderFormulaDetail"));
