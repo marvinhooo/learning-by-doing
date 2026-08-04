@@ -947,6 +947,120 @@ for (const required of ["parsePromptReport(promptKey,graderKey,PARSE_GOLD_GSM8K)
 const parseRendererB = source.slice(source.indexOf("function parseRuleStageMarkup"), source.indexOf("function updateAnswerParsing"));
 for (const required of ["parseRuleReport(benchmarkKey,rule.key)", "parseStandardError(report.accuracyAll,report.n)", "report.accuracyParsed", "1.96*se"]) if (!parseRendererB.includes(required)) throw new Error(`answer-parsing rule renderer: must stay data-driven and keep ${required}`);
 
+// --- decode-sampling -------------------------------------------------------------------------
+// A1 Problem (decoding) lives in two one-line transformations, so the guards below re-run the app's own
+// decodeReport against a reference typed straight from equations (23) and (24) and then pin the findings
+// the lab actually states. Everything compared here is a number the learner sees.
+const decodeLab = base.labs.find(lab => lab.id === "decode-sampling");
+if (!decodeLab) throw new Error("labs.decode-sampling: A1 Problem (decoding) has no interactive object");
+if (decodeLab.module !== "training") throw new Error("labs.decode-sampling: must live in the Training module, where the sampling concept sits");
+if (!base.modules.find(module => module.id === "training").labs.includes("decode-sampling")) throw new Error("modules.training: the decoding lab belongs to the module that owns autoregressive sampling");
+const a1GenerationMission = base.assignments.find(assignment => assignment.id === "a1").missions.find(mission => mission.id === "generation-experiments");
+if (!a1GenerationMission.labs.includes("decode-sampling")) throw new Error("A1 generation-experiments: the decoding problem would have no lab that computes temperature or top-p");
+if (!base.assignments.find(assignment => assignment.id === "a5").missions.find(mission => mission.id === "prompting").labs.includes("decode-sampling")) throw new Error("A5 prompting: the rollouts are sampled, so the sampling lab belongs there");
+const decodeSource = [sliceDeclaration(source, "DECODE_GROUP"), sliceDeclaration(source, "DECODE_CASES"), sliceDeclaration(source, "DECODE_TAUS"), sliceDeclaration(source, "DECODE_PS"), sliceDeclaration(source, "DECODE_VARIANTS"), sliceDeclaration(source, "decodeSoftmax"), sliceDeclaration(source, "decodeNucleus"), sliceDeclaration(source, "decodeReport"), sliceDeclaration(source, "decodeDrift")].join("\n");
+const decodeApi = runInNewContext(`${decodeSource}; ({DECODE_GROUP,DECODE_CASES,DECODE_TAUS,DECODE_PS,DECODE_VARIANTS,decodeReport,decodeDrift})`, {});
+const decodeCaseKeys = Object.keys(decodeApi.DECODE_CASES), decodeTauKeys = decodeApi.DECODE_TAUS.map(entry => entry.key), decodePKeys = decodeApi.DECODE_PS.map(entry => entry.key), decodeVariantKeys = decodeApi.DECODE_VARIANTS.map(entry => entry.key);
+if (decodeApi.DECODE_GROUP !== 8) throw new Error("decode-sampling: the group size must stay 8, which is the A5 handout's group_size");
+if (JSON.stringify(decodeCaseKeys) !== JSON.stringify(["paris", "garden", "morning", "said"])) throw new Error("decode-sampling: the four contexts are quoted in order as 1, 3, 5, 7 in the observe text, so their order is fixed");
+// Reference implementation, typed from the handout rather than reused from the app.
+function refDecodeSoftmax(logits, tau) {
+  if (tau === 0) { const best = logits.indexOf(Math.max(...logits)); return logits.map((_, index) => index === best ? 1 : 0); }
+  const scaled = logits.map(value => value / tau), max = Math.max(...scaled), exponentials = scaled.map(value => Math.exp(value - max)), total = exponentials.reduce((sum, value) => sum + value, 0);
+  return exponentials.map(value => value / total);
+}
+function refDecodeNucleus(q, p, strict) {
+  const order = q.map((_, index) => index).sort((a, b) => q[b] - q[a] || a - b), keep = []; let mass = 0;
+  for (const index of order) {
+    if (strict) { if (mass + q[index] >= p - 1e-12) break; keep.push(index); mass += q[index]; continue; }
+    keep.push(index); mass += q[index]; if (mass >= p - 1e-12) break;
+  }
+  return { order, keep, mass };
+}
+function refDecode(caseKey, tauKey, pKey, variantKey) {
+  const logits = decodeApi.DECODE_CASES[caseKey].logits, tau = decodeApi.DECODE_TAUS.find(entry => entry.key === tauKey).tau, p = decodeApi.DECODE_PS.find(entry => entry.key === pKey).p;
+  const bases = refDecodeSoftmax(logits, 1);
+  let q, nucleus;
+  if (variantKey === "tempAfterSoftmax") { q = bases.slice(); nucleus = refDecodeNucleus(q, p, false); }
+  else if (variantKey === "truncBeforeTemp") { const raw = refDecodeNucleus(bases, p, false); q = refDecodeSoftmax(logits, tau); nucleus = { order: raw.order, keep: raw.keep, mass: raw.keep.reduce((sum, index) => sum + q[index], 0) }; }
+  else { q = refDecodeSoftmax(logits, tau); nucleus = refDecodeNucleus(q, p, variantKey === "strictPrefix"); }
+  const kept = new Set(nucleus.keep);
+  const final = q.map((value, index) => kept.has(index) ? (variantKey === "noRenorm" ? value : (nucleus.mass > 0 ? value / nucleus.mass : 0)) : 0);
+  const total = final.reduce((sum, value) => sum + value, 0);
+  const distribution = total > 0 ? final.map(value => value / total) : final;
+  const entropy = distribution.reduce((sum, value) => value > 0 ? sum - value * Math.log2(value) : sum, 0);
+  const pTop = total > 0 ? Math.max(...distribution) : 0;
+  return { q, keep: nucleus.keep, mass: nucleus.mass, final, total, distribution, entropy, pTop, p, tau, empty: !nucleus.keep.length };
+}
+let decodeStates = 0;
+for (const caseKey of decodeCaseKeys) for (const tauKey of decodeTauKeys) for (const pKey of decodePKeys) for (const variantKey of decodeVariantKeys) {
+  const app = decodeApi.decodeReport(caseKey, tauKey, pKey, variantKey), reference = refDecode(caseKey, tauKey, pKey, variantKey);
+  const label = `${caseKey}/${tauKey}/${pKey}/${variantKey}`;
+  if (JSON.stringify(app.nucleus.keep) !== JSON.stringify(reference.keep)) throw new Error(`decode-sampling ${label}: the nucleus set does not match equation (24)`);
+  if (Math.abs(app.nucleus.mass - reference.mass) > 1e-12) throw new Error(`decode-sampling ${label}: kept mass drifted`);
+  app.final.forEach((value, index) => { if (Math.abs(value - reference.final[index]) > 1e-12) throw new Error(`decode-sampling ${label}: emitted probability ${index} drifted`); });
+  if (Math.abs(app.total - reference.total) > 1e-12) throw new Error(`decode-sampling ${label}: the sum of the emitted probabilities drifted`);
+  if (Math.abs(app.entropy - reference.entropy) > 1e-12) throw new Error(`decode-sampling ${label}: the entropy is not −Σ p log₂ p of the emitted distribution`);
+  if (Math.abs(app.pTop - reference.pTop) > 1e-12) throw new Error(`decode-sampling ${label}: the probability of the most likely token drifted`);
+  if (!reference.empty && Math.abs(app.allSame - Math.pow(reference.pTop, decodeApi.DECODE_GROUP)) > 1e-12) throw new Error(`decode-sampling ${label}: the group-collapse probability must be p_max raised to the group size`);
+  const drift = decodeApi.decodeDrift(caseKey, tauKey, pKey, variantKey);
+  const expected = reference.empty ? null : reference.distribution.reduce((sum, value, index) => sum + Math.abs(value - refDecode(caseKey, tauKey, pKey, "correct").distribution[index]), 0) / 2;
+  if (drift === null ? expected !== null : Math.abs(drift - expected) > 1e-12) throw new Error(`decode-sampling ${label}: the distance to the correct distribution drifted`);
+  if (variantKey === "correct") {
+    // The defining property of equation (24): the set reaches p and is minimal in doing so.
+    if (!app.nucleus.keep.length) throw new Error(`decode-sampling ${label}: top-p must never leave an empty set`);
+    if (app.nucleus.mass < reference.p - 1e-9) throw new Error(`decode-sampling ${label}: the kept mass must reach p`);
+    const withoutLast = app.nucleus.keep.slice(0, -1).reduce((sum, index) => sum + app.q[index], 0);
+    if (app.nucleus.keep.length > 1 && withoutLast >= reference.p - 1e-12) throw new Error(`decode-sampling ${label}: the set is not the smallest one reaching p`);
+    if (Math.abs(app.total - 1) > 1e-9) throw new Error(`decode-sampling ${label}: a renormalized distribution must sum to one`);
+    if (reference.p === 1 && app.nucleus.keep.length !== (tauKey === "greedy" ? 1 : decodeApi.DECODE_CASES[caseKey].tokens.length)) throw new Error(`decode-sampling ${label}: p = 1.0 must not truncate, which is the A5 setting`);
+  }
+  decodeStates++;
+}
+if (decodeStates !== decodeCaseKeys.length * decodeTauKeys.length * decodePKeys.length * decodeVariantKeys.length) throw new Error("decode-sampling: not every state was checked");
+// The four findings the lab states in prose must stay true of the arithmetic.
+const decodeSpread = decodeCaseKeys.map(caseKey => decodeApi.decodeReport(caseKey, "t10", "p080", "correct").nucleus.keep.length);
+if (JSON.stringify(decodeSpread) !== JSON.stringify([1, 3, 5, 7])) throw new Error(`decode-sampling: at p = 0.8 and τ = 1.0 the four contexts must keep 1, 3, 5, 7 tokens, found ${decodeSpread.join(", ")}`);
+const decodeCoupling = ["t05", "t08", "t10", "t15"].map(tauKey => decodeApi.decodeReport("garden", tauKey, "p090", "correct").nucleus.keep.length);
+if (JSON.stringify(decodeCoupling) !== JSON.stringify([2, 3, 4, 6])) throw new Error(`decode-sampling: at fixed p = 0.9 the nucleus must grow 2, 3, 4, 6 with temperature, found ${decodeCoupling.join(", ")}`);
+for (const caseKey of decodeCaseKeys) for (const pKey of decodePKeys) {
+  const anchor = decodeApi.decodeReport(caseKey, "t10", pKey, "correct");
+  for (const tauKey of decodeTauKeys) {
+    const dead = decodeApi.decodeReport(caseKey, tauKey, pKey, "tempAfterSoftmax");
+    dead.final.forEach((value, index) => { if (Math.abs(value - anchor.final[index]) > 1e-12) throw new Error(`decode-sampling ${caseKey}/${tauKey}/${pKey}: temperature after the softmax must cancel out completely, which is the point of the variant`); });
+  }
+  const ordered = decodeApi.decodeReport(caseKey, "t10", pKey, "truncBeforeTemp");
+  ordered.final.forEach((value, index) => { if (Math.abs(value - anchor.final[index]) > 1e-12) throw new Error(`decode-sampling ${caseKey}/${pKey}: at τ = 1.0 the swapped order must be indistinguishable, which is what makes it hard to spot`); });
+  const loose = decodeApi.decodeReport(caseKey, "t10", pKey, "noRenorm");
+  if (Math.abs(decodeApi.decodeDrift(caseKey, "t10", pKey, "noRenorm")) > 1e-12) throw new Error(`decode-sampling ${caseKey}/${pKey}: a missing renormalization must not change which tokens are drawn`);
+  if (loose.total >= 1 - 1e-12 && anchor.nucleus.mass < 1 - 1e-12) throw new Error(`decode-sampling ${caseKey}/${pKey}: without renormalization the output must sum to the kept mass`);
+  if (loose.total < 1 - 1e-12 && Math.abs(loose.shift + Math.log(loose.total)) > 1e-12) throw new Error(`decode-sampling ${caseKey}/${pKey}: the log-probability shift must be −ln of the emitted sum`);
+}
+if (!["t05", "t08", "t10"].every(tauKey => ["p050", "p080", "p090"].every(pKey => decodeApi.decodeReport("paris", tauKey, pKey, "strictPrefix").empty))) throw new Error("decode-sampling: the off-by-one must empty the nucleus exactly where the model is confident");
+for (const caseKey of decodeCaseKeys) {
+  const strict = decodeApi.decodeReport(caseKey, "t10", "p100", "strictPrefix"), full = decodeApi.decodeReport(caseKey, "t10", "p100", "correct");
+  if (strict.nucleus.keep.length !== full.nucleus.keep.length - 1) throw new Error(`decode-sampling ${caseKey}: even at p = 1.0 the off-by-one must silently lose the least likely token`);
+}
+if (!sliceDeclaration(source, "decodeSoftmax").includes("tau===0")) throw new Error("decode-sampling: greedy must stay an explicit branch, because v/τ is undefined at τ = 0");
+const decodeGreedy = decodeApi.decodeReport("paris", "greedy", "p100", "correct");
+if (!(decodeGreedy.final.filter(value => value === 1).length === 1 && decodeGreedy.final.filter(value => value === 0).length === 7 && decodeGreedy.final.every(value => Number.isFinite(value)))) throw new Error("decode-sampling: τ → 0 must be its own one-hot path instead of dividing by zero");
+if (Math.abs(decodeGreedy.allSame - 1) > 1e-12) throw new Error("decode-sampling: greedy must make all eight rollouts identical, which is what the transfer answer quotes as 100.0 %");
+const decodeSampled = decodeApi.decodeReport("paris", "t10", "p100", "correct");
+if (Math.abs(decodeSampled.allSame - 0.7024) > 5e-5) throw new Error(`decode-sampling: the transfer answer quotes 70.2 % for τ = 1.0, computed ${(decodeSampled.allSame * 100).toFixed(2)} %`);
+for (const [labelText, text] of [["German", decodeLab.transferAnswer], ["English", pack.labs["decode-sampling"].transferAnswer]]) {
+  for (const required of ["100", "70", "sampling_temperature = 1.0"]) if (!text.includes(required)) throw new Error(`labs.decode-sampling.transferAnswer (${labelText}): must keep the number ${required} it argues from`);
+}
+for (const [labelText, text] of [["German", decodeLab.formula], ["English", pack.labs["decode-sampling"].formula]]) {
+  for (const required of ["exp(v_i/τ)", "≥ p", "log₂", "p_max^G"]) if (!text.includes(required)) throw new Error(`labs.decode-sampling.formula (${labelText}): must keep ${required}`);
+}
+// The shell precaches the language bundle by URL, so a version that differs from the one the page
+// requests means the service worker caches a file nobody asks for and the page fetches an uncached one.
+const shellSource = await readFile(path.join(root, "sw.js"), "utf8");
+const pageBundle = source.match(/i18n-en\.js\?v=(\d+)/)?.[1], shellBundle = shellSource.match(/i18n-en\.js\?v=(\d+)/)?.[1];
+if (!pageBundle || pageBundle !== shellBundle) throw new Error(`service worker: index.html requests i18n-en.js?v=${pageBundle} while the shell precaches v=${shellBundle}`);
+const decodeRenderer = source.slice(source.indexOf("function decodeStageMarkup"), source.indexOf("function updateDecodeSampling"));
+for (const required of ["decodeReport(caseKey,tauKey,pKey,variantKey)", "decodeDrift(caseKey,tauKey,pKey,variantKey)", "report.nucleus.keep.length", "decodeNumber(report.nucleus.mass,4)", "decodeNumber(report.total,4)", "decodeNumber(report.shift,4)", "decodeNumber(report.entropy,3)", "decodePercent(report.pTop)", "decodePercent(report.allSame)", "decodeNumber(drift,4)", 'decodeReport(key,tauKey,pKey,"correct")', "Object.entries(DECODE_CASES).map", "report.empty"]) if (!decodeRenderer.includes(required)) throw new Error(`decode-sampling renderer: must stay data-driven and keep ${required}`);
+
 const orientationRenderer = source.slice(source.indexOf("function conceptOrientationMarkup"), source.indexOf("function conceptContinuation"));
 for (const required of ["Worum geht es?", "Wo ordnet sich das ein?", "Warum ist das wichtig?", "Begriffe vor dem ersten Schritt", "c.summary", "c.context", "c.why", "conceptPrimerTerms(c)"]) if (!orientationRenderer.includes(required)) throw new Error(`concept orientation renderer: missing ${required}`);
 const conceptRenderer = source.slice(source.indexOf("function renderConceptDetail"), source.indexOf("function renderFormulaDetail"));
