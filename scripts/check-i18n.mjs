@@ -1053,6 +1053,145 @@ for (const [labelText, text] of [["German", decodeLab.transferAnswer], ["English
 for (const [labelText, text] of [["German", decodeLab.formula], ["English", pack.labs["decode-sampling"].formula]]) {
   for (const required of ["exp(v_i/τ)", "≥ p", "log₂", "p_max^G"]) if (!text.includes(required)) throw new Error(`labs.decode-sampling.formula (${labelText}): must keep ${required}`);
 }
+// --- winrate-lc ------------------------------------------------------------------------------
+// The A5 supplement demands the same pair of numbers three times (alpaca_eval_baseline §3.3(c),
+// alpaca_eval_sft §5.3(b), dpo_training (b)): winrate and length-controlled winrate. Lecture 12
+// names the metric in one line and computes nothing. These guards re-derive every state from the
+// handout's own definition and then pin the findings the lab argues from.
+const winrateLab = base.labs.find(lab => lab.id === "winrate-lc");
+if (!winrateLab) throw new Error("labs.winrate-lc: the AlpacaEval winrate has no interactive object");
+if (winrateLab.module !== "evaluation") throw new Error("labs.winrate-lc: must live in the Evaluation module, where benchmark-validity sits");
+if (!base.modules.find(module => module.id === "evaluation").labs.includes("winrate-lc")) throw new Error("modules.evaluation: the winrate lab belongs to the module that owns benchmark validity");
+if (!base.lectureGuides.l12.labs.includes("winrate-lc")) throw new Error("lecture guides.l12: Lecture 12 introduces AlpacaEval, so the lab that computes its metric belongs there");
+const a5Supplement = base.assignments.find(assignment => assignment.id === "a5").missions.find(mission => mission.id === "supplement");
+if (!a5Supplement.labs.includes("winrate-lc")) throw new Error("A5 supplement: alpaca_eval_baseline, alpaca_eval_sft and dpo_training all report a winrate, so the lab belongs to that block");
+const winrateSource = ["WINRATE_REFERENCE_N", "WINRATE_ITEMS", "WINRATE_PROFILES", "WINRATE_BOUNDS", "WINRATE_BUCKET_LABELS", "WINRATE_VARIANTS", "winrateScore", "winrateBucket", "winratePooledMix", "winrateRows", "winrateReport", "winratePaired"];
+const winrateApi = runInNewContext(`${winrateSource.map(name => sliceDeclaration(source, name)).join("\n")}; ({${winrateSource.join(",")}})`, {});
+if (winrateApi.WINRATE_REFERENCE_N !== 805) throw new Error("winrate-lc: AlpacaEval has 805 instructions per Lecture 12, and the standard error line quotes that number");
+if (winrateApi.WINRATE_ITEMS.length !== 12) throw new Error("winrate-lc: the ledger is quoted as twelve rows in the observe text and the transfer check");
+const winrateProfileKeys = winrateApi.WINRATE_PROFILES.map(entry => entry.key);
+if (JSON.stringify(winrateProfileKeys) !== JSON.stringify(["base", "sft", "dpo"])) throw new Error("winrate-lc: the three training stages are quoted in order base → SFT → DPO, so their order is fixed");
+const winrateBoundKeys = winrateApi.WINRATE_BOUNDS.map(entry => entry.key), winrateVariantKeys = winrateApi.WINRATE_VARIANTS.map(entry => entry.key);
+if (JSON.stringify(winrateVariantKeys) !== JSON.stringify(["correct", "flipped", "tiesAsWins", "rawAsLc", "lengthTrim"])) throw new Error("winrate-lc: the correct evaluation must stay first and all four silent variants must stay present");
+for (const profile of winrateApi.WINRATE_PROFILES) {
+  if (profile.rows.length !== 12) throw new Error(`winrate-lc ${profile.key}: every stage is judged on the same twelve instructions, otherwise the comparison is not paired`);
+  for (const row of profile.rows) if (![1, 1.5, 2].includes(row[1])) throw new Error(`winrate-lc ${profile.key}: preference may only be 1.0, 1.5 or 2.0, which is the annotator's own scale`);
+}
+
+// Reference typed straight from the handout's definition: winrate is the share of own outputs the
+// annotator prefers, and the length control standardizes each stage onto the pooled length mix.
+const winrateRefScore = (preference, variantKey) => variantKey === "flipped" ? 2 - preference : variantKey === "tiesAsWins" ? (preference >= 1.5 ? 1 : 0) : preference - 1;
+const winrateRefBucket = (delta, bound) => delta < -bound ? 0 : delta > bound ? 2 : 1;
+function winrateRefReport(profileKey, boundKey, variantKey) {
+  const bound = winrateApi.WINRATE_BOUNDS.find(entry => entry.key === boundKey).bound;
+  const pooled = [0, 0, 0];
+  for (const profile of winrateApi.WINRATE_PROFILES) for (const row of profile.rows) pooled[winrateRefBucket(row[0], bound)]++;
+  const pooledTotal = pooled[0] + pooled[1] + pooled[2], weight = pooled.map(value => value / pooledTotal);
+  const profile = winrateApi.WINRATE_PROFILES.find(entry => entry.key === profileKey);
+  const rows = profile.rows.map((row, index) => ({ delta: row[0], ourLen: winrateApi.WINRATE_ITEMS[index].ref + row[0], refLen: winrateApi.WINRATE_ITEMS[index].ref,
+    bucket: winrateRefBucket(row[0], bound), score: winrateRefScore(row[1], variantKey), kept: variantKey !== "lengthTrim" || row[0] <= bound }));
+  const kept = rows.filter(row => row.kept), n = kept.length;
+  const raw = n ? kept.reduce((sum, row) => sum + row.score, 0) / n : 0;
+  const count = [0, 0, 0], total = [0, 0, 0];
+  kept.forEach(row => { count[row.bucket]++; total[row.bucket] += row.score; });
+  const rate = count.map((value, index) => value ? total[index] / value : null);
+  const missing = rate.some((value, index) => value === null && weight[index] > 0);
+  const lc = (variantKey === "rawAsLc" || variantKey === "lengthTrim") ? raw : missing ? null : rate.reduce((sum, value, index) => sum + weight[index] * value, 0);
+  const variance = Math.max(raw * (1 - raw), 0);
+  return { n, raw, lc, rate, count, weight, dropped: rows.length - n,
+    meanOur: n ? kept.reduce((sum, row) => sum + row.ourLen, 0) / n : 0,
+    meanRef: n ? kept.reduce((sum, row) => sum + row.refLen, 0) / n : 0,
+    se: n ? Math.sqrt(variance / n) : 0, seReference: Math.sqrt(variance / winrateApi.WINRATE_REFERENCE_N) };
+}
+let winrateStates = 0;
+for (const profileKey of winrateProfileKeys) for (const boundKey of winrateBoundKeys) for (const variantKey of winrateVariantKeys) {
+  const app = winrateApi.winrateReport(profileKey, boundKey, variantKey), reference = winrateRefReport(profileKey, boundKey, variantKey);
+  const label = `${profileKey}/${boundKey}/${variantKey}`;
+  if (app.n !== reference.n) throw new Error(`winrate-lc ${label}: the number of evaluated comparisons drifted`);
+  if (Math.abs(app.raw - reference.raw) > 1e-12) throw new Error(`winrate-lc ${label}: the winrate is no longer the share of preferred outputs`);
+  if (app.lc === null ? reference.lc !== null : Math.abs(app.lc - reference.lc) > 1e-12) throw new Error(`winrate-lc ${label}: the length-controlled winrate drifted from the standardized rate`);
+  if (Math.abs(app.se - reference.se) > 1e-12 || Math.abs(app.seReference - reference.seReference) > 1e-12) throw new Error(`winrate-lc ${label}: a standard error must stay √(p(1−p)/n)`);
+  if (Math.abs(app.meanOur - reference.meanOur) > 1e-12 || Math.abs(app.meanRef - reference.meanRef) > 1e-12) throw new Error(`winrate-lc ${label}: the mean answer lengths drifted`);
+  if (app.dropped !== reference.dropped) throw new Error(`winrate-lc ${label}: the number of discarded instructions drifted`);
+  for (let index = 0; index < 3; index++) {
+    if (app.count[index] !== reference.count[index]) throw new Error(`winrate-lc ${label}: bucket ${index} holds a different number of instructions`);
+    if (Math.abs(app.mix.weight[index] - reference.weight[index]) > 1e-12) throw new Error(`winrate-lc ${label}: the pooled length mix must stay a property of the data, not of the evaluation`);
+    const appRate = app.rate[index], referenceRate = reference.rate[index];
+    if (appRate === null ? referenceRate !== null : Math.abs(appRate - referenceRate) > 1e-12) throw new Error(`winrate-lc ${label}: the rate in bucket ${index} drifted`);
+  }
+  if (variantKey === "correct") {
+    if (app.n !== 12) throw new Error(`winrate-lc ${label}: the correct evaluation must keep every instruction`);
+    if (Math.abs(app.mix.weight.reduce((sum, value) => sum + value, 0) - 1) > 1e-12) throw new Error(`winrate-lc ${label}: the pooled weights must sum to one`);
+    if (Math.abs(app.share.reduce((sum, value) => sum + value, 0) - 1) > 1e-12) throw new Error(`winrate-lc ${label}: the own shares must sum to one`);
+    const reconstructed = app.rate.reduce((sum, value, index) => sum + (value === null ? 0 : app.share[index] * value), 0);
+    if (Math.abs(reconstructed - app.raw) > 1e-12) throw new Error(`winrate-lc ${label}: the raw winrate must equal the bucket rates weighted by the OWN share — that is the only thing the control changes`);
+  }
+  winrateStates++;
+}
+if (winrateStates !== winrateProfileKeys.length * winrateBoundKeys.length * winrateVariantKeys.length) throw new Error("winrate-lc: not every state was checked");
+
+// The hidden/exposed contract of the four silent variants.
+for (const profileKey of winrateProfileKeys) for (const boundKey of winrateBoundKeys) {
+  const correct = winrateApi.winrateReport(profileKey, boundKey, "correct");
+  const flipped = winrateApi.winrateReport(profileKey, boundKey, "flipped");
+  if (Math.abs(flipped.raw - (1 - correct.raw)) > 1e-12) throw new Error(`winrate-lc ${profileKey}/${boundKey}: reversing the preference direction must yield exactly 1 − winrate, which is why it looks plausible`);
+  const ties = winrateApi.winrateReport(profileKey, boundKey, "tiesAsWins");
+  if (Math.abs((ties.raw - correct.raw) - correct.ties / (2 * correct.n)) > 1e-12) throw new Error(`winrate-lc ${profileKey}/${boundKey}: counting ties in full must lift the winrate by exactly half the tie rate`);
+  const shortcut = winrateApi.winrateReport(profileKey, boundKey, "rawAsLc");
+  if (Math.abs(shortcut.raw - correct.raw) > 1e-12) throw new Error(`winrate-lc ${profileKey}/${boundKey}: the skipped control must leave the winrate itself untouched, otherwise it is a different bug`);
+  if (shortcut.lc !== shortcut.raw) throw new Error(`winrate-lc ${profileKey}/${boundKey}: the skipped control must report the raw value a second time`);
+  const trimmed = winrateApi.winrateReport(profileKey, boundKey, "lengthTrim");
+  if (trimmed.lc !== trimmed.raw) throw new Error(`winrate-lc ${profileKey}/${boundKey}: the home-made control reports one number twice, it does not standardize`);
+}
+if (winrateApi.winrateReport("dpo", "b200", "lengthTrim").dropped !== 7) throw new Error("winrate-lc: at ±200 the home-made control must discard seven of the DPO stage's twelve comparisons, which is the number the verdict argues from");
+
+// The findings the lab, the observe text and the transfer answer quote.
+const winrateHeadline = winrateProfileKeys.map(profileKey => winrateApi.winrateReport(profileKey, "b200", "correct"));
+const winrateRawRow = winrateHeadline.map(report => Number((report.raw * 100).toFixed(1)));
+const winrateLcRow = winrateHeadline.map(report => Number((report.lc * 100).toFixed(1)));
+if (JSON.stringify(winrateRawRow) !== JSON.stringify([33.3, 58.3, 70.8])) throw new Error(`winrate-lc: the raw series is quoted as 33.3 / 58.3 / 70.8, computed ${winrateRawRow.join(" / ")}`);
+if (JSON.stringify(winrateLcRow) !== JSON.stringify([48.1, 57.3, 51.8])) throw new Error(`winrate-lc: the length-controlled series is quoted as 48.1 / 57.3 / 51.8, computed ${winrateLcRow.join(" / ")}`);
+if (!(winrateRawRow[0] < winrateRawRow[1] && winrateRawRow[1] < winrateRawRow[2])) throw new Error("winrate-lc: the raw winrate must rise at every stage, because that is the straight story the control has to contradict");
+for (const boundKey of ["b100", "b200"]) {
+  const sft = winrateApi.winrateReport("sft", boundKey, "correct"), dpo = winrateApi.winrateReport("dpo", boundKey, "correct");
+  if (!(dpo.lc < sft.lc)) throw new Error(`winrate-lc ${boundKey}: under length control the DPO stage must not beat the SFT stage — that reversal is the whole lesson`);
+}
+if (winrateApi.winrateReport("base", "b400", "correct").lc !== null) throw new Error("winrate-lc: at ±400 the base stage must have an empty bucket, which is the case that shows why the real metric regresses instead of bucketing");
+for (const profileKey of winrateProfileKeys) for (const boundKey of ["b100", "b200"]) {
+  if (winrateApi.winrateReport(profileKey, boundKey, "correct").lc === null) throw new Error(`winrate-lc ${profileKey}/${boundKey}: only the coarsest boundary may leave a bucket empty`);
+}
+const winrateShortcutGap = winrateProfileKeys.map(profileKey => { const report = winrateApi.winrateReport(profileKey, "b200", "correct"); return Math.abs(report.raw - report.lc); });
+if (winrateShortcutGap.indexOf(Math.min(...winrateShortcutGap)) !== 1) throw new Error("winrate-lc: the skipped control must be least visible at the SFT stage — the transfer check asks exactly that");
+if (Number((winrateShortcutGap[1] * 100).toFixed(1)) !== 1.1 || Number((winrateShortcutGap[2] * 100).toFixed(1)) !== 19.0) throw new Error("winrate-lc: the verdict quotes 1.1 points at the SFT stage and 19.0 at the DPO stage");
+const winrateMeanDelta = winrateHeadline.map(report => Math.round(report.meanOur - report.meanRef));
+if (JSON.stringify(winrateMeanDelta) !== JSON.stringify([-148, 61, 279])) throw new Error(`winrate-lc: the mean length differences are quoted as −148 / +61 / +279, computed ${winrateMeanDelta.join(" / ")}`);
+if (winrateMeanDelta[2] - winrateMeanDelta[1] !== 218) throw new Error("winrate-lc: the transfer question argues from 218 characters between the SFT and DPO stages");
+const winratePairedStep = winrateApi.winratePaired("sft", "dpo", "b200", "correct");
+if (winratePairedStep.discordant !== 3 || winratePairedStep.n !== 12) throw new Error(`winrate-lc: the paired SFT → DPO step must rest on 3 of 12 differently judged instructions, computed ${winratePairedStep.discordant} of ${winratePairedStep.n}`);
+if (Number((1.96 * winrateHeadline[2].seReference * 100).toFixed(1)) !== 3.1) throw new Error("winrate-lc: the transfer answer argues that a single share has a 95 % half-width of a good 3 points over 805 instructions");
+
+for (const [labelText, lab] of [["German", winrateLab], ["English", pack.labs["winrate-lc"]]]) {
+  const decimal = labelText === "German" ? "," : ".";
+  for (const required of [`58${decimal}3`, `70${decimal}8`, `57${decimal}3`, `51${decimal}8`, "218", "805"]) {
+    if (!lab.transferAnswer.includes(required)) throw new Error(`labs.winrate-lc.transferAnswer (${labelText}): must keep the number ${required} it argues from`);
+  }
+  for (const required of ["preference", "w_b", "√(p(1−p)/n)"]) if (!lab.formula.includes(required)) throw new Error(`labs.winrate-lc.formula (${labelText}): must keep ${required}`);
+}
+for (const key of ["Win Rate gegen GPT-4 Turbo", "längenkontrollierte Win Rate", "Beitrag zur Längenkontrolle", "Derselbe Judge, drei Trainingsstände", "nicht bestimmbar", "Was diese Auswertung wirklich tut:"]) {
+  if (typeof pack.ui?.[key] !== "string" || !pack.ui[key].trim() || pack.ui[key] === key) throw new Error(`ui.${key}: English translation is missing for the winrate lab`);
+}
+// A guard that only checks the app COMPUTES a number does not check that it SHOWS it, so these
+// demand the concrete display expressions rather than the source functions.
+const winrateRenderer = source.slice(source.indexOf("function winrateStageMarkup"), source.indexOf("function updateWinrateLc"));
+for (const required of ["winrateReport(profileKey,boundKey,variantKey)", "winratePercent(report.raw)", "winratePercent(report.lc)", "winrateSigned((report.raw-report.lc)*100,1)",
+  "winrateNumber(report.meanOur,0)", "winrateSigned(report.meanOur-report.meanRef,0)", "winratePercent(report.se)", "winratePercent(report.seReference)",
+  "winratePercent(1.96*report.se)", "winratePercent(1.96*report.seReference)", "winratePercent(report.share[index])", "winratePercent(report.mix.weight[index])",
+  "winrateNumber(contribution,4)", "tr(variant.verdict)", "winratePaired(previous.key,profileKey,boundKey,variantKey)", "paired.discordant", "WINRATE_PROFILES.map",
+  'winrateReport(entry.key,boundKey,"correct")', "WINRATE_BUCKET_LABELS.map", 'report.mode==="missing"']) {
+  if (!winrateRenderer.includes(required)) throw new Error(`winrate-lc renderer: must stay data-driven and keep ${required}`);
+}
+console.log(`winrate-lc OK: ${winrateStates} states, raw ${winrateRawRow.join("/")}, length-controlled ${winrateLcRow.join("/")}`);
+
 // The shell precaches the language bundle by URL, so a version that differs from the one the page
 // requests means the service worker caches a file nobody asks for and the page fetches an uncached one.
 const shellSource = await readFile(path.join(root, "sw.js"), "utf8");
