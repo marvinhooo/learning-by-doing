@@ -1192,6 +1192,188 @@ for (const required of ["winrateReport(profileKey,boundKey,variantKey)", "winrat
 }
 console.log(`winrate-lc OK: ${winrateStates} states, raw ${winrateRawRow.join("/")}, length-controlled ${winrateLcRow.join("/")}`);
 
+// --- batch-windows ------------------------------------------------------------------------------
+// a1:data_loading is the contract the whole A1 training run rests on, and the handout states it in
+// one line: "any 1 ≤ i ≤ n − m gives a valid training sequence" — zero-based, 0 ≤ s ≤ n − m − 1.
+// Every number below is typed a second time straight from that sentence and from NumPy's slicing
+// rules; nothing here shares code with the app.
+const batchLab = base.labs.find(lab => lab.id === "batch-windows");
+if (!batchLab) throw new Error("labs.batch-windows: a1:data_loading has no interactive object");
+if (batchLab.module !== "training") throw new Error("labs.batch-windows: must live in the Training module, where token-array-loading sits");
+if (!base.modules.find(module => module.id === "training").labs.includes("batch-windows")) throw new Error("modules.training: the batching lab belongs to the module that owns token-array-loading");
+if (!base.lectureGuides.l02.labs.includes("batch-windows")) throw new Error("lecture guides.l02: Lecture 2 curates token-array-loading, so the lab that computes it belongs there");
+const batchMission = base.assignments.find(assignment => assignment.id === "a1").missions.find(mission => mission.id === "training-state");
+if (!batchMission.labs.includes("batch-windows")) throw new Error("A1 training-state: the mission whose scope opens with data_loading must lead with the lab that computes it");
+if (!readConstant("PROBLEM_CONCEPTS")["a1:data_loading"].includes("token-array-loading")) throw new Error("a1:data_loading: the problem must stay linked to token-array-loading, which is what the lab teaches");
+
+const batchSource = ["BATCH_SEED", "BATCH_LEDGER_LIMIT", "BATCH_UINT16_MAX", "BATCH_SETUPS", "BATCH_START_RULES", "BATCH_TARGET_RULES", "batchRandom", "batchStarts", "batchWindow", "batchReport", "batchCoverage", "batchDtype"];
+const batchApi = runInNewContext(`${batchSource.map(name => sliceDeclaration(source, name)).join("\n")}; ({${batchSource.join(",")}})`, {});
+const batchSetupKeys = batchApi.BATCH_SETUPS.map(entry => entry.key);
+const batchStartKeys = batchApi.BATCH_START_RULES.map(entry => entry.key);
+const batchTargetKeys = batchApi.BATCH_TARGET_RULES.map(entry => entry.key);
+if (JSON.stringify(batchSetupKeys) !== JSON.stringify(["toy", "small", "real"])) throw new Error("batch-windows: the three corpus sizes are quoted in order toy → small → A1 scale, so their order is fixed");
+if (JSON.stringify(batchStartKeys) !== JSON.stringify(["correct", "inclusive", "tooTight", "naive"])) throw new Error("batch-windows: the correct start rule must stay first and all three wrong bounds must stay present");
+if (JSON.stringify(batchTargetKeys) !== JSON.stringify(["shift", "same", "shortShift"])) throw new Error("batch-windows: the correct target rule must stay first and both silent variants must stay present");
+if (batchApi.BATCH_UINT16_MAX !== 65535) throw new Error("batch-windows: np.iinfo(np.uint16).max is 65535 and the dtype panel quotes that number");
+// The observe text walks the reader through "the four ledger rows" of the toy corpus and quotes the
+// A1-scale batch as truncated, so the cut-off may not drift underneath either claim.
+if (batchApi.BATCH_LEDGER_LIMIT !== 8) throw new Error("batch-windows: the ledger shows at most eight rows, which is what the lab note announces");
+for (const setup of batchApi.BATCH_SETUPS) {
+  const truncated = setup.B > batchApi.BATCH_LEDGER_LIMIT;
+  if (setup.key === "real" ? !truncated : truncated) throw new Error(`batch-windows ${setup.key}: only the A1-scale batch may be truncated in the ledger — the smaller corpora must show every row the observe text counts`);
+}
+const batchGeometry = { toy: [10, 4, 4], small: [64, 8, 8], real: [10000000, 256, 32] };
+for (const setup of batchApi.BATCH_SETUPS) {
+  const [n, m, B] = batchGeometry[setup.key];
+  if (setup.n !== n || setup.m !== m || setup.B !== B) throw new Error(`batch-windows ${setup.key}: the observe text and the transfer answer quote n=${n}, m=${m}, B=${B}`);
+  if (setup.n < setup.m + 1) throw new Error(`batch-windows ${setup.key}: a corpus must hold at least m+1 tokens, otherwise no valid window pair exists`);
+  if (setup.V - 1 > batchApi.BATCH_UINT16_MAX) throw new Error(`batch-windows ${setup.key}: every quoted vocabulary must fit into uint16, otherwise the dtype panel argues against its own example`);
+}
+if (batchApi.BATCH_SETUPS[0].tokens.length !== 10) throw new Error("batch-windows toy: the hand-checkable corpus is quoted as ten token IDs");
+// The repeated run is deliberate: it is the case in which a VALUE comparison of Y[:-1] against X[1:]
+// passes although the windows sit wrong. Without it the misconception text has no example.
+if (batchApi.BATCH_SETUPS[0].tokens.slice(2, 6).some((value, _, run) => value !== run[0])) throw new Error("batch-windows toy: the window at s=2 must hold four identical token IDs, which is the case the misconception text argues from");
+
+// Independent reference: NumPy slicing clamps, it does not raise; a start is valid exactly when
+// s + m ≤ n − 1.
+function batchRefStarts(setup, hi) {
+  let state = batchApi.BATCH_SEED >>> 0; const out = [];
+  for (let b = 0; b < setup.B; b++) { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; out.push(Math.floor((state / 4294967296) * hi)); }
+  return out;
+}
+function batchRefReport(setupKey, startKey, targetKey) {
+  const setup = batchApi.BATCH_SETUPS.find(entry => entry.key === setupKey);
+  const bound = setup.n - setup.m;
+  const hi = Math.max(1, { correct: bound, inclusive: bound + 1, tooTight: bound - 1, naive: setup.n }[startKey]);
+  const starts = batchRefStarts(setup, hi);
+  const rows = starts.map(start => {
+    const xa = Math.min(start, setup.n), xb = Math.min(start + setup.m, setup.n);
+    const ya = Math.min(targetKey === "same" ? start : start + 1, setup.n);
+    const yb = Math.min(targetKey === "shortShift" ? start + setup.m : targetKey === "same" ? start + setup.m : start + setup.m + 1, setup.n);
+    const xlen = Math.max(0, xb - xa), ylen = Math.max(0, yb - ya);
+    return { start, xlen, ylen, validStart: start <= setup.n - setup.m - 1, shifted: xlen === setup.m && ylen === setup.m && ya === xa + 1 };
+  });
+  const invalidValues = Math.max(0, hi - bound), q = invalidValues / hi;
+  const xlens = new Set(rows.map(row => row.xlen)), ylens = new Set(rows.map(row => row.ylen));
+  return { setup, bound, hi, starts, rows, invalidValues, q,
+    perBatch: 1 - Math.pow(1 - q, setup.B),
+    top: Math.min(hi - 1, bound - 1),
+    drawnInvalid: rows.filter(row => !row.validStart).length,
+    shiftedRows: rows.filter(row => row.shifted).length,
+    stackable: xlens.size === 1 && ylens.size === 1,
+    batchesPerPass: setup.n / (setup.B * setup.m) };
+}
+let batchStates = 0, batchValues = 0;
+for (const setupKey of batchSetupKeys) for (const startKey of batchStartKeys) for (const targetKey of batchTargetKeys) {
+  const label = `${setupKey}/${startKey}/${targetKey}`;
+  const app = batchApi.batchReport(setupKey, startKey, targetKey), reference = batchRefReport(setupKey, startKey, targetKey);
+  if (JSON.stringify(app.starts) !== JSON.stringify(reference.starts)) throw new Error(`batch-windows ${label}: the drawn start indices drifted from the fixed random stream`);
+  for (const field of ["bound", "hi", "invalidValues", "top", "drawnInvalid", "shiftedRows", "stackable"]) {
+    if (app[field] !== reference[field]) throw new Error(`batch-windows ${label}: ${field} drifted (${app[field]} vs ${reference[field]})`);
+    batchValues++;
+  }
+  if (Math.abs(app.q - reference.q) > 1e-15) throw new Error(`batch-windows ${label}: the share of invalid starts per draw must stay invalid values / draw range`);
+  if (Math.abs(app.perBatch - reference.perBatch) > 1e-15) throw new Error(`batch-windows ${label}: p(batch) must stay 1 − (1 − q)^B`);
+  if (Math.abs(app.batchesPerPass - reference.batchesPerPass) > 1e-9) throw new Error(`batch-windows ${label}: batches per corpus pass must stay n/(B·m)`);
+  app.rows.forEach((row, index) => {
+    const ref = reference.rows[index];
+    if (row.xlen !== ref.xlen || row.ylen !== ref.ylen || row.validStart !== ref.validStart || row.shifted !== ref.shifted) throw new Error(`batch-windows ${label} row ${index + 1}: the window drifted`);
+    batchValues += 4;
+  });
+  // The shift is a statement about positions, never about token values.
+  if (targetKey === "shift" && app.rows.some(row => row.validStart && !row.shifted)) throw new Error(`batch-windows ${label}: a valid start under the correct target rule must always satisfy Y[:−1] = X[1:]`);
+  if (targetKey !== "shift" && app.shiftedRows !== 0) throw new Error(`batch-windows ${label}: a wrong target rule must break the invariant in every row, otherwise it is not the bug the verdict describes`);
+  batchStates++;
+}
+if (batchStates !== batchSetupKeys.length * batchStartKeys.length * batchTargetKeys.length) throw new Error("batch-windows: not every state was checked");
+
+// The exclusive bound itself: n − m is right, n − m + 1 admits exactly one start whose Y is short.
+for (const setupKey of batchSetupKeys) {
+  const setup = batchApi.BATCH_SETUPS.find(entry => entry.key === setupKey);
+  const correct = batchApi.batchReport(setupKey, "correct", "shift");
+  if (correct.invalidValues !== 0) throw new Error(`batch-windows ${setupKey}: the correct rule must not be able to draw an invalid start at all`);
+  if (correct.lastValid !== setup.n - setup.m - 1) throw new Error(`batch-windows ${setupKey}: the last valid start is n − m − 1`);
+  if (correct.hi !== setup.n - setup.m) throw new Error(`batch-windows ${setupKey}: the exclusive upper bound is n − m`);
+  const inclusive = batchApi.batchReport(setupKey, "inclusive", "shift");
+  if (inclusive.invalidValues !== 1) throw new Error(`batch-windows ${setupKey}: n − m + 1 must admit exactly one invalid start, which is why the bug is so rare`);
+  if (batchApi.batchWindow(setup, setup.n - setup.m, "shift").ylen !== setup.m - 1) throw new Error(`batch-windows ${setupKey}: at s = n − m the target window must be one element short — that is the whole off-by-one`);
+  const tooTight = batchApi.batchReport(setupKey, "tooTight", "shift");
+  if (tooTight.invalidValues !== 0 || tooTight.drawnInvalid !== 0) throw new Error(`batch-windows ${setupKey}: the too-narrow rule must never produce an invalid row, which is exactly what makes it undetectable`);
+  if (!tooTight.missesLast) throw new Error(`batch-windows ${setupKey}: the too-narrow rule must lose the last valid start, because that is its only symptom`);
+  const naive = batchApi.batchReport(setupKey, "naive", "shift");
+  if (Math.abs(naive.q - setup.m / setup.n) > 1e-15) throw new Error(`batch-windows ${setupKey}: without a bound the share of affected draws is exactly m/n, which the verdict states`);
+}
+// The finding the whole lab is built on: at A1 scale every wrong rule still yields a flawless batch.
+for (const startKey of batchStartKeys) {
+  const real = batchApi.batchReport("real", startKey, "shift");
+  if (!real.stackable || real.shiftedRows !== 32 || real.drawnInvalid !== 0) throw new Error(`batch-windows real/${startKey}: at A1 scale every start rule must still produce 32 flawless rows — that is the point the lab is built on`);
+  if (real.signal !== "none") throw new Error(`batch-windows real/${startKey}: at A1 scale nothing may report anything, correct rule or not`);
+}
+if (batchApi.batchReport("toy", "inclusive", "shift").signal !== "stack") throw new Error("batch-windows toy/inclusive: on the toy corpus the off-by-one must be loud, otherwise the corpus selector teaches nothing");
+if (batchApi.batchReport("toy", "tooTight", "shift").signal !== "none") throw new Error("batch-windows toy/tooTight: the too-narrow rule must stay silent even on the toy corpus");
+// The short-shift rule masks the off-by-one: uniform short rows stack cleanly.
+if (!batchApi.batchReport("toy", "inclusive", "shortShift").stackable) throw new Error("batch-windows toy/inclusive/shortShift: a uniformly short Y must stack, which is how one bug hides the other");
+if (batchApi.batchReport("toy", "inclusive", "shift").stackable) throw new Error("batch-windows toy/inclusive/shift: under the correct target rule the off-by-one must break stacking");
+
+// Coverage in closed form, checked against a full enumeration on the corpora small enough to walk.
+for (const setupKey of batchSetupKeys) for (const startKey of batchStartKeys) {
+  const setup = batchApi.BATCH_SETUPS.find(entry => entry.key === setupKey);
+  const report = batchApi.batchReport(setupKey, startKey, "shift");
+  const coverage = batchApi.batchCoverage(setup, report.top);
+  if (coverage.full !== setup.m) throw new Error(`batch-windows ${setupKey}/${startKey}: full input coverage is m, one per start whose window contains the position`);
+  if (coverage.input(setup.n - 1) !== 0) throw new Error(`batch-windows ${setupKey}/${startKey}: the very last position can never be an input, because Y would need x[n]`);
+  if (coverage.targetCover(0) !== 0) throw new Error(`batch-windows ${setupKey}/${startKey}: position 0 can never be a target, because that would need a start of −1`);
+  if (setup.n <= 64) {
+    let below = 0, neverInput = 0, neverTarget = 0;
+    for (let j = 0; j < setup.n; j++) {
+      if (coverage.input(j) < setup.m) below++;
+      if (coverage.input(j) === 0) neverInput++;
+      if (coverage.targetCover(j) === 0) neverTarget++;
+    }
+    if (below !== coverage.belowFull) throw new Error(`batch-windows ${setupKey}/${startKey}: the closed form for positions below full coverage disagrees with the enumeration (${coverage.belowFull} vs ${below})`);
+    if (neverInput !== coverage.neverInput || neverTarget !== coverage.neverTarget) throw new Error(`batch-windows ${setupKey}/${startKey}: the closed forms for never-input/never-target positions disagree with the enumeration`);
+    batchValues += 3;
+  }
+  if (startKey === "correct" && coverage.belowFull !== 2 * setup.m - 1) throw new Error(`batch-windows ${setupKey}: under the correct rule exactly 2m − 1 positions sit below full coverage, independently of n`);
+  if (startKey === "tooTight" && coverage.neverInput !== 2) throw new Error(`batch-windows ${setupKey}: the too-narrow rule must leave two positions that are never an input instead of one — the transfer check asks exactly that`);
+}
+// The dtype contract: a too-narrow integer wraps before any 0 ≤ ID < V check can see it.
+for (const setup of batchApi.BATCH_SETUPS) {
+  const dtype = batchApi.batchDtype(setup);
+  if (dtype.bytes16 !== setup.n * 2 || dtype.bytes32 !== setup.n * 4) throw new Error(`batch-windows ${setup.key}: file size is n times the width of the dtype`);
+  if (dtype.overflowTo !== 4464) throw new Error(`batch-windows ${setup.key}: an ID of 70000 written as uint16 wraps to 4464, the number the concept page quotes`);
+  if (dtype.overflowV !== 70000 || dtype.overflowV - 1 <= batchApi.BATCH_UINT16_MAX) throw new Error(`batch-windows ${setup.key}: the counter-check must carry its own vocabulary, and it only says anything if that vocabulary does not fit into uint16`);
+  if (!(dtype.overflowTo < dtype.overflowV)) throw new Error(`batch-windows ${setup.key}: the wrapped ID must land inside its own vocabulary bound, otherwise the example does not show why the later 0 ≤ ID < V check misses it`);
+}
+// The headline numbers the observe text, the alarm text and both transfer answers quote.
+const batchReal = batchApi.batchReport("real", "inclusive", "shift");
+if (Math.round(1 / batchReal.perBatch) !== 312493) throw new Error(`batch-windows: the quoted "one hit per 312,493 batches" drifted to ${Math.round(1 / batchReal.perBatch)}`);
+if (Number((batchReal.perBatch * 100).toFixed(5)) !== 0.00032) throw new Error("batch-windows: the quoted probability of 0.00032 % per batch drifted");
+if (Number(batchReal.batchesPerPass.toFixed(1)) !== 1220.7) throw new Error("batch-windows: the quoted 1,220.7 batches per corpus pass drifted");
+const batchToy = batchApi.batchReport("toy", "correct", "shift");
+if (JSON.stringify(batchToy.starts) !== JSON.stringify([1, 5, 2, 4])) throw new Error(`batch-windows: the observe text walks the reader through the starts 1, 5, 2, 4, computed ${batchToy.starts.join(", ")}`);
+if (JSON.stringify(batchApi.batchReport("toy", "inclusive", "shift").starts) !== JSON.stringify([1, 6, 2, 5])) throw new Error("batch-windows: under the too-wide bound the same draw must yield the 6 the observe text points at");
+// The prose has to keep carrying the numbers it argues from — and the German transfer answer lives in
+// its own map, so checking the lab entry alone would leave it unguarded.
+const batchTransferDe = readConstant("LAB_TRANSFER_ANSWERS")["batch-windows"];
+const batchTransferEn = pack.labs["batch-windows"].transferAnswer;
+if (!batchTransferDe || !batchTransferEn) throw new Error("batch-windows: the transfer question needs a worked answer in both languages");
+for (const [labelText, lab, answer] of [["German", batchLab, batchTransferDe], ["English", pack.labs["batch-windows"], batchTransferEn]]) {
+  const thousands = labelText === "German" ? "." : ",";
+  const decimal = labelText === "German" ? "," : ".";
+  for (const required of [`312${thousands}493`, "get_batch", "np.stack"]) {
+    if (!JSON.stringify(lab).includes(required)) throw new Error(`batch-windows ${labelText}: the lab must keep quoting ${required}, because the observe text and the transfer answer argue from it`);
+  }
+  // Both numbers that make the "green tests, dead run" argument, in the answer itself.
+  for (const required of [`312${thousands}493`, `0${decimal}00032`, `1${thousands}220${decimal}7`]) {
+    if (!answer.includes(required)) throw new Error(`batch-windows ${labelText}: the transfer answer must keep quoting ${required} — without it the claim that a finite test stays green is unsupported`);
+  }
+  // Named field, not the stringified object: the transfer answer quotes the same exponent, so a
+  // whole-object search would keep passing after the misconception lost its argument.
+  if (!/10⁻⁷/.test(lab.misconception)) throw new Error(`batch-windows ${labelText}: the misconception text argues from a per-draw probability of 10⁻⁷, which is what makes a passing test meaningless`);
+}
+console.log(`batch-windows OK: ${batchStates} states, ${batchValues} values, one hit per ${Math.round(1 / batchReal.perBatch).toLocaleString("en-US")} batches at A1 scale`);
+
 // The shell precaches the language bundle by URL, so a version that differs from the one the page
 // requests means the service worker caches a file nobody asks for and the page fetches an uncached one.
 const shellSource = await readFile(path.join(root, "sw.js"), "utf8");
