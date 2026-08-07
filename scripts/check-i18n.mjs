@@ -1374,6 +1374,145 @@ for (const [labelText, lab, answer] of [["German", batchLab, batchTransferDe], [
 }
 console.log(`batch-windows OK: ${batchStates} states, ${batchValues} values, one hit per ${Math.round(1 / batchReal.perBatch).toLocaleString("en-US")} batches at A1 scale`);
 
+// ---------------------------------------------------------------------------------------------
+// mixed-precision: the lab claims exact FP16/BF16 arithmetic. Every number it shows is therefore a
+// falsifiable statement about IEEE 754, and each guard below pins one of them. The independent
+// reference is re-typed here from the format definitions, not imported from the app.
+const precSource = ["PREC_LN_EPS", "PREC_LN_BASE", "precF32Buffer", "precU32Buffer", "precBf16", "precRound",
+  "PREC_DTYPES", "PREC_CASES", "PREC_SCHEMES", "precAccumulate", "precAllSchemes", "precLayerNorm",
+  "PREC_SCALES", "PREC_AUTOCAST_ROWS"];
+const precApi = runInNewContext(`${precSource.map(name => sliceDeclaration(source, name)).join("\n")}; ({${precSource.join(",")}})`,
+  { Math, Float32Array, Uint32Array, Number });
+
+// Independent bf16 round-to-nearest-even, written from the format definition rather than reused.
+const precRefBuffer = new Float32Array(1), precRefBits = new Uint32Array(precRefBuffer.buffer);
+function precRefBf16(value) {
+  precRefBuffer[0] = Math.fround(value);
+  const bits = precRefBits[0];
+  if (((bits >>> 23) & 0xff) === 0xff) return precRefBuffer[0];
+  const high = bits >>> 16, low = bits & 0xffff;
+  let out = high;
+  if (low > 0x8000) out = high + 1;
+  else if (low === 0x8000) out = high + (high & 1);
+  precRefBits[0] = (out << 16) >>> 0;
+  return precRefBuffer[0];
+}
+const precRefRound = (dtype, value) => dtype === "fp16" ? Math.f16round(value) : dtype === "bf16" ? precRefBf16(value) : Math.fround(value);
+function precRefAccumulate(value, steps, acc, val) {
+  const stored = precRefRound(val, value);
+  let sum = 0, stalled = 0, previous = 0;
+  for (let step = 1; step <= steps; step++) {
+    previous = sum;
+    sum = precRefRound(acc, previous + stored);
+    if (sum === previous && !stalled) stalled = step;
+  }
+  return { stored, sum, stalled };
+}
+function precRefLayerNorm(scale, dtype) {
+  const r = value => precRefRound(dtype, value);
+  const x = precApi.PREC_LN_BASE.map(value => r(value * scale));
+  let mean = 0;
+  for (const value of x) mean = r(mean + value);
+  mean = r(mean / x.length);
+  let sumSquares = 0;
+  for (const value of x) { const centred = r(value - mean); sumSquares = r(sumSquares + r(centred * centred)); }
+  const variance = r(sumSquares / x.length);
+  const denominator = r(Math.sqrt(r(variance + precApi.PREC_LN_EPS)));
+  return { mean, sumSquares, variance, denominator, out: x.map(value => r(r(value - mean) / denominator)) };
+}
+let precValues = 0;
+for (const item of precApi.PREC_CASES) for (const scheme of precApi.PREC_SCHEMES) {
+  const got = precApi.precAccumulate(item.key, scheme.key);
+  const want = precRefAccumulate(item.value, item.steps, scheme.acc, scheme.val);
+  for (const [field, expected] of [["stored", want.stored], ["sum", want.sum], ["stalledAt", want.stalled]]) {
+    precValues++;
+    if (!Object.is(got[field], expected)) throw new Error(`mixed-precision ${item.key}/${scheme.key}: ${field} is ${got[field]}, the reference says ${expected}`);
+  }
+}
+for (const entry of precApi.PREC_SCALES) for (const dtype of ["fp32", "fp16", "bf16"]) {
+  const got = precApi.precLayerNorm(entry.scale, dtype), want = precRefLayerNorm(entry.scale, dtype);
+  for (const field of ["mean", "sumSquares", "variance", "denominator"]) {
+    precValues++;
+    if (!Object.is(got[field], want[field])) throw new Error(`mixed-precision layer norm ${entry.key}/${dtype}: ${field} is ${got[field]}, the reference says ${want[field]}`);
+  }
+  got.out.forEach((value, index) => {
+    precValues++;
+    if (!Object.is(value, want.out[index])) throw new Error(`mixed-precision layer norm ${entry.key}/${dtype}: out[${index}] is ${value}, the reference says ${want.out[index]}`);
+  });
+}
+// The five schemes must stay the exact four handout lines plus the BF16 counterpart, because the
+// lab's whole argument is that lines 3 and 4 of the handout are the same computation.
+const precHandoutLine34 = precApi.precAccumulate("handout", "accF32");
+if (precHandoutLine34.sum !== 10.00213623046875) throw new Error(`mixed-precision: lines 3 and 4 of the handout must give 10.00213623046875, got ${precHandoutLine34.sum}`);
+if (precApi.precAccumulate("handout", "allF16").sum !== 9.953125) throw new Error("mixed-precision: the all-FP16 handout line must give 9.953125");
+// The reversal is the lab's thesis: FP16 beats BF16 on resolution and loses to it on range. If a
+// future edit makes one format win everywhere, the lab teaches a ranking that does not exist.
+const precRoundExact = precApi.precAllSchemes("exact");
+const precRoundReference = precRoundExact.find(entry => entry.scheme.key === "allF32").sum;
+const precHiddenOnRound = precRoundExact.filter(entry => entry.scheme.key !== "allF32" && Object.is(entry.sum, precRoundReference));
+if (!precHiddenOnRound.some(entry => entry.scheme.key === "allF16")) throw new Error("mixed-precision: on the round-number case all-FP16 must be bit-identical to FP32, otherwise the 'harmless test' lesson has no case");
+if (precHiddenOnRound.some(entry => entry.scheme.key === "allBf16")) throw new Error("mixed-precision: all-BF16 must NOT match on the round-number case, that contrast is the resolution half of the thesis");
+const precTiny = Object.fromEntries(precApi.precAllSchemes("tiny").map(entry => [entry.scheme.key, entry.sum]));
+if (precTiny.allF16 !== 0) throw new Error("mixed-precision: at 1e-8 all-FP16 must underflow to exactly 0");
+if (precTiny.accF32 !== 0) throw new Error("mixed-precision: at 1e-8 the FP32 accumulator must ALSO be 0 — that an accumulator cannot rescue an already-underflowed input is the lab's central counterintuitive result");
+if (!(precTiny.allBf16 > 0)) throw new Error("mixed-precision: at 1e-8 BF16 must survive, that is the range half of the thesis");
+// The two LayerNorm failure modes must stay at opposite ends and must stay silent, because the
+// lab claims an overflow here produces zeros rather than a NaN.
+// Read the scales the lab actually offers, not literals: a guard that hardcodes 300 keeps passing
+// after PREC_SCALES is changed to a scale where nothing overflows, and would prove nothing.
+const precScaleOf = key => {
+  const entry = precApi.PREC_SCALES.find(item => item.key === key);
+  if (!entry) throw new Error(`mixed-precision: the scale "${key}" must stay in PREC_SCALES, the lab's argument is built on all three`);
+  return entry.scale;
+};
+const precLargeF16 = precApi.precLayerNorm(precScaleOf("large"), "fp16");
+if (!precLargeF16.overflowed) throw new Error("mixed-precision: at the large activation scale the FP16 sum of squares must overflow");
+if (!precLargeF16.collapsed) throw new Error("mixed-precision: the FP16 overflow must collapse the output to all zeros — a NaN would be the loud case and would undo the lesson");
+if (precLargeF16.out.some(Number.isNaN)) throw new Error("mixed-precision: the overflow case must not produce NaN, the lab argues it stays silent");
+if (precApi.precLayerNorm(precScaleOf("large"), "bf16").overflowed) throw new Error("mixed-precision: BF16 must not overflow at the large scale, that is the answer to part (b)");
+if (!precApi.precLayerNorm(precScaleOf("small"), "fp16").flushed) throw new Error("mixed-precision: at the small activation scale the FP16 variance must flush to zero");
+const precUnitF16 = precApi.precLayerNorm(precScaleOf("unit"), "fp16");
+if (precUnitF16.overflowed || precUnitF16.flushed || precUnitF16.collapsed) throw new Error("mixed-precision: at the unit activation scale nothing may fail — that is the case a self-written test would use, and the lesson needs it to look harmless");
+// The FP16 limit the prose argues from must stay the real one.
+if (precApi.PREC_DTYPES.find(entry => entry.key === "fp16").maxFinite !== 65504) throw new Error("mixed-precision: the FP16 maximum must stay 65504, the overflow argument is pinned to it");
+if (precApi.PREC_DTYPES.find(entry => entry.key === "bf16").mantissa >= precApi.PREC_DTYPES.find(entry => entry.key === "fp16").mantissa) throw new Error("mixed-precision: BF16 must have fewer mantissa bits than FP16, otherwise the accumulation contrast is backwards");
+// autocast policy: exactly the six rows the handout asks for, and the two FP32 exceptions must be
+// the reduction ops. A renderer that lost the parameter row would silently answer five of six.
+if (precApi.PREC_AUTOCAST_ROWS.length !== 6) throw new Error("mixed-precision: benchmarking_mixed_precision (a) asks for exactly six dtypes");
+const precPolicies = precApi.PREC_AUTOCAST_ROWS.map(row => `${row.key}:${row.policy}`).join(",");
+if (precPolicies !== "params:keep,fc1:low,ln:fp32,logits:low,loss:fp32,grads:keep") throw new Error(`mixed-precision: the autocast policy must match PyTorch, got ${precPolicies}`);
+// Renderer guards: the display expression, not just the source function. A lab that computes a
+// number it never shows is the failure mode this repo has hit before.
+const precAccumulationRenderer = sliceDeclaration(source, "precAccumulationStage");
+if (!precAccumulationRenderer.includes("precNumber(report.sum)")) throw new Error("mixed-precision: the accumulation renderer must display the computed sum");
+if (!precAccumulationRenderer.includes("precAllSchemes(caseKey)")) throw new Error("mixed-precision: the renderer must show all five schemes on the selected case, that comparison is where the reversal is read off");
+if (!/\$\{report\.stalledAt\?`\$\{report\.stalledAt\}/.test(precAccumulationRenderer)) throw new Error("mixed-precision: the renderer must display the stalling step itself, not merely mention the field");
+const precAutocastRenderer = sliceDeclaration(source, "precAutocastStage");
+if (!precAutocastRenderer.includes("precNumber(low.variance)")) throw new Error("mixed-precision: the autocast renderer must display the low-precision variance");
+if (!precAutocastRenderer.includes("precNumber(low.largestSquare)")) throw new Error("mixed-precision: the autocast renderer must display the largest square, the overflow is read off against it");
+if (!precAutocastRenderer.includes("low.collapsed")) throw new Error("mixed-precision: the autocast renderer must report the all-zero output");
+// Mode fields must be plain divs: `hidden` does not survive `.field { display: grid }`, which once
+// showed both modes' selectors at the same time.
+const precControls = source.slice(source.indexOf('if(id==="mixed-precision") return `'), source.indexOf('if(id==="batch-windows") return `'));
+for (const id of ["precAccumulationFields", "precAutocastFields"]) {
+  if (!new RegExp(`<div id="${id}"( hidden)?>`).test(precControls)) throw new Error(`mixed-precision: ${id} must be a plain div, because hidden is overridden on .field`);
+}
+const precLab = base.labs.find(entry => entry.id === "mixed-precision");
+if (!precLab) throw new Error("mixed-precision: lab entry missing");
+if (precLab.module !== "foundations") throw new Error("mixed-precision: the lab belongs to the foundations module, where the dtype concept lives");
+for (const [label, lab] of [["de", precLab], ["en", pack.labs["mixed-precision"]]]) {
+  if (!/autocast/.test(lab.mental)) throw new Error(`mixed-precision ${label}: the mental model must name autocast, which appeared nowhere in the app before this lab`);
+  if (!/65504/.test(lab.transferAnswer)) throw new Error(`mixed-precision ${label}: the transfer answer must pin the overflow to the FP16 maximum`);
+  if (!/351/.test(lab.transferAnswer)) throw new Error(`mixed-precision ${label}: the transfer answer must name the step at which BF16 stalls, that is the half of the trade-off that costs`);
+}
+// Reachability: L2 is the lecture that teaches float16/bfloat16/fp8 and mixed_precision_training,
+// and a2:benchmark-profile is the mission that owns both handout problems.
+if (!base.lectureGuides.l02.labs.includes("mixed-precision")) throw new Error("mixed-precision: Lecture 2 teaches the dtype sections, the lab must be reachable from it");
+const precMission = base.assignments.find(entry => entry.id === "a2").missions.find(entry => entry.id === "benchmark-profile");
+if (!precMission.labs.includes("mixed-precision")) throw new Error("mixed-precision: the a2:benchmark-profile mission owns mixed_precision_accumulation and benchmarking_mixed_precision");
+if (!base.modules.find(entry => entry.id === "foundations").labs.includes("mixed-precision")) throw new Error("mixed-precision: the foundations module must list the lab");
+console.log(`mixed-precision OK: ${precValues} values, handout lines 3+4 agree at ${precHandoutLine34.sum}, FP16 exact on the round case, BF16 the only survivor at 1e-8`);
+
 // The shell precaches the language bundle by URL, so a version that differs from the one the page
 // requests means the service worker caches a file nobody asks for and the page fetches an uncached one.
 const shellSource = await readFile(path.join(root, "sw.js"), "utf8");

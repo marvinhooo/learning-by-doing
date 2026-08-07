@@ -2,7 +2,7 @@
 
 Inoffizielle, zweisprachige Lernplattform für Stanford CS336 „Language Models from Scratch“. Englisch ist die Standardsprache, Deutsch lässt sich jederzeit zuschalten. Das Projekt ist nicht mit Stanford verbunden und erzeugt keine Assignment-Lösungen.
 
-Der Lernpfad folgt direkt den 17 Lectures. Jede Lecture beginnt mit einer einfachen Einordnung: Worum geht es, warum ist das wichtig und welches Vorwissen wird vorausgesetzt? Danach folgen die wichtigsten Konzepte, die für diese Lecture kuratierten Formeln, passende Experimente und der seitengenaue Link zur Originalquelle. Jede Formelerklärung beginnt mit einer konkreten Frage, erklärt Namen, Symbole und ungewohnte Operatoren in Alltagssprache, setzt einen kleinen Zahlenfall vollständig ein und rechnet ihn vor; erst danach erscheint die allgemeine Gleichung. Vertiefend stehen 75 Konzepte, 79 Formeln, 72 Symbole, 70 Glossarbegriffe und 37 interaktive Labs bereit.
+Der Lernpfad folgt direkt den 17 Lectures. Jede Lecture beginnt mit einer einfachen Einordnung: Worum geht es, warum ist das wichtig und welches Vorwissen wird vorausgesetzt? Danach folgen die wichtigsten Konzepte, die für diese Lecture kuratierten Formeln, passende Experimente und der seitengenaue Link zur Originalquelle. Jede Formelerklärung beginnt mit einer konkreten Frage, erklärt Namen, Symbole und ungewohnte Operatoren in Alltagssprache, setzt einen kleinen Zahlenfall vollständig ein und rechnet ihn vor; erst danach erscheint die allgemeine Gleichung. Vertiefend stehen 75 Konzepte, 79 Formeln, 72 Symbole, 70 Glossarbegriffe und 38 interaktive Labs bereit.
 
 ## Empfohlener Lernfluss
 
