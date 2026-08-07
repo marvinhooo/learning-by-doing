@@ -1513,6 +1513,129 @@ if (!precMission.labs.includes("mixed-precision")) throw new Error("mixed-precis
 if (!base.modules.find(entry => entry.id === "foundations").labs.includes("mixed-precision")) throw new Error("mixed-precision: the foundations module must list the lab");
 console.log(`mixed-precision OK: ${precValues} values, handout lines 3+4 agree at ${precHandoutLine34.sum}, FP16 exact on the round case, BF16 the only survivor at 1e-8`);
 
+// checkpoint-segments: the lab answers a2:gradient_checkpointing by computing, not by quoting. Its
+// two constants are printed by the handout itself, and the whole didactic point — that the famous
+// √N answer is a right formula without its premise — collapses if either constant drifts. The
+// reference below is re-derived from the handout's own printed figures, not imported from the app.
+const ckptSource = ["CKPT_BLOCK_RESIDUAL", "CKPT_BOUNDARY", "CKPT_DEPTHS", "CKPT_RATIOS",
+  "ckptFlatPeak", "ckptFlatRow", "ckptFlatTable", "ckptBestSegments", "ckptNestedPeak", "ckptNestedRecompute"];
+const ckptApi = runInNewContext(`${ckptSource.map(name => sliceDeclaration(source, name)).join("\n")}; ({${ckptSource.join(",")}})`,
+  { Math });
+const ckptR = ckptApi.CKPT_BLOCK_RESIDUAL, ckptC = ckptApi.CKPT_BOUNDARY;
+// The handout prints "14605.25 MiB" for four blocks and "160.00 MiB" for two boundary tensors.
+// Deriving the constants back out is what makes them checkable rather than asserted.
+if (4 * ckptR !== 14605.25) throw new Error(`checkpoint-segments: four blocks must reproduce the handout's 14605.25 MiB, got ${4 * ckptR}`);
+if (2 * ckptC !== 160) throw new Error(`checkpoint-segments: two boundary tensors must reproduce the handout's 160.00 MiB, got ${2 * ckptC}`);
+if (ckptR.toFixed(2) !== "3651.31") throw new Error("checkpoint-segments: a single block must display as the handout's 3651.31 MiB");
+if (ckptC !== (4 * 2048 * 2560 * 4) / (1024 * 1024)) throw new Error("checkpoint-segments: the boundary tensor must stay one [4, 2048, 2560] FP32 tensor");
+// Independent reference, re-typed from the two-item model rather than reused from the app.
+const ckptRefPeak = (blocks, segment, boundary) => Math.ceil(blocks / segment) * boundary + segment * ckptR;
+const ckptRefNested = (blocks, boundary) => blocks <= 1 ? ckptR : boundary + ckptRefNested(Math.ceil(blocks / 2), boundary);
+const ckptRefRecompute = blocks => {
+  if (blocks <= 1) return 1;
+  const lower = Math.floor(blocks / 2);
+  return lower + ckptRefRecompute(lower) + ckptRefRecompute(blocks - lower);
+};
+let ckptValues = 0;
+for (const depth of ckptApi.CKPT_DEPTHS) {
+  for (const ratio of ckptApi.CKPT_RATIOS) {
+    const table = ckptApi.ckptFlatTable(depth.blocks, ratio.boundary, ckptR);
+    if (table.length !== depth.blocks) throw new Error(`checkpoint-segments: the table must offer every segment size for N=${depth.blocks}`);
+    table.forEach((row, index) => {
+      const segment = index + 1;
+      const want = ckptRefPeak(depth.blocks, segment, ratio.boundary);
+      ckptValues += 4;
+      if (!Object.is(row.peak, want)) throw new Error(`checkpoint-segments N=${depth.blocks}/${ratio.key}/k=${segment}: peak is ${row.peak}, the reference says ${want}`);
+      if (!Object.is(row.segments, Math.ceil(depth.blocks / segment))) throw new Error(`checkpoint-segments N=${depth.blocks}/k=${segment}: wrong number of checkpoint calls`);
+      if (!Object.is(row.held, Math.ceil(depth.blocks / segment) * ratio.boundary)) throw new Error(`checkpoint-segments N=${depth.blocks}/${ratio.key}/k=${segment}: wrong boundary-tensor total`);
+      if (!Object.is(row.materialized, segment * ckptR)) throw new Error(`checkpoint-segments N=${depth.blocks}/k=${segment}: wrong materialized segment`);
+    });
+    ckptValues += 1;
+    if (!Object.is(ckptApi.ckptNestedPeak(depth.blocks, ratio.boundary, ckptR), ckptRefNested(depth.blocks, ratio.boundary))) throw new Error(`checkpoint-segments N=${depth.blocks}/${ratio.key}: nested peak disagrees with r + c·⌈log₂N⌉`);
+  }
+  ckptValues += 1;
+  if (!Object.is(ckptApi.ckptNestedRecompute(depth.blocks), ckptRefRecompute(depth.blocks))) throw new Error(`checkpoint-segments N=${depth.blocks}: nested recomputation count disagrees with the halving recursion`);
+}
+// The closed form quoted in the lab's formula line must actually hold for powers of two.
+for (const blocks of [2, 4, 8, 16, 32]) {
+  const want = blocks * (Math.log2(blocks) / 2 + 1);
+  if (ckptApi.ckptNestedRecompute(blocks) !== want) throw new Error(`checkpoint-segments: the formula line claims N·(log₂N/2 + 1) extra forwards, which fails at N=${blocks}`);
+}
+// The three regimes ARE the lesson. Each is derived from the lab's own data, never from a literal,
+// so that retuning CKPT_RATIOS cannot leave the prose claiming a contrast the lab no longer shows.
+const ckptRatioOf = key => {
+  const entry = ckptApi.CKPT_RATIOS.find(item => item.key === key);
+  if (!entry) throw new Error(`checkpoint-segments: the ratio "${key}" must stay in CKPT_RATIOS, the lab's three-regime argument needs all of them`);
+  return entry.boundary;
+};
+const ckptXl = ckptApi.CKPT_DEPTHS.find(entry => entry.key === "xl");
+if (!ckptXl || ckptXl.blocks !== 32) throw new Error("checkpoint-segments: the xl config with 32 blocks is the configuration the problem specifies");
+const ckptBestAt = (blocks, boundary) => ckptApi.ckptBestSegments(ckptApi.ckptFlatTable(blocks, boundary, ckptR));
+const ckptMeasuredBest = ckptBestAt(ckptXl.blocks, ckptRatioOf("measured"));
+if (ckptMeasuredBest.join(",") !== "1") throw new Error(`checkpoint-segments: at the measured ratio the minimum must sit at the boundary k=1, got ${ckptMeasuredBest.join(",")} — the answer to part (b) depends on it`);
+const ckptSqrt = Math.round(Math.sqrt(ckptXl.blocks));
+const ckptTextbookBest = ckptBestAt(ckptXl.blocks, ckptRatioOf("textbook"));
+if (!ckptTextbookBest.includes(ckptSqrt)) throw new Error("checkpoint-segments: under the textbook assumption c = r the √N rule of thumb must actually be optimal, otherwise the lab's contrast has no other side");
+if (ckptTextbookBest.length < 2) throw new Error("checkpoint-segments: the textbook regime must show a plateau, that flatness is why one neighbour probe is not enough");
+const ckptQuarterBest = ckptBestAt(ckptXl.blocks, ckptRatioOf("quarter"));
+if (ckptQuarterBest.length !== 1 || ckptQuarterBest[0] === 1 || ckptQuarterBest[0] === ckptXl.blocks) throw new Error(`checkpoint-segments: the quarter ratio must produce an interior minimum, got ${ckptQuarterBest.join(",")}`);
+if (ckptQuarterBest[0] !== Math.round(Math.sqrt(ckptXl.blocks * ckptRatioOf("quarter") / ckptR))) throw new Error("checkpoint-segments: the interior minimum must land on k* = √(N·c/r), that formula is what the lab teaches");
+// The two factors the prose states out loud, recomputed from the lab's own table.
+const ckptTable = ckptApi.ckptFlatTable(ckptXl.blocks, ckptRatioOf("measured"), ckptR);
+const ckptSqrtFactor = ckptTable[ckptSqrt - 1].peak / ckptTable[0].peak;
+if (ckptSqrtFactor.toFixed(2) !== "3.60") throw new Error(`checkpoint-segments: the misconception text claims the √N answer costs 3.60×, the table says ${ckptSqrtFactor.toFixed(2)}`);
+if (Math.round(ckptR / ckptC) !== 46) throw new Error(`checkpoint-segments: the prose claims a factor of 46 between a block and a boundary tensor, the constants say ${Math.round(ckptR / ckptC)}`);
+const ckptReachable = ckptXl.blocks * ckptR - ckptR;
+const ckptFlatShare = ((ckptXl.blocks * ckptR - ckptTable[0].peak) / ckptReachable) * 100;
+if (ckptFlatShare.toFixed(1) !== "97.7") throw new Error(`checkpoint-segments: the misconception text claims one level captures 97.7 % of the achievable saving, the model says ${ckptFlatShare.toFixed(1)}`);
+if (ckptApi.ckptNestedRecompute(ckptXl.blocks) !== 112) throw new Error("checkpoint-segments: the misconception text names 112 extra forwards for the nested strategy");
+// The lower bound is the reason the nesting payoff is small here; if a strategy could undercut one
+// block's residuals, the whole part-(a)-versus-part-(b) argument would be wrong.
+for (const depth of ckptApi.CKPT_DEPTHS) {
+  for (const ratio of ckptApi.CKPT_RATIOS) {
+    const best = Math.min(...ckptApi.ckptFlatTable(depth.blocks, ratio.boundary, ckptR).map(row => row.peak));
+    if (best < ckptR) throw new Error(`checkpoint-segments N=${depth.blocks}/${ratio.key}: no strategy may fall below one block's residuals`);
+    if (ckptApi.ckptNestedPeak(depth.blocks, ratio.boundary, ckptR) < ckptR) throw new Error(`checkpoint-segments N=${depth.blocks}/${ratio.key}: the nested peak may not fall below the lower bound either`);
+  }
+}
+// Renderer guards demand the display expression, not the source function: computing a number is not
+// showing it. This repo has shipped a lab whose verdicts were never rendered.
+const ckptSegmentRenderer = sliceDeclaration(source, "ckptSegmentsStage");
+if (!ckptSegmentRenderer.includes("ckptNumber(current.peak)")) throw new Error("checkpoint-segments: the renderer must display the peak of the selected segment size");
+if (!ckptSegmentRenderer.includes("ckptNumber(current.held)") || !ckptSegmentRenderer.includes("ckptNumber(current.materialized)")) throw new Error("checkpoint-segments: both items of the peak must be shown separately, the trade-off is only visible as two rows");
+if (!/rows\.map\(row\s*=>/.test(ckptSegmentRenderer)) throw new Error("checkpoint-segments: the full table must be rendered from the computed rows, not from a fixed selection");
+if (!/\[segment-1,segment,segment\+1\]/.test(ckptSegmentRenderer)) throw new Error("checkpoint-segments: the neighbour probe must show both neighbours — that is literally what part (b) asks for");
+if (!ckptSegmentRenderer.includes("optimumReal.toFixed(4)")) throw new Error("checkpoint-segments: the renderer must display k* = √(N·c/r) itself, the rule-of-thumb argument is read off against it");
+if (!/\(boundary\/residual\)\.toFixed\(4\)/.test(ckptSegmentRenderer)) throw new Error("checkpoint-segments: the renderer must display the ratio ρ, which is the quantity the whole lab turns on");
+const ckptNestingRenderer = sliceDeclaration(source, "ckptNestingStage");
+if (!ckptNestingRenderer.includes("ckptNumber(nested)")) throw new Error("checkpoint-segments: the nesting renderer must display the nested peak");
+if (!ckptNestingRenderer.includes("nestedForwards")) throw new Error("checkpoint-segments: the nesting renderer must display the price in extra forwards, the asymptotic claim is meaningless without it");
+if (!/\$\{entry\.extra\}/.test(ckptNestingRenderer)) throw new Error("checkpoint-segments: every strategy row must carry its own recomputation price, otherwise the three strategies can be compared on memory alone");
+if (!ckptNestingRenderer.includes("ckptNumber(floor)")) throw new Error("checkpoint-segments: the nesting renderer must display the lower bound");
+if (!/share\(bestPeak\)/.test(ckptNestingRenderer) || !/share\(nested\)/.test(ckptNestingRenderer)) throw new Error("checkpoint-segments: both strategies' share of the achievable saving must be shown, that comparison is the point of mode (a)");
+// Mode fields must be plain divs: `hidden` does not survive `.field { display: grid }`.
+const ckptControls = source.slice(source.indexOf('if(id==="checkpoint-segments") return `'), source.indexOf('if(id==="winrate-lc") return `'));
+if (ckptControls.length < 200) throw new Error("checkpoint-segments: the control markup was not found, this guard would otherwise pass vacuously");
+if (!/<div id="ckptSegmentFields">/.test(ckptControls)) throw new Error("checkpoint-segments: ckptSegmentFields must be a plain div, because hidden is overridden on .field");
+if (!/id="ckptSegment"/.test(ckptControls)) throw new Error("checkpoint-segments: the segment-size control must exist");
+const ckptLab = base.labs.find(entry => entry.id === "checkpoint-segments");
+if (!ckptLab) throw new Error("checkpoint-segments: lab entry missing");
+if (ckptLab.module !== "gpu") throw new Error("checkpoint-segments: the lab belongs to the gpu module, where the checkpointing concept lives");
+for (const [label, lab] of [["de", ckptLab], ["en", pack.labs["checkpoint-segments"]]]) {
+  if (!/√\(N·c\/r\)/.test(lab.formula)) throw new Error(`checkpoint-segments ${label}: the formula line must state k* = √(N·c/r), the generalisation is the lesson`);
+  if (!/3651[.,]31/.test(lab.misconception)) throw new Error(`checkpoint-segments ${label}: the misconception must pin the argument to the handout's block figure`);
+  if (!/3\.60|3,60/.test(lab.misconception)) throw new Error(`checkpoint-segments ${label}: the misconception must name how far off the √N answer is`);
+  if (!/97[.,]7/.test(lab.misconception)) throw new Error(`checkpoint-segments ${label}: the misconception must name the share one level already captures, otherwise the nesting half is only asserted`);
+  if (!/0[.,]0219/.test(lab.transferAnswer)) throw new Error(`checkpoint-segments ${label}: the transfer answer must name ρ, the one number that decides the question without a measurement`);
+}
+// Reachability: L5 is the lecture with the Recomputation section, and a2:compile-checkpoint is the
+// mission that owns gradient_checkpointing.
+if (!base.lectureGuides.l05.labs.includes("checkpoint-segments")) throw new Error("checkpoint-segments: Lecture 5 teaches recomputation, the lab must be reachable from it");
+const ckptMission = base.assignments.find(entry => entry.id === "a2").missions.find(entry => entry.id === "compile-checkpoint");
+if (!ckptMission.labs.includes("checkpoint-segments")) throw new Error("checkpoint-segments: the a2:compile-checkpoint mission owns gradient_checkpointing");
+if (!base.modules.find(entry => entry.id === "gpu").labs.includes("checkpoint-segments")) throw new Error("checkpoint-segments: the gpu module must list the lab");
+console.log(`checkpoint-segments OK: ${ckptValues} values, minimum at k=${ckptMeasuredBest.join(",")} measured against a √N plateau of ${ckptTextbookBest.join(",")}, rule of thumb off by ${ckptSqrtFactor.toFixed(2)}×`);
+
 // The shell precaches the language bundle by URL, so a version that differs from the one the page
 // requests means the service worker caches a file nobody asks for and the page fetches an uncached one.
 const shellSource = await readFile(path.join(root, "sw.js"), "utf8");
