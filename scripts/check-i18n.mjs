@@ -1636,6 +1636,182 @@ if (!ckptMission.labs.includes("checkpoint-segments")) throw new Error("checkpoi
 if (!base.modules.find(entry => entry.id === "gpu").labs.includes("checkpoint-segments")) throw new Error("checkpoint-segments: the gpu module must list the lab");
 console.log(`checkpoint-segments OK: ${ckptValues} values, minimum at k=${ckptMeasuredBest.join(",")} measured against a √N plateau of ${ckptTextbookBest.join(",")}, rule of thumb off by ${ckptSqrtFactor.toFixed(2)}×`);
 
+// shard-ledger: the lab answers a2:optimizer_state_sharding_accounting and a2:fsdp_accounting by
+// computing the per-rank ledger the platform previously only printed as a formula string. Three
+// claims carry the whole lab and each is checked against a reference re-derived here from Table 1
+// and §2.1.2 of the handout rather than imported from the app: the optimizer state does not exist
+// before the first step(), sharding one of three items saves a quarter and not a half, and the
+// all-gather buffer is a floor that no world size lowers.
+const shardSource = ["SHARD_D", "SHARD_DFF", "SHARD_LAYERS", "SHARD_VOCAB", "SHARD_BLOCK_LINEAR",
+  "SHARD_PARAMS", "SHARD_LARGEST_MODULE", "SHARD_INFLIGHT", "SHARD_MIB", "SHARD_P", "SHARD_G", "SHARD_O",
+  "SHARD_MOMENTS", "SHARD_STRATEGIES", "SHARD_WORLDS", "SHARD_PRECISIONS", "SHARD_ACTIVATIONS",
+  "shardLedger", "shardRing", "shardComm", "shardMib"];
+const shardApi = runInNewContext(
+  `const CKPT_BLOCK_RESIDUAL = ${14605.25 / 4}, CKPT_BOUNDARY = ${(4 * 2048 * 2560 * 4) / (1024 * 1024)};
+   ${shardSource.map(name => sliceDeclaration(source, name)).join("\n")}; ({${shardSource.join(",")}})`,
+  { Math });
+
+// Table 1 gives the xl row; §2.1.2 fixes the vocabulary at 10,000 for every non-leaderboard model.
+if (shardApi.SHARD_D !== 2560 || shardApi.SHARD_DFF !== 10240 || shardApi.SHARD_LAYERS !== 32) throw new Error("shard-ledger: the xl row of Table 1 is d_model 2560, d_ff 10240, 32 layers");
+if (shardApi.SHARD_VOCAB !== 10000) throw new Error("shard-ledger: §2.1.2 fixes the vocabulary at 10,000");
+const shardRefN = 2 * 10000 * 2560 + 32 * (4 * 2560 * 2560 + 3 * 2560 * 10240 + 2 * 2560) + 2560;
+if (shardApi.SHARD_PARAMS !== shardRefN) throw new Error(`shard-ledger: the xl parameter count must follow the A1 architecture, got ${shardApi.SHARD_PARAMS} want ${shardRefN}`);
+if (shardApi.SHARD_P !== 4 * shardRefN || shardApi.SHARD_G !== 4 * shardRefN || shardApi.SHARD_O !== 8 * shardRefN) throw new Error("shard-ledger: FP32 AdamW is 4N parameters, 4N gradients and 8N optimizer state");
+if (shardApi.SHARD_P + shardApi.SHARD_G + shardApi.SHARD_O !== 16 * shardRefN) throw new Error("shard-ledger: the three items must sum to the 16N the resource lab also carries");
+// §7 wraps individual Linear and Embedding layers, so the buffer scales with the largest of them.
+if (shardApi.SHARD_LARGEST_MODULE !== 2560 * 10240) throw new Error("shard-ledger: the largest sharded module in the xl config is D·D_FF, the buffer argument depends on it");
+if (shardApi.SHARD_LARGEST_MODULE * 4 / (1024 * 1024) !== 100) throw new Error("shard-ledger: the largest sharded module must stay 100 MiB in FP32, the number the prose names");
+if (shardApi.SHARD_INFLIGHT !== 3) throw new Error("shard-ledger: the handout's prefetch rule holds current, prefetched and in-flight, so three buffers");
+
+// Full recomputation of every state against an independent reference.
+const shardHas = { init: [1, 0, 0], firstPre: [1, 1, 0], firstPost: [1, 1, 1], steadyPre: [1, 1, 1] };
+const shardShards = { ddp: [0, 0, 0], osd: [0, 0, 1], zero1: [0, 0, 1], fsdp: [1, 1, 1] };
+function shardRefLedger(strategyKey, momentKey, world, bytes) {
+  const has = shardHas[momentKey], sh = shardShards[strategyKey];
+  const p = has[0] ? 4 * shardRefN / (sh[0] ? world : 1) : 0;
+  const g = has[1] ? 4 * shardRefN / (sh[1] ? world : 1) : 0;
+  const o = has[2] ? 8 * shardRefN / (sh[2] ? world : 1) : 0;
+  const transient = strategyKey === "fsdp" && world > 1 ? 3 * 2560 * 10240 * bytes : 0;
+  return { p, g, o, transient, persistent: p + g + o, total: p + g + o + transient };
+}
+const shardRefRing = (world, bytes, kind) => world <= 1 ? 0 : (kind === "ar" ? 2 : 1) * (world - 1) / world * bytes;
+const shardRefComm = {
+  ddp: () => [["ar", 4 * shardRefN]],
+  osd: () => [["ar", 4 * shardRefN], ["ag", 4 * shardRefN]],
+  zero1: () => [["rs", 4 * shardRefN], ["ag", 4 * shardRefN]],
+  fsdp: b => [["ag", b * shardRefN], ["ag", b * shardRefN], ["rs", b * shardRefN]]
+};
+if (shardApi.SHARD_MOMENTS.length !== 4) throw new Error("shard-ledger: the handout names three moments and the lab adds the steady state, so four");
+if (shardApi.SHARD_STRATEGIES.length !== 4) throw new Error("shard-ledger: the comparison needs DDP, the own sharding, ZeRO-1 and FSDP");
+if (shardApi.SHARD_STRATEGIES.map(entry => entry.key).join(",") !== "ddp,osd,zero1,fsdp") throw new Error("shard-ledger: DDP must stay the first row, every saving is quoted against it");
+let shardValues = 0;
+for (const precision of shardApi.SHARD_PRECISIONS)
+  for (const world of shardApi.SHARD_WORLDS)
+    for (const moment of shardApi.SHARD_MOMENTS)
+      for (const strategy of shardApi.SHARD_STRATEGIES) {
+        const got = shardApi.shardLedger(strategy, moment, world, precision);
+        const want = shardRefLedger(strategy.key, moment.key, world, precision.bytes);
+        for (const field of ["p", "g", "o", "transient", "persistent", "total"]) {
+          shardValues++;
+          if (!Object.is(got[field], want[field])) throw new Error(`shard-ledger ${precision.key}/W${world}/${moment.key}/${strategy.key}: ${field} is ${got[field]}, reference says ${want[field]}`);
+        }
+      }
+for (const precision of shardApi.SHARD_PRECISIONS)
+  for (const world of shardApi.SHARD_WORLDS)
+    for (const strategy of shardApi.SHARD_STRATEGIES) {
+      const got = shardApi.shardComm(strategy, world, precision).total;
+      const want = shardRefComm[strategy.key](precision.bytes).reduce((sum, [kind, bytes]) => sum + shardRefRing(world, bytes, kind), 0);
+      shardValues++;
+      if (!Object.is(got, want)) throw new Error(`shard-ledger comm ${precision.key}/W${world}/${strategy.key}: ${got} vs reference ${want}`);
+    }
+
+// The lazy-allocation claim is the lab's first lesson: AdamW's moments exist only after step().
+const shardMomentOf = key => shardApi.SHARD_MOMENTS.find(entry => entry.key === key);
+if (shardMomentOf("init").o || shardMomentOf("firstPre").o) throw new Error("shard-ledger: the optimizer state must be absent before the first step(), that is the whole point of the three moments");
+if (!shardMomentOf("firstPost").o || !shardMomentOf("steadyPre").o) throw new Error("shard-ledger: the optimizer state must be present once the first step() has returned");
+const shardDdpAt = key => shardApi.shardLedger(shardApi.SHARD_STRATEGIES[0], shardMomentOf(key), 2, shardApi.SHARD_PRECISIONS[0]).total;
+if (shardDdpAt("firstPost") !== 4 * shardDdpAt("init")) throw new Error("shard-ledger: the factor of four between initialization and the first completed step is the claim the misconception makes");
+if (shardDdpAt("firstPre") !== 2 * shardDdpAt("init")) throw new Error("shard-ledger: before the first step exactly parameters and gradients exist, so twice the initialization value");
+
+// Problem (c): the own sharding and ZeRO-1 are identical in memory and differ only in bytes moved.
+for (const world of shardApi.SHARD_WORLDS)
+  for (const precision of shardApi.SHARD_PRECISIONS) {
+    const own = shardApi.shardLedger(shardApi.SHARD_STRATEGIES[1], shardMomentOf("steadyPre"), world, precision).total;
+    const zero = shardApi.shardLedger(shardApi.SHARD_STRATEGIES[2], shardMomentOf("steadyPre"), world, precision).total;
+    if (own !== zero) throw new Error(`shard-ledger W${world}: the own sharding and ZeRO-1 must stay identical in memory, the difference is the collective`);
+    if (world > 1) {
+      const ddp = shardApi.shardComm(shardApi.SHARD_STRATEGIES[0], world, precision).total;
+      if (shardApi.shardComm(shardApi.SHARD_STRATEGIES[2], world, precision).total !== ddp) throw new Error(`shard-ledger W${world}: ZeRO-1 must move exactly as many bytes as plain DDP, that is the answer to part (c)`);
+      if (shardApi.shardComm(shardApi.SHARD_STRATEGIES[1], world, precision).total !== 1.5 * ddp) throw new Error(`shard-ledger W${world}: the own sharding must cost one and a half times DDP, three ring phases against two`);
+    }
+  }
+// §7: casting before communicating is what makes FSDP cheaper than DDP rather than dearer.
+const shardMixed = shardApi.SHARD_PRECISIONS.find(entry => entry.key === "mixed");
+const shardFp32 = shardApi.SHARD_PRECISIONS.find(entry => entry.key === "fp32");
+if (!shardMixed || shardMixed.bytes !== 2 || shardFp32.bytes !== 4) throw new Error("shard-ledger: the two precisions must stay BF16 at two bytes and FP32 at four");
+for (const world of shardApi.SHARD_WORLDS.filter(value => value > 1)) {
+  const ddp = shardApi.shardComm(shardApi.SHARD_STRATEGIES[0], world, shardFp32).total;
+  if (shardApi.shardComm(shardApi.SHARD_STRATEGIES[3], world, shardFp32).total !== 1.5 * ddp) throw new Error(`shard-ledger W${world}: FSDP in FP32 must cost one and a half times DDP`);
+  if (shardApi.shardComm(shardApi.SHARD_STRATEGIES[3], world, shardMixed).total !== 0.75 * ddp) throw new Error(`shard-ledger W${world}: FSDP with a BF16 compute dtype must fall to three quarters of DDP, that is what §7 buys`);
+}
+// The permanent items must not react to the precision knob; only the buffer and the wire do.
+for (const world of shardApi.SHARD_WORLDS)
+  for (const moment of shardApi.SHARD_MOMENTS)
+    for (const strategy of shardApi.SHARD_STRATEGIES) {
+      const a = shardApi.shardLedger(strategy, moment, world, shardFp32);
+      const b = shardApi.shardLedger(strategy, moment, world, shardMixed);
+      if (a.persistent !== b.persistent) throw new Error(`shard-ledger ${moment.key}/${strategy.key}/W${world}: mixed precision must leave the three permanent items untouched`);
+    }
+// The floor: the transient buffer is the one item no world size lowers.
+const shardTransients = shardApi.SHARD_WORLDS.filter(value => value > 1)
+  .map(world => shardApi.shardLedger(shardApi.SHARD_STRATEGIES[3], shardMomentOf("steadyPre"), world, shardFp32).transient);
+if (new Set(shardTransients).size !== 1) throw new Error("shard-ledger: the all-gather buffer must be the same at every world size, otherwise it is not a floor");
+if (shardTransients[0] <= 0) throw new Error("shard-ledger: FSDP must carry a transient buffer above one rank");
+if (shardApi.shardLedger(shardApi.SHARD_STRATEGIES[3], shardMomentOf("steadyPre"), 1, shardFp32).transient !== 0) throw new Error("shard-ledger: at one rank nothing is gathered, so no buffer");
+const shardFloorShare = world => { const row = shardApi.shardLedger(shardApi.SHARD_STRATEGIES[3], shardMomentOf("steadyPre"), world, shardFp32); return row.transient / row.total * 100; };
+if (shardFloorShare(2).toFixed(2) !== "1.14") throw new Error(`shard-ledger: the prose claims the buffer is 1.14 % at two ranks, got ${shardFloorShare(2).toFixed(2)}`);
+if (shardFloorShare(32).toFixed(2) !== "15.59") throw new Error(`shard-ledger: the prose claims 15.59 % at 32 ranks, got ${shardFloorShare(32).toFixed(2)}`);
+if (!shardApi.SHARD_WORLDS.includes(2)) throw new Error("shard-ledger: the handout measures with two GPUs, that world size must stay selectable");
+if (Math.max(...shardApi.SHARD_WORLDS) < 32) throw new Error("shard-ledger: a world size large enough to expose the floor must stay selectable");
+
+// The activation budgets are the same two handout figures the checkpointing lab derives, so the
+// FSDP-saving argument stays consistent across the two labs rather than inventing a new number.
+if (!Object.is(shardApi.SHARD_ACTIVATIONS[0].mib, 32 * ckptR)) throw new Error("shard-ledger: the uncheckpointed activation budget must be the 32 blocks of the checkpointing lab");
+if (!Object.is(shardApi.SHARD_ACTIVATIONS[1].mib, 32 * ckptC + ckptR)) throw new Error("shard-ledger: the checkpointed budget must be the k = 1 minimum of the checkpointing lab");
+const shardPeakShare = activationMib => {
+  const ddp = shardApi.shardMib(shardApi.shardLedger(shardApi.SHARD_STRATEGIES[0], shardMomentOf("steadyPre"), 2, shardFp32).total) + activationMib;
+  const fsdp = shardApi.shardMib(shardApi.shardLedger(shardApi.SHARD_STRATEGIES[3], shardMomentOf("steadyPre"), 2, shardFp32).total) + activationMib;
+  return { saved: ddp - fsdp, share: (ddp - fsdp) / ddp * 100 };
+};
+const shardPeakNone = shardPeakShare(shardApi.SHARD_ACTIVATIONS[0].mib), shardPeakCkpt = shardPeakShare(shardApi.SHARD_ACTIVATIONS[1].mib);
+if (shardPeakNone.saved.toFixed(2) !== shardPeakCkpt.saved.toFixed(2)) throw new Error("shard-ledger: the absolute saving must not depend on the activation budget, that identity is the lesson");
+if (shardPeakNone.share.toFixed(1) !== "15.2") throw new Error(`shard-ledger: the misconception claims 15.2 % of the peak without checkpointing, got ${shardPeakNone.share.toFixed(1)}`);
+if (shardPeakCkpt.share.toFixed(1) !== "44.1") throw new Error(`shard-ledger: the misconception claims 44.1 % of the peak with one level, got ${shardPeakCkpt.share.toFixed(1)}`);
+
+// Renderer: computing a number is not displaying it. These demand the concrete display expressions.
+const shardLedgerRenderer = source.slice(source.indexOf("function shardLedgerStage()"), source.indexOf("function shardCommStage()"));
+if (shardLedgerRenderer.length < 400) throw new Error("shard-ledger: the ledger renderer was not found, this guard would otherwise pass vacuously");
+if (!/rows\.map\(row\s*=>/.test(shardLedgerRenderer)) throw new Error("shard-ledger: every strategy row must be rendered from the computed table, not written out");
+if (!shardLedgerRenderer.includes("shardNumber(shardMib(l.total))")) throw new Error("shard-ledger: the renderer must display each strategy's total, not only compute it");
+if (!shardLedgerRenderer.includes("shardNumber(shardMib(l.transient))")) throw new Error("shard-ledger: the renderer must display the transient buffer per row, the floor argument is unreadable without it");
+if (!shardLedgerRenderer.includes("shardNumber(naive)")) throw new Error("shard-ledger: the renderer must display the naive (P+G+O)/W value the floor is contrasted against");
+if (!/shardShare\(floorShare\)/.test(shardLedgerRenderer)) throw new Error("shard-ledger: the renderer must display the buffer's share of the rank total");
+if (!/SHARD_ACTIVATIONS\.map\(/.test(shardLedgerRenderer)) throw new Error("shard-ledger: the peak comparison must be rendered from both activation budgets");
+if (!/shardShare\(saved\s*\/\s*ddpPeak\s*\*\s*100\)/.test(shardLedgerRenderer)) throw new Error("shard-ledger: the peak section must display the saved share, which is the answer fsdp_accounting (a) asks for");
+const shardCommRenderer = source.slice(source.indexOf("function shardCommStage()"), source.indexOf("function shardStageMarkup()"));
+if (shardCommRenderer.length < 300) throw new Error("shard-ledger: the communication renderer was not found");
+if (!shardCommRenderer.includes("ratio.toFixed(3)")) throw new Error("shard-ledger: the communication renderer must display the ratio against DDP, the 1.500 and 0.750 are the whole comparison");
+if (!/result\.parts\.map\(/.test(shardCommRenderer)) throw new Error("shard-ledger: each strategy's collectives must be listed from its own definition");
+if (!/memoryRows/.test(shardCommRenderer)) throw new Error("shard-ledger: the communication mode must also show the memory column, that is how the own sharding and ZeRO-1 are shown to be equal");
+// v57's trap: `hidden` does nothing on a .field, whose display is grid. Mode fields need a plain div.
+const shardControls = source.slice(source.indexOf('if(id==="shard-ledger") return `'), source.indexOf('if(id==="checkpoint-segments") return `'));
+if (shardControls.length < 200) throw new Error("shard-ledger: the control markup was not found");
+if (!/<div id="shardMomentFields">/.test(shardControls)) throw new Error("shard-ledger: shardMomentFields must be a plain div, hidden has no effect on a .field");
+for (const control of ["shardMode", "shardMoment", "shardWorld", "shardPrecision"])
+  if (!new RegExp(`id="${control}"`).test(shardControls)) throw new Error(`shard-ledger: the ${control} control must exist`);
+
+// Prose: the claims that make the lab an argument rather than a table.
+const shardLab = base.labs.find(entry => entry.id === "shard-ledger");
+if (!shardLab) throw new Error("shard-ledger: lab entry missing");
+if (shardLab.module !== "distributed") throw new Error("shard-ledger: the lab belongs to the distributed module, where DDP, ZeRO and FSDP live");
+for (const [label, lab] of [["de", shardLab], ["en", pack.labs["shard-ledger"]]]) {
+  if (!/step\(\)/.test(lab.mental)) throw new Error(`shard-ledger ${label}: the mental model must pin the lazy allocation to step()`);
+  if (!/exp_avg/.test(lab.misconception)) throw new Error(`shard-ledger ${label}: the misconception must name the tensors AdamW allocates late`);
+  if (!/1[.,]14/.test(lab.misconception)) throw new Error(`shard-ledger ${label}: the misconception must name the buffer's share at two ranks`);
+  if (!/15[.,]59/.test(lab.misconception)) throw new Error(`shard-ledger ${label}: the misconception must name the share at which the handout's permission expires`);
+  if (!/44[.,]1/.test(lab.misconception) || !/15[.,]2/.test(lab.misconception)) throw new Error(`shard-ledger ${label}: the misconception must contrast both peak shares, the identical saving is the point`);
+  if (!/16N/.test(lab.formula)) throw new Error(`shard-ledger ${label}: the formula line must state the 16N sum`);
+  if (!/FSDP/.test(lab.transferAnswer)) throw new Error(`shard-ledger ${label}: the transfer answer must name FSDP, the strategy visible even at the wrong moment`);
+  if (!/Parameter|parameter/.test(lab.transferAnswer)) throw new Error(`shard-ledger ${label}: the transfer answer must explain the visibility through the parameters, which exist from the constructor`);
+}
+// Reachability: L8 is the lecture that teaches ZeRO and FSDP, a2:sharding-fsdp owns all four problems.
+if (!base.lectureGuides.l08.labs.includes("shard-ledger")) throw new Error("shard-ledger: Lecture 8 teaches ZeRO and FSDP, the lab must be reachable from it");
+const shardMission = base.assignments.find(entry => entry.id === "a2").missions.find(entry => entry.id === "sharding-fsdp");
+if (!shardMission.labs.includes("shard-ledger")) throw new Error("shard-ledger: the a2:sharding-fsdp mission owns optimizer_state_sharding_accounting and fsdp_accounting");
+if (shardMission.labs[0] !== "shard-ledger") throw new Error("shard-ledger: the lab built for this mission must lead its list, the other three are borrowed");
+if (!base.modules.find(entry => entry.id === "distributed").labs.includes("shard-ledger")) throw new Error("shard-ledger: the distributed module must list the lab");
+console.log(`shard-ledger OK: ${shardValues} values, ${shardDdpAt("init") / (1024 * 1024)} MiB at init against ${shardDdpAt("firstPost") / (1024 * 1024)} MiB after the first step, buffer floor ${shardFloorShare(2).toFixed(2)} % at W=2 and ${shardFloorShare(32).toFixed(2)} % at W=32`);
+
 // The shell precaches the language bundle by URL, so a version that differs from the one the page
 // requests means the service worker caches a file nobody asks for and the page fetches an uncached one.
 const shellSource = await readFile(path.join(root, "sw.js"), "utf8");
