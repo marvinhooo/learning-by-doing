@@ -1812,6 +1812,137 @@ if (shardMission.labs[0] !== "shard-ledger") throw new Error("shard-ledger: the 
 if (!base.modules.find(entry => entry.id === "distributed").labs.includes("shard-ledger")) throw new Error("shard-ledger: the distributed module must list the lab");
 console.log(`shard-ledger OK: ${shardValues} values, ${shardDdpAt("init") / (1024 * 1024)} MiB at init against ${shardDdpAt("firstPost") / (1024 * 1024)} MiB after the first step, buffer floor ${shardFloorShare(2).toFixed(2)} % at W=2 and ${shardFloorShare(32).toFixed(2)} % at W=32`);
 
+
+// ---------------------------------------------------------------------------
+// offpolicy-clip: assignment 5 equations (56)-(63).
+// The lab's whole claim is that three wrong implementations are invisible on the
+// states you would actually test, so the guards check the hiding contract itself,
+// not just that some number is produced.
+const offNames = ["OFF_REWARDS", "OFF_STD_EPS", "OFF_TOKENS_PER_RESPONSE", "offAdvantages", "OFF_DRIFTS", "OFF_EPSILONS",
+  "OFF_VARIANTS", "offTokenTerm", "offObjective", "OFF_SEQS", "OFF_SEQ_VARIANTS", "offSeqWeight", "offGspoRow"];
+const offApi = runInNewContext(`${offNames.map(name => sliceDeclaration(source, name)).join("\n")}; ({${offNames.join(",")}})`, {});
+const offShow = value => value.toFixed(6);
+let offValues = 0;
+
+// The group is the one the lab `grpo` already uses, so the advantage row is recognisable.
+if (JSON.stringify(offApi.OFF_REWARDS) !== JSON.stringify([1, 1, 0, 0])) throw new Error("offpolicy-clip: the reward group must stay [1,1,0,0], the lab claims it is the same group as `grpo`");
+const offAdv = offApi.offAdvantages();
+if (offAdv.adv.length !== offApi.OFF_REWARDS.length) throw new Error("offpolicy-clip: one advantage per response");
+if (!(offAdv.adv[0] > 0 && offAdv.adv[3] < 0)) throw new Error("offpolicy-clip: the group must contain both signs of advantage, otherwise the sign branch of equation (58) is untestable");
+
+// Recompute equations (57) and (60) independently of the app and compare every state.
+const offRefTerm = (delta, adv, eps, key) => {
+  const w = Math.exp(delta), lo = 1 - eps, hi = 1 + eps, clipped = Math.min(Math.max(w, lo), hi);
+  if (key === "noclip") return { v: adv * w, masked: false };
+  if (key === "symmetric") return { v: adv * clipped, masked: w < lo || w > hi };
+  if (key === "positiveOnly") return { v: Math.min(w, hi) * adv, masked: !(w < hi) };
+  return { v: Math.min(adv * w, adv * clipped), masked: adv >= 0 ? !(w < hi) : !(w > lo) };
+};
+for (const drift of offApi.OFF_DRIFTS)
+  for (const epsilon of offApi.OFF_EPSILONS)
+    for (const variant of offApi.OFF_VARIANTS) {
+      const got = offApi.offObjective(drift, epsilon.eps, variant.key);
+      let total = 0, masked = 0, tokens = 0;
+      drift.rows.forEach((deltas, index) => {
+        let sum = 0;
+        for (const delta of deltas) {
+          const term = offRefTerm(delta, offAdv.adv[index], epsilon.eps, variant.key);
+          sum += term.v; tokens++; if (term.masked) masked++;
+        }
+        total += sum / deltas.length;
+      });
+      offValues += 2;
+      if (!Object.is(got.loss, -total / drift.rows.length)) throw new Error(`offpolicy-clip ${drift.key}/${epsilon.key}/${variant.key}: loss differs from the reference built from equation (57)`);
+      if (got.masked !== masked) throw new Error(`offpolicy-clip ${drift.key}/${epsilon.key}/${variant.key}: masked-token count differs from the reference built from equation (60)`);
+    }
+
+// The hiding contract of mode A. These two states are the ones a student actually tests.
+const offCorrect = offApi.OFF_VARIANTS.find(entry => entry.ok);
+const offWrong = offApi.OFF_VARIANTS.filter(entry => !entry.ok);
+if (offWrong.length < 3) throw new Error("offpolicy-clip: the lab needs at least three non-correct token-level variants");
+const offLoss = (driftKey, epsKey, variantKey) => offApi.offObjective(offApi.OFF_DRIFTS.find(d => d.key === driftKey), offApi.OFF_EPSILONS.find(e => e.key === epsKey).eps, variantKey).loss;
+for (const hiding of ["fresh", "mild"])
+  for (const variant of offWrong)
+    if (offShow(offLoss(hiding, "e20", variant.key)) !== offShow(offLoss(hiding, "e20", offCorrect.key)))
+      throw new Error(`offpolicy-clip: state "${hiding}" must hide ${variant.key} - the lab's central claim is that the states you test cannot tell the versions apart`);
+for (const exposing of ["mixed", "stale"])
+  for (const variant of offWrong)
+    if (offShow(offLoss(exposing, "e20", variant.key)) === offShow(offLoss(exposing, "e20", offCorrect.key)))
+      throw new Error(`offpolicy-clip: state "${exposing}" must expose ${variant.key}, otherwise no state in the lab separates it`);
+
+// "fresh" is only an honest illustration of the first inner step if every ratio really is one.
+const offFresh = offApi.OFF_DRIFTS.find(entry => entry.key === "fresh");
+if (offFresh.rows.flat().some(delta => delta !== 0)) throw new Error("offpolicy-clip: the `fresh` state must have every log ratio exactly zero, that is what makes it the first inner step");
+if (offApi.offObjective(offFresh, 0.2, offCorrect.key).masked !== 0) throw new Error("offpolicy-clip: nothing may be masked while every ratio is one");
+
+// "mixed" must contain all four combinations of advantage sign and band side, or the sign branch is never tested.
+const offMixed = offApi.OFF_DRIFTS.find(entry => entry.key === "mixed");
+const offCombos = new Set();
+offMixed.rows.forEach((deltas, index) => {
+  for (const delta of deltas) {
+    const w = Math.exp(delta);
+    if (w > 1.2) offCombos.add(`${offAdv.adv[index] >= 0 ? "pos" : "neg"}-above`);
+    if (w < 0.8) offCombos.add(`${offAdv.adv[index] >= 0 ? "pos" : "neg"}-below`);
+  }
+});
+for (const combo of ["pos-above", "pos-below", "neg-above", "neg-below"])
+  if (!offCombos.has(combo)) throw new Error(`offpolicy-clip: the "mixed" state must contain the case ${combo} at eps=0.2, the lab says all four occur`);
+
+// PPO's default has to remain selectable, the lab names it.
+if (!offApi.OFF_EPSILONS.some(entry => entry.eps === 0.2)) throw new Error("offpolicy-clip: eps = 0.2 is the PPO default the lab cites and must stay available");
+
+// ---- GSPO, equation (63)
+for (const seq of offApi.OFF_SEQS) {
+  const len = seq.deltas.length;
+  const want = Math.exp(seq.deltas.reduce((a, b) => a + b, 0) / len);
+  offValues++;
+  if (!Object.is(offApi.offSeqWeight(seq.deltas, "gspo").weight, want)) throw new Error(`offpolicy-clip ${seq.key}: the correct sequence weight must be the log-space geometric mean`);
+}
+// The naive product has to be genuinely float32, otherwise the numerical lesson is fiction.
+const offProductDecl = sliceDeclaration(source, "offSeqWeight");
+if (!offProductDecl.includes("Math.fround")) throw new Error("offpolicy-clip: the product variant must round to float32, that is the entire point of the case at L = 512");
+// The hiding contract of mode B, derived rather than asserted per case.
+const offSeqHide = (seqKey, variantKey) => offShow(offApi.offSeqWeight(offApi.OFF_SEQS.find(s => s.key === seqKey).deltas, variantKey).weight) === offShow(offApi.offSeqWeight(offApi.OFF_SEQS.find(s => s.key === seqKey).deltas, "gspo").weight);
+for (const variantKey of ["product", "arithmetic", "noExponent"])
+  if (!offSeqHide("single", variantKey)) throw new Error(`offpolicy-clip: at L = 1 every path must agree, ${variantKey} does not`);
+if (offSeqHide("long", "product")) throw new Error("offpolicy-clip: the float32 product must differ at L = 512, otherwise the stability lesson has no evidence");
+if (!offSeqHide("uniform", "arithmetic")) throw new Error("offpolicy-clip: with identical deltas the arithmetic mean must equal the geometric one, the Jensen gap is zero there");
+if (offSeqHide("mixedSeq", "arithmetic")) throw new Error("offpolicy-clip: with spread deltas the arithmetic mean must differ, that is the Jensen claim");
+if (offSeqHide("uniform", "noExponent")) throw new Error("offpolicy-clip: the raw product must already differ at L = 8");
+
+// The denormal stall is the lab's sharpest claim: the intermediate product neither survives nor reaches zero.
+const offLong = offApi.OFF_SEQS.find(entry => entry.key === "long");
+const offLongRun = offApi.offSeqWeight(offLong.deltas, "product");
+if (!(offLongRun.product > 0 && offLongRun.product < 1e-38)) throw new Error("offpolicy-clip: at L = 512 the float32 product must stall inside the denormal range, neither zero nor normal");
+// ... and because it stalls, the answer stops depending on the data. Same length, different drift, same result.
+const offAltDeltas = offLong.deltas.map((value, index) => value - 0.05 + 0.02 * Math.sin(index));
+if (offShow(offApi.offSeqWeight(offAltDeltas, "product").weight) === offShow(offApi.offSeqWeight(offAltDeltas, "gspo").weight)) throw new Error("offpolicy-clip: the naive product must be wrong for the alternative drift too");
+if (Math.abs(offApi.offSeqWeight(offAltDeltas, "product").weight - offLongRun.weight) > 0.01) throw new Error("offpolicy-clip: the stalled product must be nearly independent of the deltas, that is what the third check answers");
+
+// The clipping band must actually bind somewhere in GSPO mode, otherwise the eps control is dead.
+const offMixedSeq = offApi.OFF_SEQS.find(entry => entry.key === "mixedSeq");
+const offBinds = offApi.OFF_EPSILONS.some(entry => offApi.offGspoRow(offMixedSeq, entry.eps, "gspo", offAdv.adv[0]).masked);
+if (!offBinds) throw new Error("offpolicy-clip: at least one eps must clip the sequence weight in GSPO mode, otherwise the eps control shows nothing");
+
+// Renderer guards: a number that is computed but never shown teaches nothing.
+const offClipRenderer = sliceDeclaration(source, "offClipStage");
+for (const required of ["offNumber(100*correct.maskedFrac,1)", "correct.masked", "correct.tokens", "offNumber(report.loss)", "offNumber(t.w,4)", "OFF_VARIANTS.map"])
+  if (!offClipRenderer.includes(required)) throw new Error(`offpolicy-clip clip renderer: must stay data-driven and show ${required}`);
+const offGspoRenderer = sliceDeclaration(source, "offGspoStage");
+for (const required of ["productRun.product.toExponential(4)", "productRun.product<1e-38", "offNumber(row.value)", "row.masked", "OFF_SEQ_VARIANTS.map", "offNumber(1-eps,2)"])
+  if (!offGspoRenderer.includes(required)) throw new Error(`offpolicy-clip gspo renderer: must stay data-driven and show ${required}`);
+
+// Registration: the lab has to be reachable from the lecture that teaches clipping and from its mission.
+const offLab = base.labs.find(entry => entry.id === "offpolicy-clip");
+if (!offLab) throw new Error("offpolicy-clip: lab missing from LABS");
+if (offLab.module !== "rlvr") throw new Error("offpolicy-clip: the lab belongs to the rlvr module");
+const offLecture = base.lectureGuides.l16;
+if (!offLecture.labs.includes("offpolicy-clip")) throw new Error("offpolicy-clip: Lecture 16 teaches `PPO (Clip the ratios at some eps)` and must carry the lab");
+const offMission = base.assignments.find(entry => entry.id === "a5").missions.find(entry => entry.id === "off-policy");
+if (offMission.labs[0] !== "offpolicy-clip") throw new Error("offpolicy-clip: the lab belongs first in the a5:off-policy mission, it is the one built for it");
+if (!source.includes('"checkpoint-segments","shard-ledger","offpolicy-clip"')) throw new Error("offpolicy-clip: the lab must offer an objective short check");
+console.log(`offpolicy-clip OK: ${offValues} values, every wrong version hidden on fresh+mild and exposed on mixed+stale, float32 product stalls at ${offLongRun.product.toExponential(4)} and returns ${offShow(offLongRun.weight)} instead of ${offShow(offApi.offSeqWeight(offLong.deltas, "gspo").weight)}`);
+
 // The shell precaches the language bundle by URL, so a version that differs from the one the page
 // requests means the service worker caches a file nobody asks for and the page fetches an uncached one.
 const shellSource = await readFile(path.join(root, "sw.js"), "utf8");
