@@ -1943,6 +1943,220 @@ if (offMission.labs[0] !== "offpolicy-clip") throw new Error("offpolicy-clip: th
 if (!source.includes('"checkpoint-segments","shard-ledger","offpolicy-clip"')) throw new Error("offpolicy-clip: the lab must offer an objective short check");
 console.log(`offpolicy-clip OK: ${offValues} values, every wrong version hidden on fresh+mild and exposed on mixed+stale, float32 product stalls at ${offLongRun.product.toExponential(4)} and returns ${offShow(offLongRun.weight)} instead of ${offShow(offApi.offSeqWeight(offLong.deltas, "gspo").weight)}`);
 
+
+// ---------------------------------------------------------------------------
+// advantage-normalizers: assignment 5, section 5, equations (34) to (43).
+// The lab claims two things that a guard has to hold to: the four settings of
+// section 5.4 are indistinguishable on exactly the groups you would test on,
+// and each normalizer is a reweighting over prompts rather than a rescaling.
+const advNames = ["ADV_EPS", "ADV_LENGTHS", "ADV_MAX_LEN", "ADV_Z", "ADV_GROUPS", "ADV_VARIANTS",
+  "ADV_LOSS_NORMS", "ADV_EPS_MODES", "advMean", "advSampleStd", "advAdvantages", "advSeqWeights",
+  "advPrunedShare", "ADV_LADDER", "ADV_CONVENTIONS", "advPromptWeight", "advEqualAdvantagePair"];
+const advApi = runInNewContext(`${advNames.map(name => sliceDeclaration(source, name)).join("\n")}; ({${advNames.join(",")}})`, {});
+const advShow = value => (Number.isNaN(value) ? "NaN" : value.toFixed(6));
+let advValues = 0;
+
+// The setup the lab claims: one prompt, G = 8 binary rollouts, Z = B*G*L.
+if (advApi.ADV_LENGTHS.length !== 8) throw new Error("advantage-normalizers: the group must hold G = 8 rollouts, the lab prints that number everywhere");
+if (advApi.ADV_Z !== advApi.ADV_LENGTHS.length * advApi.ADV_MAX_LEN) throw new Error("advantage-normalizers: Z must stay B*G*L with B = 1, that is the constant the handout defines");
+if (advApi.ADV_MAX_LEN !== 512) throw new Error("advantage-normalizers: the handout fixes the max generation length at 512");
+if (advApi.ADV_EPS !== 1e-6) throw new Error("advantage-normalizers: advantage_eps must stay 1e-6, the transfer answer quotes numbers computed with it");
+if (advApi.ADV_LENGTHS[1] / advApi.ADV_LENGTHS[0] !== 5) throw new Error("advantage-normalizers: response 2 must be exactly five times response 1, the third short-check answer is that factor");
+for (const group of advApi.ADV_GROUPS) {
+  if (group.rewards.length !== advApi.ADV_LENGTHS.length) throw new Error(`advantage-normalizers ${group.key}: one reward per response`);
+  if (group.rewards.some(reward => reward !== 0 && reward !== 1)) throw new Error(`advantage-normalizers ${group.key}: A5 rewards are binary`);
+}
+
+// Section 5.4 lists the four settings verbatim; the triples may not drift.
+const advExpectedSettings = { grpo: ["mean", "std"], drgrpo: ["mean", "none"], rft: ["none", "none"], maxrl: ["mean", "mean"] };
+if (advApi.ADV_VARIANTS.length !== 4) throw new Error("advantage-normalizers: section 5.4 defines exactly four settings");
+for (const variant of advApi.ADV_VARIANTS) {
+  const want = advExpectedSettings[variant.key];
+  if (!want) throw new Error(`advantage-normalizers: unknown variant ${variant.key}`);
+  if (variant.baseline !== want[0] || variant.normalizer !== want[1])
+    throw new Error(`advantage-normalizers ${variant.key}: section 5.4 fixes baseline="${want[0]}" and advantage_normalizer="${want[1]}"`);
+}
+
+// Recompute equations (34) to (37) independently and compare every state.
+const advRefMean = values => values.reduce((a, b) => a + b, 0) / values.length;
+const advRefStd = values => {
+  const m = advRefMean(values);
+  return Math.sqrt(values.reduce((sum, value) => sum + (value - m) ** 2, 0) / (values.length - 1));
+};
+const advRefAdvantages = (rewards, key, eps) => {
+  const [baselineKind, normalizerKind] = advExpectedSettings[key];
+  const mu = advRefMean(rewards);
+  const b = baselineKind === "mean" ? mu : 0;
+  const c = normalizerKind === "std" ? advRefStd(rewards) + eps : normalizerKind === "mean" ? mu + eps : 1;
+  return rewards.map(reward => (reward - b) / c);
+};
+for (const group of advApi.ADV_GROUPS)
+  for (const epsMode of advApi.ADV_EPS_MODES)
+    for (const variant of advApi.ADV_VARIANTS) {
+      const got = advApi.advAdvantages(group.rewards, variant.key, epsMode.eps);
+      const want = advRefAdvantages(group.rewards, variant.key, epsMode.eps);
+      got.adv.forEach((value, index) => {
+        advValues++;
+        if (!Object.is(value, want[index]))
+          throw new Error(`advantage-normalizers ${group.key}/${variant.key}/${epsMode.key}: advantage ${index} is ${value}, the reference from section 5 says ${want[index]}`);
+      });
+      for (const lossNorm of advApi.ADV_LOSS_NORMS) {
+        const weights = advApi.advSeqWeights(got.adv, lossNorm.key);
+        weights.forEach((weight, index) => {
+          advValues++;
+          const reference = lossNorm.key === "constant"
+            ? got.adv[index] * advApi.ADV_LENGTHS[index] / advApi.ADV_Z
+            : got.adv[index] / got.adv.length;
+          if (!Object.is(weight, reference))
+            throw new Error(`advantage-normalizers ${group.key}/${variant.key}/${lossNorm.key}: sequence weight ${index} differs from the reference`);
+        });
+      }
+    }
+
+// The central claim: the group you test on decides whether the settings differ at all.
+const advSignature = (groupKey, variantKey) =>
+  advApi.advAdvantages(advApi.ADV_GROUPS.find(entry => entry.key === groupKey).rewards, variantKey, advApi.ADV_EPS).adv.map(advShow).join("|");
+const advDistinct = groupKey => new Set(advApi.ADV_VARIANTS.map(variant => advSignature(groupKey, variant.key))).size;
+if (advDistinct("allWrong") !== 1)
+  throw new Error("advantage-normalizers: on the all-wrong group all four settings must agree exactly, that is the first short-check answer");
+if (advDistinct("allRight") !== 2)
+  throw new Error("advantage-normalizers: on the all-correct group exactly RFT may differ, three of four settings see no signal");
+if (advSignature("allRight", "rft") === advSignature("allRight", "grpo"))
+  throw new Error("advantage-normalizers: RFT must still learn on the all-correct group, that is the lecture-16 question about learning from positives only");
+for (const groupKey of ["hard", "mixed", "easy"])
+  if (advDistinct(groupKey) !== 4)
+    throw new Error(`advantage-normalizers ${groupKey}: a mixed group must separate all four settings, otherwise no state in the lab does`);
+
+// Equation (43) against (41): dividing by mu is what actually reweights by difficulty.
+const advAt = (groupKey, variantKey, index) =>
+  advApi.advAdvantages(advApi.ADV_GROUPS.find(entry => entry.key === groupKey).rewards, variantKey, advApi.ADV_EPS).adv[index];
+if (!(advAt("hard", "maxrl", 1) > advAt("hard", "grpo", 1) && advAt("hard", "grpo", 1) > advAt("hard", "drgrpo", 1)))
+  throw new Error("advantage-normalizers: on the hard group MaxRL must exceed GRPO must exceed Dr. GRPO at the one correct response");
+if (advShow(advAt("hard", "grpo", 1)) !== advShow(-advAt("easy", "grpo", 0)))
+  throw new Error("advantage-normalizers: the GRPO magnitude at the minority response must mirror between eta = 1/8 and eta = 7/8, the lab tells the reader to check exactly that");
+if (advShow(advAt("hard", "maxrl", 1)) === advShow(-advAt("easy", "maxrl", 0)))
+  throw new Error("advantage-normalizers: MaxRL must not mirror, it is the only normalizer that is monotone in difficulty");
+
+// Section 5.4 pruning: a zero advantage carries no gradient.
+const advPruned = (groupKey, variantKey) =>
+  advApi.advPrunedShare(advApi.advAdvantages(advApi.ADV_GROUPS.find(entry => entry.key === groupKey).rewards, variantKey, advApi.ADV_EPS).adv);
+if (advPruned("hard", "rft") !== 7 / 8) throw new Error("advantage-normalizers: RFT must prune 87.5 % of the hard group, the transfer answer quotes that number");
+if (advPruned("allRight", "rft") !== 0) throw new Error("advantage-normalizers: RFT prunes nothing when every rollout is correct");
+for (const variantKey of ["grpo", "drgrpo", "maxrl"])
+  for (const groupKey of ["allWrong", "allRight"])
+    if (advPruned(groupKey, variantKey) !== 1)
+      throw new Error(`advantage-normalizers ${groupKey}/${variantKey}: a uniform group must prune completely under baseline="mean"`);
+
+// advantage_eps: it may change nothing except turning 0/0 into a finite zero.
+const advNaNs = (groupKey, variantKey, eps) =>
+  advApi.advAdvantages(advApi.ADV_GROUPS.find(entry => entry.key === groupKey).rewards, variantKey, eps).adv.filter(Number.isNaN).length;
+for (const group of advApi.ADV_GROUPS)
+  for (const variant of advApi.ADV_VARIANTS)
+    if (advNaNs(group.key, variant.key, advApi.ADV_EPS) !== 0)
+      throw new Error(`advantage-normalizers ${group.key}/${variant.key}: with the guard term nothing may be NaN`);
+if (advNaNs("allWrong", "grpo", 0) !== 8 || advNaNs("allWrong", "maxrl", 0) !== 8)
+  throw new Error("advantage-normalizers: without the guard term the all-wrong group must produce NaN, that is why the handout requires advantage_eps");
+if (advNaNs("allRight", "grpo", 0) !== 8) throw new Error("advantage-normalizers: without the guard term a zero std must produce NaN on the all-correct group too");
+if (advNaNs("allRight", "maxrl", 0) !== 0) throw new Error("advantage-normalizers: dividing by mu = 1 is finite, only the std vanishes on the all-correct group");
+for (const groupKey of ["hard", "mixed", "easy"])
+  for (const variantKey of ["grpo", "maxrl"])
+    if (advNaNs(groupKey, variantKey, 0) !== 0)
+      throw new Error(`advantage-normalizers ${groupKey}/${variantKey}: the guard term must be irrelevant wherever the denominator is nonzero`);
+
+// think_about_length_normalization: the whole difference is the token count, and
+// the pair being compared must really share an advantage - on a skewed group the
+// first two responses do not, which is why the pair is picked from the data.
+for (const group of advApi.ADV_GROUPS) {
+  const adv = advApi.advAdvantages(group.rewards, "drgrpo", advApi.ADV_EPS).adv;
+  const pair = advApi.advEqualAdvantagePair(adv);
+  const uniform = new Set(group.rewards).size === 1;
+  if (uniform) {
+    if (pair) throw new Error(`advantage-normalizers ${group.key}: a uniform group has no nonzero advantage, so no length pair may be claimed`);
+    continue;
+  }
+  if (!pair) throw new Error(`advantage-normalizers ${group.key}: a mixed group must offer two responses of different length with the same nonzero advantage, otherwise the length line has nothing to stand on`);
+  if (adv[pair.short] !== adv[pair.long] || adv[pair.short] === 0)
+    throw new Error(`advantage-normalizers ${group.key}: the pair the lab prints must really share a nonzero advantage`);
+  if (advApi.ADV_LENGTHS[pair.long] <= advApi.ADV_LENGTHS[pair.short])
+    throw new Error(`advantage-normalizers ${group.key}: the second member of the pair must be the longer response`);
+  const constant = advApi.advSeqWeights(adv, "constant"), sequence = advApi.advSeqWeights(adv, "sequence");
+  advValues += 2;
+  if (constant[pair.long] / constant[pair.short] !== 5)
+    throw new Error(`advantage-normalizers ${group.key}: with a constant Z the long response must weigh exactly five times the short one`);
+  if (sequence[pair.long] / sequence[pair.short] !== 1)
+    throw new Error(`advantage-normalizers ${group.key}: with the sequence mean both responses must weigh exactly the same, that is what cancels the length`);
+}
+
+// derive_difficulty_reweightings, equations (41) to (43) with Z = G and G to infinity.
+for (const convention of advApi.ADV_CONVENTIONS)
+  for (const eta of advApi.ADV_LADDER) {
+    advValues += 3;
+    if (advApi.advPromptWeight(eta, "none", convention.size) !== 1)
+      throw new Error("advantage-normalizers: Dr. GRPO must reweight nothing, its answer to (a) is w = 1");
+    if (!Object.is(advApi.advPromptWeight(eta, "mean", convention.size), 1 / eta))
+      throw new Error("advantage-normalizers: the MaxRL weight must be exactly 1/eta, that is the answer to (c)");
+    const population = 1 / Math.sqrt(eta * (1 - eta));
+    const want = convention.size === Infinity ? population : population / Math.sqrt(convention.size / (convention.size - 1));
+    if (!Object.is(advApi.advPromptWeight(eta, "std", convention.size), want))
+      throw new Error("advantage-normalizers: the GRPO weight must be 1/std, that is the answer to (b)");
+  }
+for (const convention of advApi.ADV_CONVENTIONS) {
+  if (advShow(advApi.advPromptWeight(0.125, "std", convention.size)) !== advShow(advApi.advPromptWeight(0.875, "std", convention.size)))
+    throw new Error("advantage-normalizers: 1/std must be mirror-symmetric in eta, that is the second short-check answer");
+  if (advApi.advPromptWeight(0.125, "mean", convention.size) / advApi.advPromptWeight(0.875, "mean", convention.size) !== 7)
+    throw new Error("advantage-normalizers: MaxRL must weigh the hard group exactly seven times the easy one");
+  const weights = advApi.ADV_LADDER.map(eta => advApi.advPromptWeight(eta, "std", convention.size));
+  if (Math.min(...weights) !== weights[advApi.ADV_LADDER.indexOf(0.5)])
+    throw new Error("advantage-normalizers: 1/std must be smallest at eta = 0.5, the lab claims it penalises the groups with the most signal");
+}
+// The convention cancels in the relative column, which is why the derivation may use either.
+for (const eta of advApi.ADV_LADDER) {
+  const relative = advApi.ADV_CONVENTIONS.map(convention =>
+    advApi.advPromptWeight(eta, "std", convention.size) / advApi.advPromptWeight(0.5, "std", convention.size));
+  if (advShow(relative[0]) !== advShow(relative[1]))
+    throw new Error("advantage-normalizers: sample and population std may differ only by a constant factor, the lab claims it cancels in the relative column");
+}
+for (const eta of advApi.ADV_LADDER)
+  if (!advApi.ADV_LADDER.some(other => Math.abs(other + eta - 1) < 1e-12))
+    throw new Error(`advantage-normalizers: the ladder must be symmetric about eta = 0.5, ${eta} has no mirror row and the symmetry claim would have nothing to point at`);
+for (const eta of [0.125, 0.875])
+  if (!advApi.ADV_LADDER.includes(eta))
+    throw new Error(`advantage-normalizers: eta = ${eta} must stay in the ladder, both the short check and the transfer answer name it`);
+if (advApi.ADV_CONVENTIONS.find(entry => entry.key === "sample").size !== 8)
+  throw new Error("advantage-normalizers: the finite convention must be the G = 8 the variant mode computes with");
+
+// Renderer guards: a number that is computed but never shown teaches nothing.
+const advVariantRenderer = sliceDeclaration(source, "advVariantStage");
+for (const required of ["advNumber(100*report.pruned,1)", "advNumber(report.weights[0],8)", "advNumber(report.weights[1],8)",
+  "advNumber(report.run.normalizer,6)", "advNumber(grpoRun.std,6)", "ADV_VARIANTS.map", "tr(report.variant.verdict)",
+  "advNumber(grpoRun.adv[minorityIndex])", "advNumber(lengthRatio.weights[lengthPair.long]/lengthRatio.weights[lengthPair.short],4)", "advEqualAdvantagePair(lengthRatio.run.adv)", "${nanCount?`<br><strong>"])
+  if (!advVariantRenderer.includes(required)) throw new Error(`advantage-normalizers variant renderer: must stay data-driven and show ${required}`);
+const advWeightRenderer = sliceDeclaration(source, "advWeightStage");
+for (const required of ["advPromptWeight(eta,column.key,size)", "advNumber(weight/refWeights[index],3)", "ADV_LADDER.map",
+  "advNumber(symmetricLow)", "advNumber(symmetricHigh)", "advNumber(maxLow,4)", "advNumber(maxHigh,4)", "advNumber(factor)"])
+  if (!advWeightRenderer.includes(required)) throw new Error(`advantage-normalizers weight renderer: must stay data-driven and show ${required}`);
+// Every verdict, label, and hint the data carries has to reach the screen.
+const advPanel = source.slice(source.indexOf('if(id==="advantage-normalizers") return'), source.indexOf('if(id==="shard-ledger") return'));
+for (const required of ["ADV_GROUPS.map", "ADV_LOSS_NORMS.map", "ADV_EPS_MODES.map", "ADV_LADDER.map", "ADV_CONVENTIONS.map"])
+  if (!advPanel.includes(required)) throw new Error(`advantage-normalizers panel: the control ${required} must be built from the data`);
+if (!advVariantRenderer.includes("tr(group.hint)")) throw new Error("advantage-normalizers: every group hint must be rendered, otherwise it is dead data");
+
+// Registration: reachable from the lectures that name these variants and from its mission.
+const advLab = base.labs.find(entry => entry.id === "advantage-normalizers");
+if (!advLab) throw new Error("advantage-normalizers: lab missing from LABS");
+if (advLab.module !== "rlvr") throw new Error("advantage-normalizers: the lab belongs to the rlvr module");
+if (!base.modules.find(entry => entry.id === "rlvr").labs.includes("advantage-normalizers")) throw new Error("advantage-normalizers: the rlvr module must list the lab");
+if (!base.lectureGuides.l16.labs.includes("advantage-normalizers")) throw new Error("advantage-normalizers: Lecture 16 compares GRPO variants by baseline, normalizer, and denominator and must carry the lab");
+if (!base.lectureGuides.l17.labs.includes("advantage-normalizers")) throw new Error("advantage-normalizers: Lecture 17 names Dr. GRPO for exactly this normalization and must carry the lab");
+const advMission = base.assignments.find(entry => entry.id === "a5").missions.find(entry => entry.id === "variants");
+if (advMission.labs[0] !== "advantage-normalizers") throw new Error("advantage-normalizers: the lab belongs first in the a5:variants mission, the other three are borrowed");
+if (!sliceDeclaration(source, "OBJECTIVE_LAB_IDS").includes('"advantage-normalizers"')) throw new Error("advantage-normalizers: the lab must offer an objective short check");
+for (const key of ["Vier Varianten auf denselben acht Rollouts", "Welches Gewicht jeder Normalisierer einem Prompt gibt",
+  "Die Std ist symmetrisch, das Gruppenmittel nicht", "Warum die Konvention die Antwort nicht ändert", "Was der Loss-Nenner mit der Länge macht"])
+  if (typeof pack.ui?.[key] !== "string" || !pack.ui[key].trim() || pack.ui[key] === key)
+    throw new Error(`ui.${key}: English translation is missing for the advantage-normalizers lab`);
+console.log(`advantage-normalizers OK: ${advValues} values, all four settings identical on the all-wrong group and distinct on every mixed one, GRPO weighs eta=0.125 and eta=0.875 alike at ${advShow(advApi.advPromptWeight(0.125, "std", Infinity))} while MaxRL splits them 8 to ${advApi.advPromptWeight(0.875, "mean", Infinity).toFixed(4)}`);
+
 // The shell precaches the language bundle by URL, so a version that differs from the one the page
 // requests means the service worker caches a file nobody asks for and the page fetches an uncached one.
 const shellSource = await readFile(path.join(root, "sw.js"), "utf8");
