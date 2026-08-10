@@ -2157,6 +2157,254 @@ for (const key of ["Vier Varianten auf denselben acht Rollouts", "Welches Gewich
     throw new Error(`ui.${key}: English translation is missing for the advantage-normalizers lab`);
 console.log(`advantage-normalizers OK: ${advValues} values, all four settings identical on the all-wrong group and distinct on every mixed one, GRPO weighs eta=0.125 and eta=0.875 alike at ${advShow(advApi.advPromptWeight(0.125, "std", Infinity))} while MaxRL splits them 8 to ${advApi.advPromptWeight(0.875, "mean", Infinity).toFixed(4)}`);
 
+// microbatch-denominator: assignment 5, sections 4.2.3 and 4.2.4. The lab makes three
+// claims a guard has to hold to: at k = 1 every scale rule collapses to the same number,
+// the correct rule is a property of the pair (rule, loss_normalization) and not of the
+// rule alone, and an uneven split stops being a rescaling and destroys the baseline.
+const mbdNames = ["MBD_BATCH", "MBD_GROUP_SIZE", "MBD_MAX_LEN", "MBD_Z", "MBD_SEQ", "MBD_SPLITS",
+  "MBD_RULES", "MBD_NORMS", "mbdTokenSum", "mbdSeqMean", "mbdAggregate", "mbdScale",
+  "mbdWholeBatch", "mbdWeights", "mbdAccumulated", "mbdUniformFactor", "mbdGroupDrift"];
+const mbdApi = runInNewContext(`${mbdNames.map(name => sliceDeclaration(source, name)).join("\n")}; ({${mbdNames.join(",")}})`, {});
+const mbdShow = value => (Number.isNaN(value) ? "NaN" : value.toFixed(10));
+let mbdValues = 0;
+
+// The setup the lab prints everywhere: B = n_prompts * group_size, Z = B*G*L with L = 512.
+if (mbdApi.MBD_SEQ.length !== mbdApi.MBD_BATCH) throw new Error("microbatch-denominator: one entry per response in the rollout batch");
+if (mbdApi.MBD_BATCH !== 8 || mbdApi.MBD_GROUP_SIZE !== 4) throw new Error("microbatch-denominator: the lab states two prompts with G = 4 rollouts each, so B = 8");
+if (mbdApi.MBD_MAX_LEN !== 512) throw new Error("microbatch-denominator: the handout fixes the max generation length at 512");
+if (mbdApi.MBD_Z !== mbdApi.MBD_BATCH * mbdApi.MBD_MAX_LEN) throw new Error("microbatch-denominator: Z must stay B*G*L, that is the constant the handout defines");
+if (mbdApi.MBD_Z !== 4096) throw new Error("microbatch-denominator: the panel prints Z = 4096, the short-check answer names it");
+{
+  const prompts = [...new Set(mbdApi.MBD_SEQ.map(seq => seq.prompt))];
+  if (prompts.length !== mbdApi.MBD_BATCH / mbdApi.MBD_GROUP_SIZE) throw new Error("microbatch-denominator: the batch must hold exactly B/G prompt groups");
+  for (const prompt of prompts) {
+    const members = mbdApi.MBD_SEQ.filter(seq => seq.prompt === prompt);
+    if (members.length !== mbdApi.MBD_GROUP_SIZE) throw new Error(`microbatch-denominator: prompt ${prompt} must carry G = ${mbdApi.MBD_GROUP_SIZE} rollouts`);
+    // baseline="mean" is the entire premise of the baseline mode.
+    if (members.reduce((sum, seq) => sum + seq.A, 0) !== 0)
+      throw new Error(`microbatch-denominator: the advantages of prompt ${prompt} must sum to exactly zero, otherwise the baseline mode has nothing to lose`);
+    if (new Set(members.map(seq => seq.A)).size !== members.length)
+      throw new Error(`microbatch-denominator: prompt ${prompt} needs G distinct advantages, equal ones would hide a reweighting`);
+  }
+  if (new Set(mbdApi.MBD_SEQ.map(seq => seq.n)).size < 3)
+    throw new Error("microbatch-denominator: the responses must differ in length, otherwise sequence and constant normalisation cannot come apart");
+}
+// Every split must cover the batch exactly once, and the two ragged ones must really be ragged.
+for (const split of mbdApi.MBD_SPLITS) {
+  const flat = split.groups.flat();
+  if (flat.length !== mbdApi.MBD_BATCH || new Set(flat).size !== mbdApi.MBD_BATCH)
+    throw new Error(`microbatch-denominator ${split.key}: every response must sit in exactly one microbatch`);
+  if (flat.some(index => index < 0 || index >= mbdApi.MBD_BATCH)) throw new Error(`microbatch-denominator ${split.key}: index out of range`);
+}
+{
+  const sizes = key => mbdApi.MBD_SPLITS.find(split => split.key === key).groups.map(group => group.length);
+  const even = mbdApi.MBD_SPLITS.filter(split => new Set(split.groups.map(group => group.length)).size === 1);
+  const ragged = mbdApi.MBD_SPLITS.filter(split => new Set(split.groups.map(group => group.length)).size > 1);
+  if (even.length !== 4) throw new Error("microbatch-denominator: the lab needs the four even splits k = 1, 2, 4, 8, they are where a wrong rule is a pure factor");
+  if (ragged.length !== 2) throw new Error("microbatch-denominator: the lab needs exactly two uneven splits, one in batch order and one sorted by length");
+  if (sizes("k1").join() !== "8") throw new Error("microbatch-denominator: k1 must be the single microbatch a unit test uses");
+  for (const key of ["k3", "k3sorted"])
+    if (sizes(key).join() !== "3,3,2") throw new Error(`microbatch-denominator ${key}: both uneven splits must carry the same sizes 3,3,2 so that only the membership differs`);
+  // The length-sorted split must actually be sorted by response length, otherwise its
+  // claim -- the boundaries now cut through both prompt groups -- is unearned.
+  const sorted = mbdApi.MBD_SPLITS.find(split => split.key === "k3sorted").groups.flat();
+  const lengths = sorted.map(index => mbdApi.MBD_SEQ[index].n);
+  if (lengths.some((value, index) => index > 0 && value < lengths[index - 1]))
+    throw new Error("microbatch-denominator k3sorted: the responses must be in non-decreasing length order, that is what the label claims");
+  for (const key of ["k3", "k3sorted"]) {
+    const split = mbdApi.MBD_SPLITS.find(entry => entry.key === key);
+    const cut = split.groups.some(group => new Set(group.map(index => mbdApi.MBD_SEQ[index].prompt)).size > 1)
+      || split.groups.filter(group => group.some(index => mbdApi.MBD_SEQ[index].prompt === 0)).length > 1;
+    if (!cut) throw new Error(`microbatch-denominator ${key}: an uneven split has to cut a prompt group, otherwise no baseline can break`);
+  }
+}
+if (mbdApi.MBD_RULES.length !== 3 || mbdApi.MBD_NORMS.length !== 2)
+  throw new Error("microbatch-denominator: three scale rules against the two loss_normalization settings, that is the whole grid");
+if (!mbdApi.MBD_RULES.some(rule => rule.key === "share" && /len\(inputs_microbatch\)/u.test(rule.label)))
+  throw new Error("microbatch-denominator: the handout's own line has to appear verbatim as one of the three rules");
+
+// The scale rules themselves, straight from section 4.2.4.
+for (const split of mbdApi.MBD_SPLITS)
+  for (const group of split.groups) {
+    if (mbdApi.mbdScale("share", group.length, split.groups.length) !== group.length / mbdApi.MBD_BATCH)
+      throw new Error("microbatch-denominator: the share rule must be len(microbatch)/len(batch)");
+    if (mbdApi.mbdScale("steps", group.length, split.groups.length) !== 1 / split.groups.length)
+      throw new Error("microbatch-denominator: the steps rule must be 1/gradient_accumulation_steps");
+    if (mbdApi.mbdScale("none", group.length, split.groups.length) !== 1)
+      throw new Error("microbatch-denominator: the unscaled rule must not scale");
+  }
+
+// The grid, against a reference written from the two aggregation definitions.
+const mbdRefTokenSum = seq => -seq.A * seq.P;
+const mbdRefAggregate = (indices, normKey) => normKey === "sequence"
+  ? indices.reduce((sum, j) => sum + mbdRefTokenSum(mbdApi.MBD_SEQ[j]) / mbdApi.MBD_SEQ[j].n, 0) / indices.length
+  : indices.reduce((sum, j) => sum + mbdRefTokenSum(mbdApi.MBD_SEQ[j]), 0) / mbdApi.MBD_Z;
+const mbdRefScale = (ruleKey, size, k) => ruleKey === "share" ? size / mbdApi.MBD_BATCH : ruleKey === "steps" ? 1 / k : 1;
+const mbdRefWeights = (normKey, ruleKey, groups) => {
+  const out = new Array(mbdApi.MBD_BATCH);
+  for (const group of groups) {
+    const c = mbdRefScale(ruleKey, group.length, groups.length);
+    for (const j of group) out[j] = normKey === "sequence" ? c * mbdApi.MBD_BATCH / group.length : c;
+  }
+  return out;
+};
+const mbdRefAccumulated = (normKey, ruleKey, groups) =>
+  groups.reduce((sum, group) => sum + mbdRefScale(ruleKey, group.length, groups.length) * mbdRefAggregate(group, normKey), 0);
+const mbdCorrect = { sequence: "share", constant: "none" };
+const mbdSeen = {};
+for (const norm of mbdApi.MBD_NORMS)
+  for (const split of mbdApi.MBD_SPLITS)
+    for (const rule of mbdApi.MBD_RULES) {
+      const weights = mbdApi.mbdWeights(norm.key, rule.key, split.groups);
+      const want = mbdRefWeights(norm.key, rule.key, split.groups);
+      weights.forEach((value, index) => {
+        mbdValues++;
+        if (!Object.is(value, want[index]))
+          throw new Error(`microbatch-denominator ${norm.key}/${split.key}/${rule.key}: weight ${index} is ${value}, the reference says ${want[index]}`);
+      });
+      const accumulated = mbdApi.mbdAccumulated(norm.key, rule.key, split.groups);
+      mbdValues++;
+      if (mbdShow(accumulated) !== mbdShow(mbdRefAccumulated(norm.key, rule.key, split.groups)))
+        throw new Error(`microbatch-denominator ${norm.key}/${split.key}/${rule.key}: the accumulated loss differs from the reference`);
+      // The weights are the gradient. If they do not rebuild the accumulated scalar, the
+      // whole lab -- which reads correctness off the weights -- is talking about nothing.
+      const rebuilt = weights.reduce((sum, weight, j) => {
+        const seq = mbdApi.MBD_SEQ[j];
+        return sum + weight * (norm.key === "sequence" ? 1 / (mbdApi.MBD_BATCH * seq.n) : 1 / mbdApi.MBD_Z) * mbdRefTokenSum(seq);
+      }, 0);
+      if (mbdShow(rebuilt) !== mbdShow(accumulated))
+        throw new Error(`microbatch-denominator ${norm.key}/${split.key}/${rule.key}: the per-response weights do not reproduce the accumulated loss, so they are not the gradient`);
+      const exact = mbdShow(accumulated) === mbdShow(mbdApi.mbdWholeBatch(norm.key));
+      const uniformOne = weights.every(value => value === 1);
+      if (exact !== uniformOne)
+        throw new Error(`microbatch-denominator ${norm.key}/${split.key}/${rule.key}: equality with the whole batch and w = 1 everywhere must be the same statement`);
+      mbdSeen[`${norm.key}/${split.key}/${rule.key}`] = { weights, accumulated, exact, factor: mbdApi.mbdUniformFactor(weights) };
+    }
+// Claim 1: at k = 1 nothing can be told apart. This is what makes the unit test blind.
+for (const norm of mbdApi.MBD_NORMS) {
+  const values = mbdApi.MBD_RULES.map(rule => mbdShow(mbdSeen[`${norm.key}/k1/${rule.key}`].accumulated));
+  if (new Set(values).size !== 1)
+    throw new Error(`microbatch-denominator ${norm.key}: at k = 1 all three rules must return the same number, that is the first short-check answer`);
+  if (!mbdSeen[`${norm.key}/k1/${mbdApi.MBD_RULES[0].key}`].exact)
+    throw new Error(`microbatch-denominator ${norm.key}: at k = 1 that shared number must be the whole-batch loss`);
+}
+// Claim 2: correctness belongs to the pair, not to the rule. Each normalisation has exactly
+// one rule that survives every split, and the two normalisations disagree about which.
+for (const norm of mbdApi.MBD_NORMS) {
+  const always = mbdApi.MBD_RULES.filter(rule => mbdApi.MBD_SPLITS.every(split => mbdSeen[`${norm.key}/${split.key}/${rule.key}`].exact));
+  if (always.length !== 1 || always[0].key !== mbdCorrect[norm.key])
+    throw new Error(`microbatch-denominator ${norm.key}: exactly one rule may be correct on every split, and it must be "${mbdCorrect[norm.key]}"`);
+}
+if (mbdCorrect.sequence === mbdCorrect.constant)
+  throw new Error("microbatch-denominator: the two normalisations must require different rules, otherwise the second short-check question is empty");
+// The handout's own line, applied under a constant Z, must be wrong by exactly the factor k.
+for (const split of mbdApi.MBD_SPLITS) {
+  const k = split.groups.length;
+  const state = mbdSeen[`constant/${split.key}/share`];
+  const expected = split.groups.every(group => group.length === mbdApi.MBD_BATCH / k) ? 1 / k : null;
+  if (expected !== null && state.factor !== expected)
+    throw new Error(`microbatch-denominator constant/${split.key}/share: the handout line must be off by exactly 1/k = ${expected}, that is the second short-check answer`);
+}
+// Claim 3: on an even split every wrong rule is a plain factor; on an uneven one the
+// sequence rules stop being a factor at all.
+for (const split of mbdApi.MBD_SPLITS) {
+  const evenSplit = new Set(split.groups.map(group => group.length)).size === 1;
+  for (const norm of mbdApi.MBD_NORMS)
+    for (const rule of mbdApi.MBD_RULES) {
+      const state = mbdSeen[`${norm.key}/${split.key}/${rule.key}`];
+      if (evenSplit && state.factor === null)
+        throw new Error(`microbatch-denominator ${norm.key}/${split.key}/${rule.key}: on an even split every rule must stay a uniform factor`);
+    }
+  if (!evenSplit) {
+    if (mbdSeen[`sequence/${split.key}/steps`].factor !== null)
+      throw new Error(`microbatch-denominator sequence/${split.key}/steps: on an uneven split dividing by k must stop being a uniform factor, the third short-check answer rests on it`);
+    if (mbdSeen[`sequence/${split.key}/none`].factor !== null)
+      throw new Error(`microbatch-denominator sequence/${split.key}/none: on an uneven split the unscaled rule must stop being a uniform factor`);
+    if (mbdSeen[`constant/${split.key}/share`].factor !== null)
+      throw new Error(`microbatch-denominator constant/${split.key}/share: on an uneven split the share rule must stop being a uniform factor`);
+    // Dividing by k does not depend on the microbatch size, so under a constant Z it stays
+    // a clean rescaling even here. The lab must not claim otherwise.
+    if (mbdSeen[`constant/${split.key}/steps`].factor !== 1 / split.groups.length)
+      throw new Error(`microbatch-denominator constant/${split.key}/steps: dividing by k must remain the uniform factor 1/k even on an uneven split`);
+  }
+}
+if (mbdSeen["sequence/k2/none"].factor !== 2 || mbdSeen["sequence/k4/none"].factor !== 4 || mbdSeen["sequence/k8/none"].factor !== 8)
+  throw new Error("microbatch-denominator: leaving the microbatch loss unscaled must multiply the sequence gradient by exactly k");
+// The baseline mode. A uniform weight vector cannot break the identity; a non-uniform one
+// inside a prompt group must, and the lab shows exactly that residual.
+for (const norm of mbdApi.MBD_NORMS)
+  for (const split of mbdApi.MBD_SPLITS)
+    for (const rule of mbdApi.MBD_RULES) {
+      const state = mbdSeen[`${norm.key}/${split.key}/${rule.key}`];
+      const drifts = mbdApi.mbdGroupDrift(state.weights);
+      if (drifts.length !== mbdApi.MBD_BATCH / mbdApi.MBD_GROUP_SIZE) throw new Error("microbatch-denominator: one drift row per prompt group");
+      for (const entry of drifts) {
+        mbdValues++;
+        const want = mbdApi.MBD_SEQ.reduce((sum, seq, j) => sum + (seq.prompt === entry.prompt ? state.weights[j] * seq.A : 0), 0);
+        if (mbdShow(entry.drift) !== mbdShow(want)) throw new Error(`microbatch-denominator ${norm.key}/${split.key}/${rule.key}: drift of group ${entry.prompt} differs from the reference`);
+        if (entry.plain !== 0) throw new Error("microbatch-denominator: without accumulation every group must sum to zero, that is what baseline=\"mean\" guarantees");
+      }
+      const broken = drifts.filter(entry => entry.drift.toFixed(6) !== "0.000000").length;
+      if (state.factor !== null && broken !== 0)
+        throw new Error(`microbatch-denominator ${norm.key}/${split.key}/${rule.key}: a uniform weight vector may never break the baseline, it only rescales`);
+      if (state.factor === null && broken === 0)
+        throw new Error(`microbatch-denominator ${norm.key}/${split.key}/${rule.key}: a non-uniform weight vector must break at least one group, otherwise the baseline mode shows nothing`);
+    }
+// The two uneven splits have to break different groups -- that is the point of showing both.
+{
+  const affected = key => mbdApi.mbdGroupDrift(mbdSeen[`sequence/${key}/steps`].weights)
+    .filter(entry => entry.drift.toFixed(6) !== "0.000000").map(entry => entry.prompt).join();
+  if (affected("k3") === affected("k3sorted"))
+    throw new Error("microbatch-denominator: batch order and length order must break different prompt groups, otherwise the second uneven split is decoration");
+  if (affected("k3") !== "1") throw new Error("microbatch-denominator k3: in batch order only the second prompt group may straddle a boundary");
+  if (affected("k3sorted") !== "0,1") throw new Error("microbatch-denominator k3sorted: sorting by length must break both prompt groups");
+}
+
+// Renderer guards: a number that is computed but never shown teaches nothing.
+const mbdLedgerRenderer = sliceDeclaration(source, "mbdLedgerStage");
+for (const required of ["aggregate = ${mbdNumber(aggregate,8)}", "c = ${mbdNumber(c,6)}", "${tr(\"Beitrag\")} = ${mbdNumber(c*aggregate,8)}",
+  "<strong>${mbdNumber(report.accumulated,10)}</strong>", "<strong>${mbdNumber(report.reference,10)}</strong>",
+  "<strong>${mbdNumber(report.ratio,8)}</strong>", "<strong>${report.factor===null?tr(\"keiner\"):mbdNumber(report.factor,6)}</strong>",
+  "<strong>w = ${mbdNumber(weights[j],6)}</strong>", "ℓ = ${mbdNumber(mbdSeqMean(seq),6)}",
+  "split.groups.map", "MBD_SEQ.map", "${tr(split.hint)}", "${tr(rule.source)}", "<span>${tr(verdict)}</span>"])
+  if (!mbdLedgerRenderer.includes(required)) throw new Error(`microbatch-denominator ledger renderer: must stay data-driven and show ${required}`);
+const mbdBaselineRenderer = sliceDeclaration(source, "mbdBaselineStage");
+for (const required of ["<strong>Σ w·A = ${mbdNumber(entry.drift,6)}</strong>", "Σ A = ${mbdNumber(entry.plain,6)}",
+  "mbdNumber(weights[item.j],6)", "${esc(terms)}", "drifts.map",
+  "<strong>${broken.length} ${tr(\"von\")} ${drifts.length}</strong>",
+  "<strong>${worst===null?mbdNumber(0,6):mbdNumber(worst.drift,6)}</strong>",
+  "G = ${MBD_GROUP_SIZE}", "<span>${tr(verdict)}</span>"])
+  if (!mbdBaselineRenderer.includes(required)) throw new Error(`microbatch-denominator baseline renderer: must stay data-driven and show ${required}`);
+// Both stages must be reachable, and every label the data carries has to reach the screen.
+const mbdStageSwitch = sliceDeclaration(source, "mbdStageMarkup");
+if (!/mbdMode.*baseline.*mbdBaselineStage\(\).*mbdLedgerStage\(\)/su.test(mbdStageSwitch))
+  throw new Error("microbatch-denominator: the mode selector must reach both stages");
+const mbdPanel = source.slice(source.indexOf('if(id==="microbatch-denominator") return'), source.indexOf('if(id==="advantage-normalizers") return'));
+for (const required of ["MBD_NORMS.map", "MBD_SPLITS.map", "MBD_RULES.map", "id=\"mbdMode\"", "id=\"mbdStage\"", "id=\"mbdCheck\""])
+  if (!mbdPanel.includes(required)) throw new Error(`microbatch-denominator panel: must build ${required} from the data`);
+// The short check has to be answerable and has to persist, like every other objective lab.
+const mbdCheckSource = sliceDeclaration(source, "checkMicrobatchDenominator");
+for (const required of ['single==="allEqual"', 'pairing==="alreadyShare"', 'ragged==="baselineBroken"',
+  'user.labChecks["microbatch-denominator"]=true', "saveUser(true)"])
+  if (!mbdCheckSource.includes(required)) throw new Error(`microbatch-denominator short check: must contain ${required}`);
+if (!sliceDeclaration(source, "OBJECTIVE_LAB_IDS").includes('"microbatch-denominator"'))
+  throw new Error("microbatch-denominator: the lab must be registered as an objective lab, otherwise its check never counts");
+// Registration. No lecture guide may claim it: no lecture PDF teaches gradient accumulation
+// for the RLVR loss, and inventing one would break the PDF fidelity of the lecture path.
+{
+  const mission = base.assignments.find(assignment => assignment.id === "a5").missions.find(entry => entry.id === "on-policy-grpo");
+  if (mission.labs[0] !== "microbatch-denominator")
+    throw new Error("microbatch-denominator: the lab has to lead the mission whose scope contains grpo_train_step_standard_on_policy");
+  if (!mission.scope.includes("aggregate_loss_across_microbatch_sequence") || !mission.scope.includes("grpo_train_step_standard_on_policy"))
+    throw new Error("microbatch-denominator: the mission it is registered in must be the one that owns both problems");
+  if (!base.modules.find(module => module.id === "rlvr").labs.includes("microbatch-denominator"))
+    throw new Error("microbatch-denominator: the lab must be listed in the rlvr module");
+  for (const lecture of Object.values(base.lectureGuides || {}))
+    if ((lecture.labs || []).includes("microbatch-denominator"))
+      throw new Error("microbatch-denominator: no lecture guide may list this lab, no lecture PDF teaches gradient accumulation for the RLVR loss");
+}
+console.log(`microbatch-denominator OK: ${mbdValues} values, all three rules identical at k=1 (${mbdShow(mbdSeen["sequence/k1/share"].accumulated)}), "share" correct only under sequence and "none" only under constant, uneven split turns sequence/steps into weights ${[...new Set(mbdSeen["sequence/k3/steps"].weights.map(value => value.toFixed(6)))].join(" and ")} with a baseline residual of ${mbdApi.mbdGroupDrift(mbdSeen["sequence/k3/steps"].weights).map(entry => entry.drift.toFixed(6)).join(" / ")}`);
+
 // The shell precaches the language bundle by URL, so a version that differs from the one the page
 // requests means the service worker caches a file nobody asks for and the page fetches an uncached one.
 const shellSource = await readFile(path.join(root, "sw.js"), "utf8");

@@ -5401,7 +5401,7 @@ window.CS336_EN = Object.freeze({
           "evidence": "You can verify identical Rewards, variable response lengths, the Microbatch denominator, and the gradient direction for correct and incorrect responses with a tiny test.",
           "failure": "First lead: If Reward does not increase, check before tuning hyperparameters whether positive Advantages affect the Loss in a way that raises their Log-Probabilities.",
           "concepts": ["grpo", "policy-gradient", "pytorch-state"],
-          "labs": ["policy-loss-tracer", "grpo"]
+          "labs": ["microbatch-denominator", "policy-loss-tracer", "grpo"]
         },
         {
           "id": "variants",
@@ -6023,6 +6023,46 @@ window.CS336_EN = Object.freeze({
       "misconception": "Dividing by the group std looks like a harmless rescaling and is in fact a reweighting of the prompts. It is also symmetric in η and 1−η: a prompt the model solves in one out of eight attempts gets exactly the same weight as one it solves in seven out of eight. Only dividing by μ really weights by difficulty. And RFT is not a smaller GRPO variant; losing the baseline it loses the negative sign: it cannot punish a wrong answer, only ignore it.",
       "transferQuestion": "You implemented compute_group_normalized_rewards for all three normalizers and wrote your own test on a group in which all eight rollouts carry the same reward. The test is green for every setting of advantage_normalizer and baseline. What exactly did it check – and which group do you need instead?",
       "transferAnswer": "It checked that your function does not crash on a group without any signal – nothing more. If all eight rollouts carry the same reward, then R_j − μ is exactly zero for every response, and a numerator of zero stays zero no matter whether you then divide by the std, by μ, or by one. GRPO_constant, Dr. GRPO, and MaxRL therefore return the same row of eight zeros, and the three settings of advantage_normalizer are structurally indistinguishable on that group. On the all-zero group this even holds for RFT, because its indicator is zero everywhere too; all four variants agree exactly there. Conversely, that very group is the only place where advantage_eps matters at all: without it you get 0/0, that is NaN, and a single NaN poisons the entire batch gradient. What you need instead is a mixed group – and not one with four correct out of eight, because there μ = 0.5 and both denominators sit close together. Take a skewed group such as one correct out of eight: there the same position reads 0.875 under Dr. GRPO, 2.474867 under GRPO, and 6.999944 under MaxRL, RFT prunes 87.5 % of the batch, and every setting is distinguishable from every other."
+    },
+    "microbatch-denominator": {
+      "title": "Gradient Accumulation: the Microbatch Denominator",
+      "desc": "Compute when the gradient accumulated across microbatches really is the gradient of the whole batch – and what happens when it is not.",
+      "mental": "Gradient accumulation is not an optimisation, it is a claim: k backward passes over sub-batches are supposed to produce exactly the same gradient as one backward pass over the whole batch. Whether that holds depends on a single number – the factor each microbatch loss is multiplied by before backward(). The correct factor is not a property of your code but of the pair of factor and loss_normalization: the very same line is right under \"sequence\" and wrong under \"constant\". You cannot check it on the loss, only on the weight each individual response ends up carrying in the total gradient. If the same number stands everywhere, the error is at worst a rescaling; if different numbers stand there, you are optimising a different objective.",
+      "formula": "Batch: L = Σ_j w_j · ℓ_j  ·  microbatch mb: c_mb · aggregate(mb)  ·  c ∈ {|mb|/B, 1/k, 1}  ·  correct ⇔ w_j / w_j^batch = 1 for every j  ·  baseline intact ⇔ Σ_{j∈group} w_j·A_j = 0",
+      "symbols": [
+        [
+          "B",
+          "rollout_batch_size = n_prompts_per_rollout_batch · group_size. Here 2 · 4 = 8 responses."
+        ],
+        [
+          "k",
+          "gradient_accumulation_steps: the number of microbatches before one optimizer step."
+        ],
+        [
+          "|mb|",
+          "Number of responses in the microbatch currently running. Not the same in every microbatch once the split is uneven."
+        ],
+        [
+          "c_mb",
+          "The factor the microbatch loss is multiplied by before backward()."
+        ],
+        [
+          "Z",
+          "normalization_constant = B·G·L with L = 512, the fixed denominator under loss_normalization = \"constant\"."
+        ],
+        [
+          "w_j",
+          "Weight with which the token sum of response j enters the accumulated gradient – relative to the whole-batch gradient."
+        ],
+        [
+          "A_j",
+          "Advantage of response j from compute_group_normalized_rewards. Under baseline = \"mean\" it sums to zero within a prompt group."
+        ]
+      ],
+      "observe": "Start in the denominator mode at k = 1 and step through the three factors: all three return the same number, under both normalisations. That is exactly the state a unit test sets up. Then switch to k = 2 and repeat – now the rows separate, and under the two normalisations they separate in different places. Finally take the uneven split k = 3 and switch to the baseline mode.",
+      "misconception": "The usual mistake is to read the factor as a property of the accumulation rather than of the pair of factor and loss_normalization. \"Divide by the number of microbatches\" sounds like the obvious choice, and with equally sized microbatches it is also correct – but only there. The second, far more expensive error is to treat the bug as a pure rescaling. As soon as the microbatches differ in size, the responses receive different weights, the advantages of a prompt group stop summing to zero, and the baseline stops being a baseline: the update then pushes every response to that prompt in the same direction, regardless of its reward.",
+      "transferQuestion": "Your test_grpo_train_step_standard_on_policy is green and your first GRPO run learns. You then invested four B200 hours in grpo_learning_rate and found a learning rate that runs stably. Why does neither observation show that your gradient accumulation is correct – and which single number do you have to print to decide it?",
+      "transferAnswer": "Both observations are fully compatible with a wrong denominator. The test runs with gradient_accumulation_steps = 1, and at k = 1 the only microbatch is the whole batch: |mb|/B = 1, 1/k = 1 and the factor one are the same number. All three factors return exactly the same loss there under both normalisations, so the test cannot structurally ask the question. And the learning-rate search cannot answer it, because a uniform factor is precisely what a learning-rate search absorbs: if your gradient at k = 4 is four times too large, the sweep finds a four times smaller learning rate and runs stably. The number that decides is the weight w_j of each individual response in the accumulated gradient, relative to the whole-batch gradient. In practice you get it by running the same batch backward once in k microbatches and once in one piece and comparing the two .grad tensors – not the loss values. If the same number stands everywhere, you have at worst a wrong effective learning rate. If different numbers stand there, and that happens as soon as your microbatches are not all the same size, then the advantages of a prompt group no longer sum to zero and you are optimising a different objective."
     }
   },
   "diagnostic": {
@@ -7050,6 +7090,74 @@ window.CS336_EN = Object.freeze({
     }
 },
   "ui": {
+    "Verhältnis": "Ratio",
+    "Microbatch": "Microbatch",
+    "k = 1 · ein Microbatch [8] · was dein Unittest benutzt": "k = 1 · one microbatch [8] · what your unit test uses",
+    "Der Zustand, in dem test_grpo_train_step läuft. Schalte hier alle drei Faktoren durch, bevor du k erhöhst.": "The state test_grpo_train_step runs in. Step through all three factors here before you raise k.",
+    "k = 2 · gleich große Microbatches [4,4]": "k = 2 · equally sized microbatches [4,4]",
+    "Die erste Aufteilung, bei der sich die Faktoren überhaupt unterscheiden können. Achte darauf, welcher Faktor in welcher Normalisierung stehen bleibt.": "The first split in which the factors can differ at all. Watch which factor survives under which normalisation.",
+    "k = 4 · gleich große Microbatches [2,2,2,2]": "k = 4 · equally sized microbatches [2,2,2,2]",
+    "Dieselbe Struktur wie k = 2, nur doppelt so fein. Der Fehler des unskalierten Faktors wächst mit k mit.": "The same structure as k = 2, only twice as fine. The error of the unscaled factor grows with k.",
+    "k = 8 · eine Antwort je Microbatch [1,1,1,1,1,1,1,1]": "k = 8 · one response per microbatch [1,1,1,1,1,1,1,1]",
+    "Die feinste Aufteilung. Sie zeigt am deutlichsten, dass der unskalierte Faktor eine reine Multiplikation mit k ist.": "The finest split. It shows most clearly that the unscaled factor is a plain multiplication by k.",
+    "k = 3 · Rest im letzten Microbatch [3,3,2]": "k = 3 · remainder in the last microbatch [3,3,2]",
+    "Acht Antworten lassen sich nicht in drei gleiche Microbatches teilen. Genau hier hört der Fehler auf, eine Skalierung zu sein – lies danach den Baselinemodus.": "Eight responses cannot be split into three equal microbatches. This is exactly where the error stops being a rescaling – read the baseline mode next.",
+    "k = 3 · nach Antwortlänge sortiert [3,3,2]": "k = 3 · sorted by response length [3,3,2]",
+    "Dieselben drei Größen, aber vor dem Aufteilen nach Länge sortiert, damit weniger Padding entsteht. Die Microbatchgrenzen laufen jetzt quer durch beide Promptgruppen.": "The same three sizes, but sorted by length before splitting so that less padding is produced. The microbatch boundaries now cut through both prompt groups.",
+    "Die Zeile, die im Handout in §4.2.4 abgedruckt ist.": "The line printed in the handout in §4.2.4.",
+    "Der naheliegende Griff: durch die Zahl der Microbatches teilen.": "The obvious reach: divide by the number of microbatches.",
+    "Gar nicht skalieren, sondern die Microbatch-Losse einfach aufaddieren lassen.": "Do not scale at all, just let the microbatch losses add up.",
+    "loss_normalization = \"sequence\" · erst je Antwort mitteln, dann über Antworten": "loss_normalization = \"sequence\" · average within each response first, then across responses",
+    "aggregate = mean_j( sum_t ℓ_jt / n_j )": "aggregate = mean_j( sum_t ℓ_jt / n_j )",
+    "loss_normalization = \"constant\" · durch Z = B·G·L = 4096": "loss_normalization = \"constant\" · divided by Z = B·G·L = 4096",
+    "aggregate = sum_j sum_t ℓ_jt / Z": "aggregate = sum_j sum_t ℓ_jt / Z",
+    "Beitrag": "contribution",
+    "Ein Rollout-Batch, k Rückwärtspässe": "One rollout batch, k backward passes",
+    "Was jeder Microbatch beiträgt": "What each microbatch contributes",
+    "Akkumuliert gegen ganzer Batch": "Accumulated against the whole batch",
+    "Summe der Beiträge nach k Rückwärtspässen": "Sum of the contributions after k backward passes",
+    "Derselbe Batch in einem einzigen Rückwärtspass": "The same batch in a single backward pass",
+    "Gleichmäßiger Faktor über alle Antworten": "Uniform factor across all responses",
+    "keiner": "none",
+    "Gewicht jeder einzelnen Antwort": "Weight of each individual response",
+    "Eins bedeutet: genau das Gewicht, das diese Antwort im Gradienten über den ganzen Batch hätte.": "One means exactly the weight this response would carry in the gradient over the whole batch.",
+    "Der akkumulierte Gradient ist der Batchgradient. Jede Antwort trägt mit w = 1.000000, also mit genau dem Gewicht, das sie ohne Accumulation hätte.": "The accumulated gradient is the batch gradient. Every response contributes with w = 1.000000, that is with exactly the weight it would have without accumulation.",
+    "Jede Antwort behält dasselbe Gewicht, aber nicht das richtige: Der ganze Gradient ist um einen festen Faktor daneben. Die Richtung stimmt, und genau deshalb sieht der Lauf gesund aus – eine Lernratensuche absorbiert diesen Faktor vollständig.": "Every response keeps the same weight, but not the right one: the whole gradient is off by a fixed factor. The direction is correct, and that is exactly why the run looks healthy – a learning-rate search absorbs this factor completely.",
+    "Die Gewichte sind ungleich. Das ist keine Skalierung mehr: Der akkumulierte Gradient ist kein Vielfaches des Batchgradienten, sondern gehört zu einem anderen Ziel. Wechsle jetzt in den Baselinemodus.": "The weights are unequal. This is no longer a rescaling: the accumulated gradient is not a multiple of the batch gradient, it belongs to a different objective. Switch to the baseline mode now.",
+    "Identisch zum Batchgradienten": "Identical to the batch gradient",
+    "Nur skaliert": "Only rescaled",
+    "Anderes Ziel": "Different objective",
+    "Bleibt die Baseline eine Baseline?": "Does the baseline stay a baseline?",
+    "baseline = \"mean\" zieht in compute_group_normalized_rewards das Gruppenmittel ab. Deshalb summieren sich die Advantages einer Promptgruppe auf exakt null, und deshalb senkt die Baseline die Varianz, ohne das Ziel zu verändern. Die Accumulation multipliziert jede Antwort mit ihrem Gewicht w – und wenn die Gewichte innerhalb einer Gruppe verschieden sind, überlebt die Identität nicht.": "baseline = \"mean\" subtracts the group mean inside compute_group_normalized_rewards. That is why the advantages of a prompt group sum to exactly zero, and why the baseline reduces variance without changing the objective. Accumulation multiplies every response by its weight w – and when the weights inside a group differ, the identity does not survive.",
+    "Antworten je Promptgruppe": "responses per prompt group",
+    "Promptgruppe": "Prompt group",
+    "ohne Accumulation": "without accumulation",
+    "Gruppen mit verletzter Baseline": "Groups with a violated baseline",
+    "Größter verbleibender Rest": "Largest remaining residual",
+    "Die Baseline hält. In jeder Promptgruppe summieren sich die gewichteten Advantages weiterhin auf null, also enthält das Update keinen Anteil, der alle Antworten desselben Prompts gleichzeitig anhebt oder absenkt.": "The baseline holds. In every prompt group the weighted advantages still sum to zero, so the update contains no component that raises or lowers every response to the same prompt at once.",
+    "Die Baseline hält nicht mehr. In der betroffenen Gruppe bleibt ein Rest übrig, der nicht mehr vom Reward abhängt: Das Update verschiebt die Wahrscheinlichkeit jeder Antwort auf diesen Prompt in dieselbe Richtung – auch die der richtigen, auch die der falschen. Genau diese Verzerrung sollte die Baseline entfernen.": "The baseline no longer holds. In the affected group a residual is left that no longer depends on the reward: the update shifts the probability of every response to that prompt in the same direction – the correct ones and the wrong ones alike. Removing exactly that bias is what the baseline was for.",
+    "Baseline intakt": "Baseline intact",
+    "Baseline zerstört": "Baseline destroyed",
+    "Die drei Antworten trennen die drei Ebenen: warum ein Test mit k = 1 die Frage nicht stellen kann, warum derselbe Faktor je nach loss_normalization richtig oder falsch ist, und warum ungleich große Microbatches keine Skalierung mehr sind.": "The three answers separate the three levels: why a test with k = 1 cannot ask the question, why the same factor is right or wrong depending on loss_normalization, and why unequally sized microbatches are no longer a rescaling.",
+    "Alle drei Antworten stehen als Zahl auf dem Schirm. Für die erste stelle k = 1 ein und schalte die drei Faktoren durch. Für die zweite bleibe bei k = 2 und wechsle nur die Normalisierung. Für die dritte nimm die ungerade Aufteilung [3,3,2] mit loss / gradient_accumulation_steps und dann den Baselinemodus.": "All three answers stand on the screen as a number. For the first set k = 1 and step through the three factors. For the second stay at k = 2 and only switch the normalisation. For the third take the uneven split [3,3,2] with loss / gradient_accumulation_steps and then the baseline mode.",
+    "Ein Batch, k Rückwärtspässe": "One batch, k backward passes",
+    "Ist der akkumulierte Gradient der Batchgradient?": "Is the accumulated gradient the batch gradient?",
+    "Aufteilung des Rollout-Batches": "Split of the rollout batch",
+    "Faktor vor backward()": "Factor before backward()",
+    "Gerechnet wird ein Rollout-Batch aus B = 8 Antworten, zwei Prompts mit je G = 4 Rollouts, wie in A5 §4.2. Die Advantages kommen fertig aus compute_group_normalized_rewards; dieses Lab beginnt eine Zeile später, beim Zusammenbau über Microbatches. Sage vor jedem Wechsel voraus, ob sich die Zahl überhaupt ändert – bei k = 1 tut sie es nie, und genau das ist der Inhalt dieses Labs.": "What is computed is one rollout batch of B = 8 responses, two prompts with G = 4 rollouts each, as in A5 §4.2. The advantages arrive ready from compute_group_normalized_rewards; this lab starts one line later, at the assembly across microbatches. Before every switch, predict whether the number changes at all – at k = 1 it never does, and that is exactly the content of this lab.",
+    "1. Bei k = 1 liefern alle drei Faktoren dieselbe Zahl, in beiden Normalisierungen. Woran liegt das?": "1. At k = 1 all three factors return the same number, under both normalisations. Why?",
+    "Der einzige Microbatch ist der ganze Batch, also sind |mb|/B, 1/k und 1 dieselbe Zahl – ein Test mit gradient_accumulation_steps = 1 kann die Frage strukturell nicht stellen": "The only microbatch is the whole batch, so |mb|/B, 1/k and 1 are the same number – a test with gradient_accumulation_steps = 1 structurally cannot ask the question",
+    "Die Losswerte sind so klein, dass die Unterschiede in der Anzeige verschwinden": "The loss values are so small that the differences disappear in the display",
+    "Weil bei k = 1 nur die Sequenznormalisierung definiert ist und die Konstante nicht greift": "Because at k = 1 only the sequence normalisation is defined and the constant does not apply",
+    "2. Die Zeile aus dem Handout, loss * (len(inputs_microbatch)/len(inputs)), ist bei „sequence“ richtig und bei „constant“ falsch. Warum?": "2. The line from the handout, loss * (len(inputs_microbatch)/len(inputs)), is right under “sequence” and wrong under “constant”. Why?",
+    "Mit festem Z ist der Microbatch-Aggregat bereits der Anteil dieses Microbatches an der Gesamtsumme; die Zeile teilt ihn ein zweites Mal, und der akkumulierte Gradient wird um den Faktor k zu klein": "With a fixed Z the microbatch aggregate is already this microbatch's share of the total sum; the line divides it a second time, and the accumulated gradient comes out a factor of k too small",
+    "Weil Z mit 4096 zu groß gewählt ist; mit Z = B wäre dieselbe Zeile auch dort richtig": "Because Z is chosen too large at 4096; with Z = B the same line would be right there too",
+    "Sie ist in beiden Fällen richtig; der Unterschied betrifft nur den geloggten Loss, nicht den Gradienten": "It is right in both cases; the difference concerns only the logged loss, not the gradient",
+    "3. Bei [3,3,2] mit loss / gradient_accumulation_steps ist der Gesamtloss nicht nur skaliert. Was ist zusätzlich kaputt?": "3. At [3,3,2] with loss / gradient_accumulation_steps the total loss is not merely rescaled. What else is broken?",
+    "Die Antworten bekommen ungleiche Gewichte, dadurch summieren sich die Advantages einer Promptgruppe nicht mehr auf null – die Baseline hört auf, eine Baseline zu sein, und das Update schiebt jede Antwort auf diesen Prompt in dieselbe Richtung": "The responses receive unequal weights, so the advantages of a prompt group no longer sum to zero – the baseline stops being a baseline and the update pushes every response to that prompt in the same direction",
+    "Nichts weiter; der letzte Microbatch ist kleiner, deshalb ist der Gesamtfaktor nur etwas anders als bei gleich großen Microbatches": "Nothing else; the last microbatch is smaller, so the overall factor is just slightly different from equally sized microbatches",
+    "Die Padding-Token werden im kleineren Microbatch mitgezählt und verzerren die Tokenmittel": "The padding tokens are counted in the smaller microbatch and distort the token means",
+    "Interaktive Rechnung zum Microbatch-Nenner": "Interactive computation of the microbatch denominator",
     "und Antwort": "and response",
     "tragen bei Dr. GRPO in dieser Gruppe denselben Advantage": "carry the same advantage under Dr. GRPO in this group,",
     "In dieser Gruppe hat unter Dr. GRPO keine zwei verschieden langen Antworten denselben Advantage ungleich null – der Längeneffekt ist hier nicht isolierbar. Wechsle auf eine gemischte Gruppe.": "In this group no two responses of different length share a nonzero advantage under Dr. GRPO – the length effect cannot be isolated here. Switch to a mixed group.",
