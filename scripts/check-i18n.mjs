@@ -2643,6 +2643,230 @@ for (const field of ["mental", "misconception"]) {
   if (!/rang/i.test(encodeLab?.[field] || "")) throw new Error(`labs.bpe-encode.${field}: must state that encoding applies merges in creation rank order`);
 }
 
+
+// --- lsh-bands ---------------------------------------------------------------
+// Lecture 14 computes get_prob_collision(sim, b, r) in its own trace and inspects it for
+// three settings; A4 minhash_deduplication makes the reader choose (b) hashes, (c) bands
+// and (d) the n-gram length with one sentence of guidance. The platform printed the
+// formula on a card and evaluated it nowhere. These guards hold the evaluation.
+const lshNames = ["LSH_BANDS", "LSH_ROWS", "LSH_TAUS", "LSH_SIMS", "LSH_LECTURE_SIMS", "LSH_LECTURE_SETTINGS",
+  "LSH_CORPUS_DOCS", "LSH_PAIRS", "LSH_NS", "LSH_DOC_PAIRS",
+  "lshProbMatch", "lshProbCollision", "lshThreshold", "lshPairTotal", "lshCorpusReport",
+  "lshWords", "lshNgrams", "lshJaccard", "lshPairReport"];
+const lshApi = runInNewContext(`${lshNames.map(name => sliceDeclaration(source, name)).join("\n")}; ({${lshNames.join(",")}})`, {});
+const lshShow = value => Number(value).toFixed(6);
+let lshValues = 0;
+
+// The two lines of the lecture trace, typed here from the PDF and not from the app.
+const refMatch = (s, r) => Math.pow(s, r);
+const refCollision = (s, b, r) => 1 - Math.pow(1 - refMatch(s, r), b);
+for (const b of lshApi.LSH_BANDS) for (const r of lshApi.LSH_ROWS) for (const s of lshApi.LSH_SIMS) {
+  lshValues += 2;
+  if (lshShow(lshApi.lshProbMatch(s, r)) !== lshShow(refMatch(s, r))) throw new Error(`lsh-bands: s^r differs from the reference at s=${s}, r=${r}`);
+  if (lshShow(lshApi.lshProbCollision(s, b, r)) !== lshShow(refCollision(s, b, r))) throw new Error(`lsh-bands: the collision probability differs from the reference at s=${s}, b=${b}, r=${r}`);
+}
+// The lecture's own conclusions, checked as properties rather than quoted as prose:
+// more bands move the curve left (easier to match), more rows move it right (harder).
+for (const r of lshApi.LSH_ROWS) for (const s of lshApi.LSH_SIMS) {
+  for (let i = 1; i < lshApi.LSH_BANDS.length; i++)
+    if (!(lshApi.lshProbCollision(s, lshApi.LSH_BANDS[i], r) >= lshApi.lshProbCollision(s, lshApi.LSH_BANDS[i - 1], r)))
+      throw new Error("lsh-bands: more bands must never lower the collision probability, that is the lecture's 'moves the curve to the left'");
+}
+for (const b of lshApi.LSH_BANDS) for (const s of lshApi.LSH_SIMS) {
+  for (let i = 1; i < lshApi.LSH_ROWS.length; i++)
+    if (!(lshApi.lshProbCollision(s, b, lshApi.LSH_ROWS[i]) <= lshApi.lshProbCollision(s, b, lshApi.LSH_ROWS[i - 1])))
+      throw new Error("lsh-bands: more rows per band must never raise the collision probability, that is the lecture's 'moves the curve to the right'");
+}
+// Every setting the lecture inspects has to be selectable, otherwise the lab claims a
+// fidelity to lecture 14 that the controls do not offer.
+for (const [b, r] of lshApi.LSH_LECTURE_SETTINGS) {
+  if (!lshApi.LSH_BANDS.includes(b) || !lshApi.LSH_ROWS.includes(r))
+    throw new Error(`lsh-bands: lecture setting b=${b}, r=${r} is not reachable from the controls`);
+}
+for (const s of lshApi.LSH_LECTURE_SIMS) {
+  if (!lshApi.LSH_SIMS.includes(s)) throw new Error(`lsh-bands: the lecture inspects s=${s} and the table does not show it`);
+}
+// The handout's example signature length has to be reachable as a real split, and it is
+// the whole point that several splits of the same k exist.
+const lshHundred = lshApi.LSH_BANDS.filter(b => lshApi.LSH_ROWS.includes(100 / b));
+if (lshHundred.length < 5) throw new Error("lsh-bands: k = 100 must decompose into at least five selectable (b, r) splits, that is the handout's own example");
+// s* is the similarity at which one band matches with probability 1/b. It is not a cutoff:
+// the lab says P(s*) is about 0.64, so that has to hold everywhere it can be selected.
+for (const b of lshApi.LSH_BANDS) for (const r of lshApi.LSH_ROWS) {
+  lshValues++;
+  const star = lshApi.lshThreshold(b, r);
+  if (lshShow(lshApi.lshProbMatch(star, r)) !== lshShow(1 / b)) throw new Error(`lsh-bands: at s* a fixed band must match with probability exactly 1/b (b=${b}, r=${r})`);
+  const at = lshApi.lshProbCollision(star, b, r);
+  if (!(at > 0.63 && at < 0.76)) throw new Error(`lsh-bands: P(s*) = ${at} contradicts the lab's claim that s* is not a hard boundary`);
+}
+// The constructed pair profile has to be internally consistent: it claims to cover every
+// pair of LSH_CORPUS_DOCS documents, and the lab prints both numbers next to each other.
+if (lshApi.lshPairTotal() !== (lshApi.LSH_CORPUS_DOCS * (lshApi.LSH_CORPUS_DOCS - 1)) / 2)
+  throw new Error("lsh-bands: the pair profile must cover exactly C(N,2) pairs, otherwise the two printed numbers contradict each other");
+
+// The corpus report. Recall has to rise with b at fixed r -- that is the recall half of
+// the handout's one sentence -- and the cost has to rise with it, which is the half the
+// handout does not state and the whole reason the lab exists.
+const lshSeen = {};
+for (const entry of lshApi.LSH_TAUS) for (const b of lshApi.LSH_BANDS) for (const r of lshApi.LSH_ROWS) {
+  const report = lshApi.lshCorpusReport(b, r, entry.tau);
+  lshSeen[`${entry.key}/${b}/${r}`] = report;
+  lshValues += report.rows.length + 6;
+  const wantTrue = lshApi.LSH_PAIRS.filter(pair => pair.s > entry.tau).reduce((sum, pair) => sum + pair.count, 0);
+  if (report.trueTotal !== wantTrue) throw new Error(`lsh-bands ${entry.key}: the duplicate population must follow tau`);
+  if (wantTrue === 0) throw new Error(`lsh-bands ${entry.key}: a threshold with no duplicates above it makes the recall line meaningless`);
+  const wantCandidates = report.rows.reduce((sum, row) => sum + row.count * lshApi.lshProbCollision(row.s, b, r), 0);
+  if (lshShow(report.candidates) !== lshShow(wantCandidates)) throw new Error(`lsh-bands ${entry.key}/${b}/${r}: candidates differ from the reference`);
+  if (lshShow(report.retrieved + report.missed) !== lshShow(report.trueTotal)) throw new Error(`lsh-bands ${entry.key}/${b}/${r}: found and missed must add up to the duplicate population`);
+  if (lshShow(report.candidates - report.wasted) !== lshShow(report.retrieved)) throw new Error(`lsh-bands ${entry.key}/${b}/${r}: candidates minus discarded must be the retrieved duplicates`);
+  if (!(report.recall >= 0 && report.recall <= 1)) throw new Error(`lsh-bands ${entry.key}/${b}/${r}: recall outside [0,1]`);
+}
+for (const entry of lshApi.LSH_TAUS) for (const r of lshApi.LSH_ROWS) {
+  for (let i = 1; i < lshApi.LSH_BANDS.length; i++) {
+    const now = lshSeen[`${entry.key}/${lshApi.LSH_BANDS[i]}/${r}`], before = lshSeen[`${entry.key}/${lshApi.LSH_BANDS[i - 1]}/${r}`];
+    if (now.recall < before.recall) throw new Error("lsh-bands: more bands must never lower recall");
+    if (now.candidates < before.candidates) throw new Error("lsh-bands: more bands must never lower the number of candidate pairs -- recall and cost move together, that is the point of the second ledger line");
+  }
+}
+// The three numbers the short check and the transfer answer name, at the handout's k = 100
+// and the usual tau = 0.8. A guard that reads them from the lab is the only thing that
+// keeps those texts true after a data change.
+{
+  const strict = lshSeen["t08/2/50"], loose = lshSeen["t08/50/2"], middle = lshSeen["t08/10/10"];
+  if (strict.recall >= 0.5) throw new Error("lsh-bands: the strictest k=100 split has to lose most duplicates, otherwise the first short-check answer is wrong");
+  if (loose.recall !== 1) throw new Error("lsh-bands: the loosest k=100 split has to retrieve every duplicate, otherwise the first short-check answer is wrong");
+  if (!(loose.candidates > 1000 * strict.candidates)) throw new Error("lsh-bands: the loosest split must cost orders of magnitude more candidate pairs than the strictest, that is what the first short-check answer contrasts");
+  if (!(middle.recall > 0.9 && middle.candidates < 1000)) throw new Error("lsh-bands: lecture 14's own b=10/r=10 has to be the readable middle ground");
+  for (const [label, value] of [["13.61", 100 * strict.recall], ["100.00", 100 * loose.recall],
+    ["18.37", strict.candidates], ["198086.99", loose.candidates], ["164.87", middle.candidates]])
+    if (value.toFixed(2) !== label) throw new Error(`lsh-bands: the short check and the transfer answer print ${label}, the lab computes ${value.toFixed(2)}`);
+  if (lshShow(lshApi.lshThreshold(4, 25)) !== "0.946058" || lshShow(lshApi.lshThreshold(50, 2)) !== "0.141421")
+    throw new Error("lsh-bands: the transfer answer quotes s* for b=4 and b=50, both must come out of lshThreshold");
+  if (lshSeen["t08/4/25"].missed.toFixed(2) !== "90.12" || (100 * lshSeen["t08/4/25"].recall).toFixed(2) !== "33.24")
+    throw new Error("lsh-bands: the transfer answer quotes 33.24 % recall and 90.12 missed duplicates at b=4, r=25");
+}
+
+// Mode B. The similarity is a similarity of n-grams, so the same pair may cross tau on n
+// alone -- and the normalization contract has to be worth a number, not a sentence.
+const lshNs = lshApi.LSH_NS;
+const lshPair = key => lshApi.LSH_DOC_PAIRS.find(entry => entry.key === key);
+function lshRefJaccard(a, b, n, normalized) {
+  const prep = text => normalized
+    ? text.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim().split(" ").filter(Boolean)
+    : text.trim().split(/\s+/).filter(Boolean);
+  const grams = w => { const out = new Set(); for (let i = 0; i + n <= w.length; i++) out.add(w.slice(i, i + n).join(" ")); return out; };
+  const setA = grams(prep(a)), setB = grams(prep(b));
+  let inter = 0; setA.forEach(x => { if (setB.has(x)) inter++; });
+  const union = setA.size + setB.size - inter;
+  return union === 0 ? 0 : inter / union;
+}
+for (const pair of lshApi.LSH_DOC_PAIRS) for (const normalized of [true, false]) for (const entry of lshApi.LSH_TAUS) {
+  const report = lshApi.lshPairReport(pair, normalized, entry.tau);
+  if (report.cells.length !== lshNs.length) throw new Error("lsh-bands: one cell per n-gram length");
+  for (const cell of report.cells) {
+    lshValues++;
+    if (lshShow(cell.j) !== lshShow(lshRefJaccard(pair.a, pair.b, cell.n, normalized)))
+      throw new Error(`lsh-bands ${pair.key}: Jaccard at n=${cell.n} differs from the reference`);
+    if (cell.duplicate !== (cell.j > entry.tau)) throw new Error(`lsh-bands ${pair.key}: the duplicate verdict must be strict J > tau, as the handout writes it`);
+    if (cell.union < cell.inter) throw new Error(`lsh-bands ${pair.key}: union below intersection`);
+  }
+}
+{
+  const at = (key, n, normalized) => lshApi.lshPairReport(lshPair(key), normalized, 0.8).cells.find(cell => cell.n === n);
+  // The license template is the handout's own motivating example, and it is the pair that
+  // flips on n alone at the threshold everyone picks first.
+  if (!(at("license", 1, true).duplicate && at("license", 2, true).duplicate && !at("license", 3, true).duplicate && !at("license", 5, true).duplicate))
+    throw new Error("lsh-bands license: at tau = 0.8 the template pair must be a duplicate at n = 1 and 2 and not at n = 3 and 5, the second short-check answer rests on it");
+  if (lshShow(at("license", 1, true).j) !== "0.837838" || lshShow(at("license", 3, true).j) !== "0.787234")
+    throw new Error("lsh-bands license: the transfer answer prints 0.837838 and 0.787234");
+  // A word permutation is invisible to unigrams and total at n = 5. Both ends have to be
+  // exact, otherwise the row shows a gradient instead of the structural point.
+  if (lshShow(at("permuted", 1, true).j) !== "1.000000" || lshShow(at("permuted", 5, true).j) !== "0.000000")
+    throw new Error("lsh-bands permuted: a pure word permutation must be exactly 1 at n = 1 and exactly 0 at n = 5");
+  // The normalization contract of A4 3.2, as a number: with it the pair is the same
+  // document at every n, without it the pair shares almost nothing.
+  for (const n of lshNs) {
+    if (lshShow(at("accents", n, true).j) !== "1.000000") throw new Error(`lsh-bands accents: under the A4 normalization contract the pair must be identical at n = ${n}`);
+    if (at("accents", n, false).j >= 0.2) throw new Error(`lsh-bands accents: without normalization the same pair must fall apart at n = ${n}`);
+  }
+  // The handout writes "exceed a given threshold", so the comparison is strict. No cell
+  // sits on a threshold by accident, so the boundary has to be built on purpose.
+  const boundary = at("license", 3, true).j;
+  const boundaryCell = lshApi.lshPairReport(lshPair("license"), true, boundary).cells.find(cell => cell.n === 3);
+  if (lshShow(boundaryCell.j) !== lshShow(boundary)) throw new Error("lsh-bands: the boundary probe must land on the same cell");
+  if (boundaryCell.duplicate) throw new Error("lsh-bands: a pair whose Jaccard equals tau exactly must not be a duplicate, the handout says the similarity has to exceed the threshold");
+  // Every pair has to earn its row: at least one has to be undecided across n, and no pair
+  // may be constant across all four n, otherwise the mode shows nothing about n.
+  for (const pair of lshApi.LSH_DOC_PAIRS) {
+    if (pair.key === "accents") continue;
+    const values = lshNs.map(n => lshShow(at(pair.key, n, true).j));
+    if (new Set(values).size === 1) throw new Error(`lsh-bands ${pair.key}: a pair whose Jaccard does not move with n teaches nothing about n`);
+  }
+}
+
+// Renderer guards. A number that is computed but never shown teaches nothing, and the
+// guard has to demand the place, not the occurrence -- so it asks for whole fragments.
+const lshCurveRenderer = sliceDeclaration(source, "lshCurveStage");
+for (const required of [
+  "<strong>k = ${b} · ${r} = ${k}</strong>",
+  "<strong>s* = (1/${b})^(1/${r}) = ${lshNumber(star)}</strong>",
+  "<strong>P(s*) = ${lshNumber(lshProbCollision(star,b,r))}</strong>",
+  "<td>${lshNumber(lshProbMatch(s,r),8)}</td>",
+  "<td>${lshNumber(lshProbCollision(s,b,r))}</td>",
+  "<strong>${LSH_CORPUS_DOCS}</strong>",
+  "<strong>${lshPairTotal()}</strong>",
+  "<strong>P = ${lshNumber(row.p)} → ${lshNumber(row.expected,2)} ${tr(\"Kandidaten\")}</strong>",
+  "<strong>${report.trueTotal}</strong>",
+  "<strong>${lshNumber(report.retrieved,2)}</strong>",
+  "<strong>${lshNumber(report.missed,2)}</strong>",
+  "<strong>${lshNumber(100*report.recall,2)} %</strong>",
+  "<strong>${lshNumber(report.candidates,2)}</strong>",
+  "<strong>${lshNumber(report.wasted,2)}</strong>",
+  "LSH_SIMS.map", "report.rows.map", "${tr(row.label)}", "${tr(verdict)}"
+]) if (!lshCurveRenderer.includes(required)) throw new Error(`lsh-bands curve renderer: must stay data-driven and show ${required}`);
+const lshShingleRenderer = sliceDeclaration(source, "lshShingleStage");
+for (const required of [
+  "<strong>${report.wordsA.length} / ${report.wordsB.length} ${tr(\"Wörter\")}</strong>",
+  "<td>${lshNumber(cell.j)}<br>",
+  "${cell.inter}/${cell.union} · ${cell.duplicate?tr(\"Duplikat\"):tr(\"behalten\")}",
+  "data-pair=\"${report.pair.key}\"",
+  "${tr(report.pair.note)}", "LSH_NS.map",
+  "${reports.map(report=>`<tr><th scope=\"row\" data-pair=\"${report.pair.key}\">${tr(report.pair.label)}</th>",
+  "${reports.map(report=>`<div class=\"calculation-row\"><span>${tr(report.pair.label)}</span><strong>${report.wordsA.length}",
+  "<strong>${tr(flip.pair.label)}</strong> · τ = ${lshNumber(tau,1)}"
+]) if (!lshShingleRenderer.includes(required)) throw new Error(`lsh-bands shingle renderer: must stay data-driven and show ${required}`);
+// Both stages must be reachable, and the mode switch must hide the controls that do not
+// belong to the current stage -- a select that changes nothing is a false affordance.
+const lshStageSwitch = sliceDeclaration(source, "lshStageMarkup");
+if (!/lshMode.*shingles.*lshShingleStage\(\).*lshCurveStage\(\)/su.test(lshStageSwitch))
+  throw new Error("lsh-bands: the mode selector must reach both stages");
+const lshUpdate = sliceDeclaration(source, "updateLshBands");
+for (const required of ["lshBandField", "lshRowField", "lshNormField", "lshStageMarkup()"])
+  if (!lshUpdate.includes(required)) throw new Error(`lsh-bands: the mode switch must control ${required}`);
+const lshPanel = source.slice(source.indexOf('if(id==="lsh-bands") return'), source.indexOf('if(id==="advantage-normalizers") return'));
+for (const required of ["LSH_BANDS.map", "LSH_ROWS.map", "LSH_TAUS.map", "id=\"lshMode\"", "id=\"lshStage\"", "id=\"lshCheck\"", "id=\"lshNorm\""])
+  if (!lshPanel.includes(required)) throw new Error(`lsh-bands panel: must build ${required} from the data`);
+// The short check has to be answerable and has to persist, like every other objective lab.
+const lshCheckSource = sliceDeclaration(source, "checkLshBands");
+for (const required of ['cost==="pairOfNumbers"', 'gram==="halfDecision"', 'silent==="noSignal"',
+  'user.labChecks["lsh-bands"]=true', "saveUser(true)"])
+  if (!lshCheckSource.includes(required)) throw new Error(`lsh-bands short check: must contain ${required}`);
+if (!sliceDeclaration(source, "OBJECTIVE_LAB_IDS").includes('"lsh-bands"'))
+  throw new Error("lsh-bands: the lab must be registered as an objective lab, otherwise its check never counts");
+// Registration. Lecture 14 may claim it, because lecture 14 computes this curve itself.
+{
+  const mission = base.assignments.find(assignment => assignment.id === "a4").missions.find(entry => entry.id === "dedup");
+  if (mission.labs[0] !== "lsh-bands") throw new Error("lsh-bands: the lab has to lead the mission whose scope contains minhash_deduplication");
+  if (!mission.scope.includes("minhash_deduplication")) throw new Error("lsh-bands: the mission it leads must be the one that owns the problem");
+  if (!base.modules.find(module => module.id === "data").labs.includes("lsh-bands")) throw new Error("lsh-bands: the lab must be listed in the data module");
+  if (!(base.lectureGuides?.l14?.labs || []).includes("lsh-bands"))
+    throw new Error("lsh-bands: lecture 14 evaluates get_prob_collision in its own trace, so its guide has to carry the lab");
+  for (const [id, lecture] of Object.entries(base.lectureGuides || {}))
+    if (id !== "l14" && (lecture.labs || []).includes("lsh-bands"))
+      throw new Error(`lsh-bands: ${id} must not claim the lab, only lecture 14 derives the banding probability`);
+}
+console.log(`lsh-bands OK: ${lshValues} values, lecture 14's own b=10/r=10 reproduced, k=100 splits run from ${(100 * lshSeen["t08/2/50"].recall).toFixed(2)} % recall at ${lshSeen["t08/2/50"].candidates.toFixed(2)} candidate pairs to ${(100 * lshSeen["t08/50/2"].recall).toFixed(2)} % at ${lshSeen["t08/50/2"].candidates.toFixed(2)}, and the handout's own license pair crosses tau = 0.8 on the n-gram length alone`);
+
 const assignmentSource = keyed(base.assignments);
 for (const [assignmentId, translated] of Object.entries(pack.assignments)) {
   translated.missions.forEach((mission, index) => {
