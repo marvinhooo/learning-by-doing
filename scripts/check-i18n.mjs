@@ -2965,5 +2965,320 @@ const germanResidue = /[äöüßÄÖÜ]|\b(?:und|zuerst|warum|welche|erkläre|be
 const leaked = englishValues.filter(value => germanResidue.test(value));
 if (leaked.length) throw new Error(`German residue in English pack: ${leaked.slice(0, 3).join(" | ")}`);
 
+// --- quality-threshold -------------------------------------------------------
+// A4 section 2.6 states four thresholds verbatim and leaves the tokenisation open; lecture 13
+// names the fourth of them in its own MassiveWeb section, lecture 14 names 0.17 and 0.8 for one
+// and the same fastText classifier and prints GPT-3's keep_document rule. Before this lab the
+// platform had zero occurrences of mean_word_length, "stop word", alphabetic, pareto,
+// keep_document and no computed confusion matrix at all -- Precision=TP/(TP+FP) existed only as
+// a formula card. These guards hold the evaluation and the claims made about it.
+const qtNames = ["QT_DOCS", "QT_TOKENIZERS", "QT_RULES", "QT_RULESETS", "QT_AUDIT", "QT_GROUPS",
+  "QT_TAUS", "QT_PARETO_A", "QT_KEEP_RULES", "QT_BREAKDOWNS",
+  "qtTokenize", "qtMeasure", "qtActiveRules", "qtVerdict", "qtConfusion", "qtTokenizerDiff",
+  "qtParetoKeep", "qtDetReport", "qtStochReport", "qtNumber", "qtPercent", "qtRatio"];
+const qtApi = runInNewContext(`${qtNames.map(name => sliceDeclaration(source, name)).join("\n")}; ({${qtNames.join(",")}})`, {});
+const qtShow = value => (value === null ? "n/a" : Number(value).toFixed(8));
+let qtValues = 0;
+
+// The four rules, typed here from the handout and not read from the app. "remove documents that
+// contain less than 50 or more than 100,000 words / have a mean word length outside the range of
+// 3 to 10 characters / have more than 30% of lines ending with an ellipsis / contain less than
+// 80% of words with at least one alphabetic character."
+const qtRefTokens = (text, mode) => {
+  if (mode !== "punct") return text.split(/\s+/).filter(token => token.length > 0);
+  const out = []; let buffer = "", kind = null;
+  for (const char of text) {
+    const next = /\s/.test(char) ? null : /[A-Za-z0-9]/.test(char) ? "w" : "p";
+    if (next !== kind) { if (buffer) out.push(buffer); buffer = ""; kind = next; }
+    if (next) buffer += char;
+  }
+  if (buffer) out.push(buffer);
+  return out;
+};
+const qtRefMeasure = (text, mode) => {
+  const words = qtRefTokens(text, mode);
+  let chars = 0; for (const word of words) chars += [...word].length;
+  const lines = text.split("\n").map(line => line.trim()).filter(line => line.length > 0);
+  let ellipsisLines = 0; for (const line of lines) if (line.slice(-3) === "...") ellipsisLines++;
+  let alphaWords = 0; for (const word of words) if (/[a-zA-Z]/.test(word)) alphaWords++;
+  return { n: words.length, meanLen: words.length ? chars / words.length : 0, lines: lines.length,
+    ellipsisLines, ellipsisFrac: lines.length ? ellipsisLines / lines.length : 0,
+    alphaWords, alphaFrac: words.length ? alphaWords / words.length : 0 };
+};
+const qtRefFired = (m, dropped) => {
+  const checks = { count: m.n >= 50 && m.n <= 100000, meanlen: m.meanLen >= 3 && m.meanLen <= 10,
+    ellipsis: m.ellipsisFrac <= 0.30, alpha: m.alphaFrac >= 0.80 };
+  return Object.keys(checks).filter(key => key !== dropped && !checks[key]);
+};
+// numpy.random.pareto(a) is the Lomax form, so P(X > t) = (1+t)^(-a); GPT-3 compares against
+// t = 1 - score, which makes the keep probability (2 - score)^(-9).
+const qtRefPareto = score => 1 / Math.pow(1 + (1 - score), 9);
+
+if (qtApi.QT_DOCS.length !== 8) throw new Error("quality-threshold: the rules mode must keep its eight documents, the transfer answer counts them");
+if (qtApi.QT_AUDIT.length !== 12) throw new Error("quality-threshold: the audit set must keep its twelve documents");
+if (qtApi.QT_PARETO_A !== 9) throw new Error("quality-threshold: GPT-3's rule draws pareto(9); another shape is a different rule");
+// A rule stated with ">=" cannot be tested against ">" unless some document sits exactly on a
+// threshold, so one was placed there on purpose; without it the mutation changes no bit.
+const qtOnTau = qtApi.QT_AUDIT.filter(doc => qtApi.QT_TAUS.some(entry => entry.tau === doc.score));
+if (!qtOnTau.length) throw new Error("quality-threshold: at least one audit document must sit exactly on a selectable threshold, otherwise the boundary of score >= tau is never exercised");
+for (const doc of qtOnTau) {
+  const entry = qtApi.QT_TAUS.find(item => item.tau === doc.score);
+  const report = qtApi.qtDetReport(entry.tau, qtApi.QT_AUDIT);
+  const strict = qtApi.QT_AUDIT.filter(item => item.score > entry.tau).length;
+  if (report.keptDocs === strict) throw new Error("quality-threshold: the document on the threshold must be kept, the handout rule is score >= tau");
+}
+
+// The thresholds themselves, probed at their exact boundaries instead of matched as strings.
+const qtRule = key => qtApi.QT_RULES.find(rule => rule.key === key);
+const qtProbe = (key, patch) => qtRule(key).test({ n: 100, meanLen: 5, ellipsisFrac: 0, alphaFrac: 1, ...patch });
+if (!qtProbe("count", { n: 50 }) || qtProbe("count", { n: 49 })) throw new Error("quality-threshold: the lower word bound must be exactly 50, that is the handout's 'less than 50'");
+if (!qtProbe("count", { n: 100000 }) || qtProbe("count", { n: 100001 })) throw new Error("quality-threshold: the upper word bound must be exactly 100000");
+if (!qtProbe("meanlen", { meanLen: 3 }) || qtProbe("meanlen", { meanLen: 2.999 })) throw new Error("quality-threshold: the mean word length range must start at exactly 3");
+if (!qtProbe("meanlen", { meanLen: 10 }) || qtProbe("meanlen", { meanLen: 10.001 })) throw new Error("quality-threshold: the mean word length range must end at exactly 10");
+if (!qtProbe("ellipsis", { ellipsisFrac: 0.30 }) || qtProbe("ellipsis", { ellipsisFrac: 0.301 })) throw new Error("quality-threshold: the ellipsis rule must fire above exactly 30 %, the handout says 'more than 30%'");
+if (!qtProbe("alpha", { alphaFrac: 0.80 }) || qtProbe("alpha", { alphaFrac: 0.799 })) throw new Error("quality-threshold: the alphabetic share must be exactly 80 %, lecture 13 names that number too");
+
+// Every measured quantity and every verdict against the independent reference.
+const qtRulesetDrop = {};
+qtApi.QT_RULESETS.forEach(entry => { qtRulesetDrop[entry.key] = entry.drop; });
+for (const tokenizer of qtApi.QT_TOKENIZERS) for (const doc of qtApi.QT_DOCS) {
+  const got = qtApi.qtMeasure(doc.text, tokenizer.key), want = qtRefMeasure(doc.text, tokenizer.key);
+  for (const field of ["n", "meanLen", "lines", "ellipsisLines", "ellipsisFrac", "alphaWords", "alphaFrac"]) {
+    qtValues++;
+    if (qtShow(got[field]) !== qtShow(want[field]))
+      throw new Error(`quality-threshold: ${field} of ${doc.key} under ${tokenizer.key} differs from the reference`);
+  }
+  for (const ruleset of qtApi.QT_RULESETS) {
+    const verdict = qtApi.qtVerdict(doc, tokenizer.key, ruleset);
+    const fired = qtRefFired(want, qtRulesetDrop[ruleset.key]);
+    qtValues += 2;
+    if (verdict.fired.map(rule => rule.key).join(",") !== fired.join(","))
+      throw new Error(`quality-threshold: the rules firing on ${doc.key}/${tokenizer.key}/${ruleset.key} differ from the reference`);
+    if (verdict.keep !== (fired.length === 0))
+      throw new Error(`quality-threshold: the verdict on ${doc.key}/${tokenizer.key}/${ruleset.key} differs from the reference`);
+  }
+}
+const qtSeen = {};
+for (const tokenizer of qtApi.QT_TOKENIZERS) for (const ruleset of qtApi.QT_RULESETS) {
+  const got = qtApi.qtConfusion(tokenizer.key, ruleset);
+  let tp = 0, fp = 0, fn = 0, tn = 0;
+  for (const doc of qtApi.QT_DOCS) {
+    const removed = qtRefFired(qtRefMeasure(doc.text, tokenizer.key), qtRulesetDrop[ruleset.key]).length > 0;
+    const shouldRemove = doc.human === "drop";
+    if (removed && shouldRemove) tp++; else if (removed) fp++; else if (shouldRemove) fn++; else tn++;
+  }
+  qtValues += 7;
+  if (got.tp !== tp || got.fp !== fp || got.fn !== fn || got.tn !== tn)
+    throw new Error(`quality-threshold: the confusion matrix for ${tokenizer.key}/${ruleset.key} differs from the reference`);
+  if (qtShow(got.precision) !== qtShow(tp + fp ? tp / (tp + fp) : null))
+    throw new Error(`quality-threshold: precision for ${tokenizer.key}/${ruleset.key} differs from the reference`);
+  if (qtShow(got.recall) !== qtShow(tp + fn ? tp / (tp + fn) : null))
+    throw new Error(`quality-threshold: recall for ${tokenizer.key}/${ruleset.key} differs from the reference`);
+  if (qtShow(got.keepRate) !== qtShow((tn + fn) / qtApi.QT_DOCS.length))
+    throw new Error(`quality-threshold: the keep rate for ${tokenizer.key}/${ruleset.key} differs from the reference`);
+  qtSeen[`${tokenizer.key}/${ruleset.key}`] = got;
+}
+
+// The claim of the lab note and of the transfer answer: switching the tokenisation moves two
+// verdicts and two reason codes while no rule and no threshold changes.
+const qtDiff = qtApi.qtTokenizerDiff(qtApi.QT_RULESETS[0]);
+if (qtDiff.flipped !== 2 || qtDiff.reasonOnly !== 2)
+  throw new Error(`quality-threshold: the lab claims two changed verdicts and two changed reason codes, the data give ${qtDiff.flipped} and ${qtDiff.reasonOnly}`);
+const qtWs = qtSeen["whitespace/all"], qtPunct = qtSeen["punct/all"];
+if (qtShow(qtWs.recall) !== qtShow(qtPunct.recall))
+  throw new Error("quality-threshold: the point of the comparison is that recall stays put while precision and keep rate move");
+if (!(qtPunct.precision < qtWs.precision) || !(qtPunct.keepRate < qtWs.keepRate))
+  throw new Error("quality-threshold: the punctuation tokenisation must cost precision and data, otherwise the transfer answer is wrong");
+if (qtShow(qtWs.precision) !== qtShow(0.75) || qtShow(qtPunct.precision) !== qtShow(0.5)
+  || qtShow(qtWs.keepRate) !== qtShow(0.5) || qtShow(qtPunct.keepRate) !== qtShow(0.25))
+  throw new Error("quality-threshold: the transfer answer quotes 0.7500/50.00 % against 0.5000/25.00 %; the data no longer say that");
+// The two documents that flip are the ones the transfer answer names by hand.
+const qtFlipped = qtApi.QT_DOCS.filter(doc =>
+  qtApi.qtVerdict(doc, "whitespace", qtApi.QT_RULESETS[0]).keep !== qtApi.qtVerdict(doc, "punct", qtApi.QT_RULESETS[0]).keep).map(doc => doc.key);
+if (qtFlipped.join(",") !== "codedoc,forum")
+  throw new Error(`quality-threshold: the transfer answer names the technical documentation and the forum post as the flips, the data flip ${qtFlipped.join(",")}`);
+for (const key of qtFlipped) {
+  const doc = qtApi.QT_DOCS.find(entry => entry.key === key);
+  if (doc.human !== "keep") throw new Error(`quality-threshold: ${key} only makes the point if a human would keep it`);
+  if (!qtApi.qtVerdict(doc, "punct", qtApi.QT_RULESETS[0]).fired.some(rule => rule.key === "alpha"))
+    throw new Error(`quality-threshold: ${key} must lose on the alphabetic share, that is the sentence in the transfer answer`);
+}
+// The bridge into mode B: a document that passes every rule under both tokenisations and that a
+// human would still throw away. Without it the classifier has no motivation in this lab.
+const qtBridge = qtApi.QT_DOCS.filter(doc => doc.human === "drop"
+  && qtApi.qtVerdict(doc, "whitespace", qtApi.QT_RULESETS[0]).keep
+  && qtApi.qtVerdict(doc, "punct", qtApi.QT_RULESETS[0]).keep);
+if (!qtBridge.length) throw new Error("quality-threshold: at least one document must survive all four rules and still be junk, otherwise mode B has no reason to exist");
+// The rule you cannot see by hand: the upper word bound never fires on a hand-inspected sample.
+if (qtApi.QT_DOCS.some(doc => qtApi.qtMeasure(doc.text, "whitespace").n > 100000 || qtApi.qtMeasure(doc.text, "punct").n > 100000))
+  throw new Error("quality-threshold: no constructed document may reach the 100000 word bound, the lab says that rule stays invisible here");
+// Exactly one of the four rules is independent of the tokenisation, and it is the line-based one.
+for (const doc of qtApi.QT_DOCS) {
+  const a = qtRefMeasure(doc.text, "whitespace"), b = qtRefMeasure(doc.text, "punct");
+  if (qtShow(a.ellipsisFrac) !== qtShow(b.ellipsisFrac))
+    throw new Error("quality-threshold: the ellipsis rule counts lines, so it must not move with the tokenisation");
+}
+// Two different switch-offs that report the same four numbers and still lose different
+// documents -- lecture 12's "look at the individual instances" as a case you can compute.
+const qtSummary = key => { const c = qtSeen[`whitespace/${key}`]; return `${c.tp}/${c.fp}/${c.fn}/${c.tn}`; };
+const qtKept = key => qtApi.QT_DOCS.filter(doc =>
+  qtApi.qtVerdict(doc, "whitespace", qtApi.QT_RULESETS.find(entry => entry.key === key)).keep).map(doc => doc.key).join(",");
+let qtTwins = 0;
+for (let i = 0; i < qtApi.QT_RULESETS.length; i++) for (let j = i + 1; j < qtApi.QT_RULESETS.length; j++) {
+  const a = qtApi.QT_RULESETS[i].key, b = qtApi.QT_RULESETS[j].key;
+  if (qtSummary(a) === qtSummary(b) && qtKept(a) !== qtKept(b)) qtTwins++;
+}
+if (!qtTwins) throw new Error("quality-threshold: two rule sets must report the same confusion matrix while losing different documents, that is the observe instruction");
+
+// Mode B: every threshold against the reference, on the whole set and on both origin groups.
+const qtSubsets = [["all", qtApi.QT_AUDIT], ...qtApi.QT_GROUPS.map(group => [group.key, qtApi.QT_AUDIT.filter(doc => doc.group === group.key)])];
+const qtDet = {};
+for (const entry of qtApi.QT_TAUS) for (const [name, subset] of qtSubsets) {
+  const got = qtApi.qtDetReport(entry.tau, subset);
+  let tp = 0, fp = 0, fn = 0, tn = 0, keptTokens = 0, totalTokens = 0;
+  for (const doc of subset) {
+    totalTokens += doc.tokens;
+    const kept = doc.score >= entry.tau, good = doc.truth === "high";
+    if (kept) keptTokens += doc.tokens;
+    if (kept && good) tp++; else if (kept) fp++; else if (good) fn++; else tn++;
+  }
+  qtValues += 7;
+  if (got.tp !== tp || got.fp !== fp || got.fn !== fn || got.tn !== tn)
+    throw new Error(`quality-threshold: the confusion matrix at ${entry.key}/${name} differs from the reference`);
+  if (qtShow(got.precision) !== qtShow(tp + fp ? tp / (tp + fp) : null))
+    throw new Error(`quality-threshold: precision at ${entry.key}/${name} differs from the reference`);
+  if (qtShow(got.recall) !== qtShow(tp + fn ? tp / (tp + fn) : null))
+    throw new Error(`quality-threshold: recall at ${entry.key}/${name} differs from the reference`);
+  if (got.keptTokens !== keptTokens || qtShow(got.tokenShare) !== qtShow(keptTokens / totalTokens))
+    throw new Error(`quality-threshold: the token share at ${entry.key}/${name} differs from the reference`);
+  qtDet[`${entry.key}/${name}`] = got;
+}
+// Check question 1: several thresholds with the same perfect precision and different recall.
+const qtPerfect = qtApi.QT_TAUS.filter(entry => qtShow(qtDet[`${entry.key}/all`].precision) === qtShow(1));
+if (qtPerfect.length < 3) throw new Error("quality-threshold: at least three thresholds must report precision 1.000000, otherwise the first short check has no case");
+const qtRecalls = new Set(qtPerfect.map(entry => qtShow(qtDet[`${entry.key}/all`].recall)));
+if (qtRecalls.size !== qtPerfect.length)
+  throw new Error("quality-threshold: the thresholds with perfect precision must differ in recall, that is the whole point of the first short check");
+const qtShares = new Set(qtPerfect.map(entry => qtShow(qtDet[`${entry.key}/all`].tokenShare)));
+if (qtShares.size !== qtPerfect.length)
+  throw new Error("quality-threshold: the thresholds with perfect precision must differ in token share as well");
+for (const [key, recall, share] of [["t050", 0.5714285714285714, 0.3592814371257485], ["t080", 0.2857142857142857, 0.20958083832335328], ["t095", 0.14285714285714285, 0.08383233532934131]]) {
+  if (qtShow(qtDet[`${key}/all`].recall) !== qtShow(recall) || qtShow(qtDet[`${key}/all`].tokenShare) !== qtShow(share))
+    throw new Error(`quality-threshold: the first short check quotes recall and token share at ${key}; the data no longer say that`);
+}
+// Check question 3: the setting with the perfect overall precision empties one origin group.
+const qtCollapse = qtApi.QT_TAUS.filter(entry => qtApi.QT_GROUPS.some(group => qtShow(qtDet[`${entry.key}/${group.key}`].recall) === qtShow(0))
+  && qtShow(qtDet[`${entry.key}/all`].precision) === qtShow(1));
+if (!qtCollapse.length) throw new Error("quality-threshold: no threshold combines perfect overall precision with a subgroup recall of zero, the third short check has no case");
+if (!qtCollapse.some(entry => entry.key === "t050"))
+  throw new Error("quality-threshold: the third short check names tau = 0.50 as the collapsing setting");
+if (qtShow(qtDet["t050/informal"].recall) !== qtShow(0) || qtShow(qtDet["t050/formal"].recall) !== qtShow(1))
+  throw new Error("quality-threshold: at tau = 0.50 the informal group must be at recall 0.000000 and the formal one at 1.000000");
+if (qtDet["t050/informal"].precision !== null)
+  throw new Error("quality-threshold: with nothing kept, precision must stay undefined rather than be printed as a number");
+// Lecture 14 quotes 0.17 and 0.8 for one and the same classifier; both must be reachable, and
+// the lower one must be the reading that keeps every usable document.
+for (const tau of [0.17, 0.8, 0.5]) if (!qtApi.QT_TAUS.some(entry => entry.tau === tau))
+  throw new Error(`quality-threshold: tau = ${tau} must stay selectable, the lab and the lecture both name it`);
+for (const group of qtApi.QT_GROUPS) if (qtShow(qtDet[`t017/${group.key}`].recall) !== qtShow(1))
+  throw new Error("quality-threshold: at tau = 0.17 no usable document may be lost in either group, that is the lecture's 'math' reading");
+
+// GPT-3's rule, against the survival function typed from the lecture line.
+for (const doc of qtApi.QT_AUDIT) {
+  qtValues++;
+  if (qtShow(qtApi.qtParetoKeep(doc.score)) !== qtShow(qtRefPareto(doc.score)))
+    throw new Error(`quality-threshold: the keep probability of ${doc.key} differs from (2 - score)^(-9)`);
+}
+if (qtShow(qtApi.qtParetoKeep(0)) !== qtShow(1 / 512) || qtShow(qtApi.qtParetoKeep(1)) !== qtShow(1))
+  throw new Error("quality-threshold: the lab prints P(keep) = 0.001953125 at score 0 and 1 at score 1");
+if (!(qtApi.qtParetoKeep(0) > 0)) throw new Error("quality-threshold: the stochastic rule never rejects with certainty, that is what the lab says about it");
+if (qtShow(qtApi.qtParetoKeep(0.5)).slice(0, 8) !== "0.026012")
+  throw new Error("quality-threshold: the lab quotes P(keep) = 0.026012 at score 0.50 against the reflex of half a document");
+for (const [name, subset] of qtSubsets) {
+  const got = qtApi.qtStochReport(subset);
+  let expDocs = 0, expTokens = 0, expGood = 0, totalTokens = 0, goodDocs = 0;
+  for (const doc of subset) {
+    const p = qtRefPareto(doc.score);
+    expDocs += p; expTokens += p * doc.tokens; totalTokens += doc.tokens;
+    if (doc.truth === "high") { expGood += p; goodDocs++; }
+  }
+  qtValues += 4;
+  if (qtShow(got.expDocs) !== qtShow(expDocs) || qtShow(got.expTokens) !== qtShow(expTokens)
+    || qtShow(got.expGood) !== qtShow(expGood) || got.goodDocs !== goodDocs)
+    throw new Error(`quality-threshold: the expected values for ${name} differ from the reference`);
+}
+if (!(qtApi.qtStochReport(qtApi.QT_AUDIT).expDocs < qtDet["t080/all"].keptDocs))
+  throw new Error("quality-threshold: the lab says the rule without a threshold is stricter than tau = 0.80 in expected documents");
+
+// Registration. Lectures 13 and 14 are the only two that teach these rules and this threshold;
+// the trace of lecture 13 names the 80 % alphabetic rule and lecture 14 names 0.17 / 0.8 and
+// keep_document. Any further lecture would be a claim the PDFs do not carry.
+const qtLab = base.labs.find(lab => lab.id === "quality-threshold");
+if (!qtLab) throw new Error("quality-threshold: the lab is gone");
+if (qtLab.module !== "data") throw new Error("quality-threshold: the lab belongs to the data module");
+const qtLectures = Object.entries(base.lectureGuides).filter(([, guide]) => (guide.labs || []).includes("quality-threshold")).map(([id]) => id).sort();
+if (qtLectures.join(",") !== "l13,l14")
+  throw new Error(`quality-threshold: exactly lectures 13 and 14 may carry this lab, found ${qtLectures.join(",") || "none"}`);
+if (!base.modules.find(entry => entry.id === "data").labs.includes("quality-threshold"))
+  throw new Error("quality-threshold: the data module must list the lab");
+const qtAssignment = base.assignments.find(assignment => assignment.id === "a4");
+for (const missionId of ["safety-filters", "quality-classifier"]) {
+  const mission = qtAssignment.missions.find(entry => entry.id === missionId);
+  if (!mission) throw new Error(`quality-threshold: mission ${missionId} is gone`);
+  if (mission.labs[0] !== "quality-threshold")
+    throw new Error(`quality-threshold: the lab must lead the labs of ${missionId}; it is the only one built for those problems`);
+}
+if (!sliceDeclaration(source, "OBJECTIVE_LAB_IDS").includes('"quality-threshold"'))
+  throw new Error("quality-threshold: the lab must offer an objective short check");
+
+// Renderers. A guard that only asks whether a number is computed does not ask whether it is
+// shown, so every one of these demands the full markup fragment at its place.
+const qtRulesRenderer = sliceDeclaration(source, "renderQualityThresholdRules");
+const qtScoreRenderer = sliceDeclaration(source, "renderQualityThresholdScore");
+const qtMarkupChecks = [
+  [qtRulesRenderer, '<td>${rule.value(verdict.m)}<br><span class="small muted">${off?tr("Regel aus"):fired?tr("greift"):tr("passiert")}</span></td>', "the measured value and the per-rule state must reach the table"],
+  [qtRulesRenderer, '<div class="calculation-row"><span>Precision = TP/(TP+FP)</span><strong>${qtRatio(confusion.precision)}</strong></div>', "the rules mode must print precision"],
+  [qtRulesRenderer, '<div class="calculation-row"><span>Recall = TP/(TP+FN)</span><strong>${qtRatio(confusion.recall)}</strong></div>', "the rules mode must print recall"],
+  [qtRulesRenderer, '<div class="calculation-row"><span>${tr("Behaltequote")}</span><strong>${qtPercent(confusion.keepRate)} %</strong></div>', "the rules mode must print the keep rate"],
+  [qtRulesRenderer, '<div class="calculation-row"><span>${tr(other.label)}</span><strong>P = ${qtRatio(otherConfusion.precision)} · R = ${qtRatio(otherConfusion.recall)} · ${qtPercent(otherConfusion.keepRate)} %</strong></div>', "the other tokenisation must be shown next to the current one, otherwise the comparison is invisible"],
+  [qtRulesRenderer, '<div class="calculation-row"><span>${tr("Dokumente mit anderem Urteil")}</span><strong>${diff.flipped} ${tr("von")} ${QT_DOCS.length}</strong></div>', "the number of changed verdicts must be shown"],
+  [qtRulesRenderer, '<div class="calculation-row"><span>${tr("Dokumente mit gleichem Urteil, anderem Reason Code")}</span><strong>${diff.reasonOnly} ${tr("von")} ${QT_DOCS.length}</strong></div>', "the number of changed reason codes must be shown"],
+  [qtRulesRenderer, '<pre data-no-i18n>${esc(doc.text)}</pre>', "the documents themselves must be readable, every number above is measured on them"],
+  [qtRulesRenderer, 'Positivklasse ausdrücklich', "the positive class of the rules mode must stay named"],
+  [qtScoreRenderer, 'P(keep) = ${qtNumber(qtParetoKeep(doc.score),6)}', "the stochastic rule must print a keep probability per document"],
+  [qtScoreRenderer, '<div class="calculation-row"><span>Precision = TP/(TP+FP)</span><strong>${qtRatio(report.precision,6)}</strong></div>', "the score mode must print precision"],
+  [qtScoreRenderer, '<div class="calculation-row"><span>Recall = TP/(TP+FN)</span><strong>${qtRatio(report.recall,6)}</strong></div>', "the score mode must print recall"],
+  [qtScoreRenderer, '<div class="calculation-row"><span>${tr("Behaltene Tokens")}</span><strong>${report.keptTokens} ${tr("von")} ${report.totalTokens} = ${qtPercent(report.tokenShare)} %</strong></div>', "the score mode must print the token share, that is the number the training run feels"],
+  [qtScoreRenderer, '<div class="calculation-row"><span>${tr("Erwartete behaltene Dokumente")}</span><strong>${qtNumber(report.expDocs,6)} ${tr("von")} ${report.total}</strong></div>', "the expected number of kept documents must be shown"],
+  [qtScoreRenderer, '<div class="calculation-row"><span>${tr("Zum Vergleich")}: ${tr(tauEntry.label)}</span><strong>${comparison.keptDocs} ${tr("Dokumente")} · ${qtPercent(comparison.tokenShare)} %</strong></div>', "under the stochastic rule the threshold must stay comparable, otherwise the dial is dead"],
+  [qtScoreRenderer, 'konstruierte Annotationen', "the audit set must stay declared as constructed"]
+];
+for (const [renderer, fragment, why] of qtMarkupChecks) {
+  if (!renderer.includes(fragment)) throw new Error(`quality-threshold: ${why}`);
+}
+// Layout. The eight documents are shown verbatim and must not wrap -- the ellipsis rule counts
+// lines. They therefore need their own horizontal scroller, and .lab-stage needs min-width: 0,
+// because as a grid item its automatic minimum size would otherwise let them widen the whole
+// page. That was a latent bug of the shared class; no earlier lab put non-wrapping content in it.
+const qtStyle = source.slice(source.indexOf("<style>"), source.indexOf("</style>"));
+if (!/\.lab-stage \{[^}]*min-width: 0;/.test(qtStyle))
+  throw new Error("quality-threshold: .lab-stage needs min-width: 0, otherwise non-wrapping content widens the whole page instead of scrolling inside itself");
+if (!/\.qt-doc pre \{[^}]*overflow-x: auto;/.test(qtStyle))
+  throw new Error("quality-threshold: the document blocks need their own horizontal scroller");
+if (!/\.qt-doc pre \{[^}]*white-space: pre;/.test(qtStyle))
+  throw new Error("quality-threshold: the documents must not wrap, the ellipsis rule counts line ends");
+if (!sliceDeclaration(source, "renderQualityThresholdRules").includes(`<details class="qt-doc">`))
+  throw new Error("quality-threshold: the documents must be rendered in the class the stylesheet scopes");
+
+// The subgroup ledger has to be reachable from the controls, not only from the data.
+if (!qtScoreRenderer.includes('breakdown.key==="group"'))
+  throw new Error("quality-threshold: the score mode must be able to split by origin group");
+if (!qtApi.QT_BREAKDOWNS.some(entry => entry.key === "group"))
+  throw new Error("quality-threshold: the origin split must stay selectable");
+if (!qtApi.QT_KEEP_RULES.some(entry => entry.key === "pareto"))
+  throw new Error("quality-threshold: GPT-3's rule must stay selectable");
+
+console.log(`quality-threshold OK: ${qtValues} values, ${qtDiff.flipped} verdicts and ${qtDiff.reasonOnly} reason codes move on the tokenisation alone (P ${qtWs.precision.toFixed(4)} -> ${qtPunct.precision.toFixed(4)} at unchanged recall ${qtWs.recall.toFixed(4)}), ${qtPerfect.length} thresholds share precision 1.000000 with recalls ${qtPerfect.map(entry => qtDet[`${entry.key}/all`].recall.toFixed(6)).join("/")}, and tau = 0.50 leaves the informal group at recall ${qtDet["t050/informal"].recall.toFixed(6)}`);
+
 const missionCount = base.assignments.reduce((total, assignment) => total + (assignment.missions || []).length, 0);
 console.log(`i18n OK: ${expectedIds.concepts.length} concepts, ${expectedIds.formulas.length} formulas, ${expectedIds.symbols.length} symbols, ${expectedIds.glossary.length} glossary entries, ${expectedIds.labs.length} labs, ${missionCount} missions, ${Object.keys(pack.ui).length - 1} UI strings`);
