@@ -3282,3 +3282,258 @@ console.log(`quality-threshold OK: ${qtValues} values, ${qtDiff.flipped} verdict
 
 const missionCount = base.assignments.reduce((total, assignment) => total + (assignment.missions || []).length, 0);
 console.log(`i18n OK: ${expectedIds.concepts.length} concepts, ${expectedIds.formulas.length} formulas, ${expectedIds.symbols.length} symbols, ${expectedIds.glossary.length} glossary entries, ${expectedIds.labs.length} labs, ${missionCount} missions, ${Object.keys(pack.ui).length - 1} UI strings`);
+
+// --- compression-ratio -------------------------------------------------------
+// Lecture 1 defines get_compression_ratio(string, indices) = num_bytes/num_tokens in its own
+// trace, calls it for four tokenizer designs and writes "assert compression_ratio == 1" on the
+// byte tokenizer. A1 section 2.7 asks for that same number twice (matched and crossed tokenizer),
+// for a throughput estimate extrapolated to the Pile (825 GB) and for the uint16 justification.
+// Before this lab the platform had zero occurrences of "bytes/token", "compression" and
+// "bytes/second"; tokenizer-tradeoffs was prose only. The BPE below is written here from A1's
+// contract and not read from the app, so a change to the app's trainer has to show up as a diff.
+const crNames = ["CR_DESIGNS", "CR_TEXTS", "CR_CORPORA", "CR_MERGE_STEPS", "CR_RATES",
+  "CR_PILE_BYTES", "CR_DATASET_BYTES", "CR_TOKEN_BUDGET", "CR_UINT16_BYTES",
+  "CR_DEMO_CORPUS", "CR_DEMO_MERGES",
+  "crBytes", "crRatio", "crPretokens", "crCharacterTokens", "crByteTokens", "crWordTokens",
+  "crApplyMerge", "crTrainBpe", "crEncodeBpe", "crTokenize", "crBpeCache", "crTokenizerFor",
+  "crBudget", "crNumber", "crPercent", "crGiB", "crMiB", "crMillions", "crHours"];
+const crApi = runInNewContext(`${crNames.map(name => sliceDeclaration(source, name)).join("\n")}; ({${crNames.join(",")}})`, { TextEncoder });
+const crShow = value => Number(value).toFixed(8);
+let crValues = 0;
+
+// Independent reference: byte-level BPE, tokens as Latin-1 strings over byte values so that "<"
+// is byte-lexicographic order, which is what A1's tie-break compares.
+const crRefBytes = text => [...new TextEncoder().encode(text)].map(value => String.fromCharCode(value));
+const crRefPieces = text => text.match(/ ?[^\s]+|\s+/g) || [];
+const crRefApply = (tokens, first, second) => {
+  const out = [];
+  for (let index = 0; index < tokens.length; index++) {
+    if (index < tokens.length - 1 && tokens[index] === first && tokens[index + 1] === second) { out.push(first + second); index++; }
+    else out.push(tokens[index]);
+  }
+  return out;
+};
+const crRefTrain = (corpus, requested) => {
+  let words = crRefPieces(corpus).map(piece => crRefBytes(piece));
+  const merges = [];
+  for (let step = 0; step < requested; step++) {
+    const counts = new Map();
+    for (const word of words) for (let index = 0; index < word.length - 1; index++) {
+      const key = word[index].length + "|" + word[index] + word[index + 1], seen = counts.get(key);
+      if (seen) seen.count++; else counts.set(key, { first: word[index], second: word[index + 1], count: 1 });
+    }
+    let best = null;
+    for (const entry of counts.values()) {
+      if (!best || entry.count > best.count || (entry.count === best.count && entry.first + entry.second > best.first + best.second)) best = entry;
+    }
+    if (!best || best.count < 2) break;
+    merges.push([best.first, best.second]);
+    words = words.map(word => crRefApply(word, best.first, best.second));
+  }
+  return merges;
+};
+const crRefEncode = (text, merges) => {
+  let total = 0;
+  for (const piece of crRefPieces(text)) {
+    let tokens = crRefBytes(piece);
+    for (const [first, second] of merges) tokens = crRefApply(tokens, first, second);
+    total += tokens.length;
+  }
+  return total;
+};
+
+// The definition itself. Lecture 1 divides bytes by tokens, in that order.
+if (crShow(crApi.crRatio(20, 8)) !== crShow(20 / 8))
+  throw new Error("compression-ratio: the ratio must be num_bytes / num_tokens, lecture 1 divides in that order");
+if (crApi.CR_UINT16_BYTES !== 2)
+  throw new Error("compression-ratio: uint16 is two bytes per ID; another width makes the file-size row a different claim");
+if (crApi.CR_PILE_BYTES !== 825 * Math.pow(1024, 3))
+  throw new Error("compression-ratio: A1 names the Pile at 825 GB, the extrapolation quotes that size");
+
+// Mode A. num_bytes is UTF-8 length, never the character count -- the two agree on ASCII only.
+const crAscii = crApi.CR_TEXTS.find(entry => entry.key === "ascii");
+const crCjk = crApi.CR_TEXTS.find(entry => entry.key === "cjk");
+if (!crAscii || !crCjk) throw new Error("compression-ratio: mode A needs its ASCII and its non-ASCII string, the comparison rests on them");
+if (crApi.crBytes(crAscii.text).length !== [...crAscii.text].length)
+  throw new Error("compression-ratio: the ASCII string must have one byte per character, otherwise it is not the ASCII case");
+if (crApi.crBytes(crCjk.text).length === [...crCjk.text].length)
+  throw new Error("compression-ratio: the non-ASCII string must cost more bytes than characters, that is the whole point of the row");
+// Lecture 1's own two strings have to stay in the lab; they are what makes it PDF-faithful.
+if (!crApi.CR_TEXTS.some(entry => entry.text.includes("supercalifragilisticexpialidocious")))
+  throw new Error("compression-ratio: lecture 1's word-tokenizer string must stay selectable");
+if (!crApi.CR_TEXTS.some(entry => entry.text.startsWith("Hello,")))
+  throw new Error("compression-ratio: lecture 1's own tokenization string must stay selectable");
+
+const crDemo = crRefTrain(crApi.CR_DEMO_CORPUS, crApi.CR_DEMO_MERGES);
+const crAppDemo = crApi.crTrainBpe(crApi.CR_DEMO_CORPUS, crApi.CR_DEMO_MERGES);
+if (crAppDemo.length !== crDemo.length)
+  throw new Error("compression-ratio: the app's trainer and the reference disagree on the demo corpus");
+const crByteRow = [], crCharRow = [];
+for (const entry of crApi.CR_TEXTS) {
+  const numBytes = crApi.crBytes(entry.text).length;
+  for (const design of crApi.CR_DESIGNS) {
+    const numTokens = crApi.crTokenize(entry.text, design.key, crAppDemo);
+    const reference = design.key === "character" ? [...entry.text].length
+      : design.key === "byte" ? numBytes
+      : design.key === "word" ? (entry.text.match(/[\p{L}\p{N}_]+|[\s\S]/gu) || []).length
+      : crRefEncode(entry.text, crDemo);
+    if (numTokens !== reference)
+      throw new Error(`compression-ratio: ${design.key} on ${entry.key} gives ${numTokens}, the reference gives ${reference}`);
+    crValues++;
+  }
+  // Lecture 1 writes "assert compression_ratio == 1" here, so this is exact, not approximate.
+  const byteRatio = crApi.crRatio(numBytes, crApi.crTokenize(entry.text, "byte", crAppDemo));
+  if (byteRatio !== 1)
+    throw new Error(`compression-ratio: the byte tokenizer must give exactly 1 on ${entry.key}, lecture 1 asserts it`);
+  crByteRow.push(crApi.crNumber(byteRatio, 2));
+  crCharRow.push(crApi.crNumber(crApi.crRatio(numBytes, crApi.crTokenize(entry.text, "character", crAppDemo)), 2));
+}
+// The observe instruction claims the two designs are indistinguishable on some strings and
+// separated on others. Both halves must be true, or the instruction sends the reader nowhere.
+const crHidden = crApi.CR_TEXTS.filter((entry, index) => crByteRow[index] === crCharRow[index]);
+const crExposed = crApi.CR_TEXTS.filter((entry, index) => crByteRow[index] !== crCharRow[index]);
+if (!crHidden.length || !crExposed.length)
+  throw new Error(`compression-ratio: byte and character must coincide on at least one string and differ on at least one; got ${crHidden.length} hidden and ${crExposed.length} exposed`);
+
+// Mode B. Every cell of the 2x2 against the reference, at every selectable merge count.
+const crCell = {};
+for (const step of crApi.CR_MERGE_STEPS) {
+  for (const trainedOn of crApi.CR_CORPORA) {
+    const model = crApi.crTokenizerFor(trainedOn.key, step.merges);
+    const reference = crRefTrain(trainedOn.train, step.merges);
+    if (model.learned !== reference.length)
+      throw new Error(`compression-ratio: ${trainedOn.key} at ${step.merges} learns ${model.learned} merges, the reference learns ${reference.length}`);
+    if (model.vocab !== 256 + reference.length)
+      throw new Error(`compression-ratio: V must be 256 + learned merges, byte-level BPE starts from the full byte alphabet`);
+    for (const target of crApi.CR_CORPORA) {
+      const numBytes = crApi.crBytes(target.held).length;
+      const numTokens = crApi.crEncodeBpe(target.held, model.merges);
+      if (numTokens !== crRefEncode(target.held, reference))
+        throw new Error(`compression-ratio: encoding ${target.key} with the ${trainedOn.key} tokenizer at ${step.merges} differs from the reference`);
+      crCell[`${step.key}/${trainedOn.key}/${target.key}`] = { numBytes, numTokens, ratio: crApi.crRatio(numBytes, numTokens) };
+      crValues++;
+    }
+    // A tokenizer measured on its own training text flatters itself; the lab says it measures
+    // held-out text only, so the held-out text must not be a slice of the training text.
+    if (trainedOn.train.includes(trainedOn.held))
+      throw new Error(`compression-ratio: the held-out text of ${trainedOn.key} must not appear in its training text`);
+  }
+}
+// Merge saturation: past the point where no pair repeats, a larger request buys nothing. That is
+// the claim under "requested against learned", and it is what makes V an upper bound.
+const crLast = crApi.CR_MERGE_STEPS[crApi.CR_MERGE_STEPS.length - 1];
+const crSaturated = crApi.CR_CORPORA.filter(entry =>
+  crApi.crTokenizerFor(entry.key, crLast.merges).learned < crLast.merges);
+if (crSaturated.length !== crApi.CR_CORPORA.length)
+  throw new Error("compression-ratio: at the largest merge count every corpus must have run out of repeated pairs, otherwise the saturation note is unsupported");
+if (crApi.CR_MERGE_STEPS.every(step => crApi.crTokenizerFor(crApi.CR_CORPORA[0].key, step.merges).learned === crApi.crTokenizerFor(crApi.CR_CORPORA[0].key, crApi.CR_MERGE_STEPS[0].merges).learned))
+  throw new Error("compression-ratio: the merge dial must still change something at the low end, otherwise it is a dead control");
+
+// The two surcharges quoted in check question 2 and in the observe instruction. They are the
+// point of the mode: the same swap, two different prices, and the direction is what decides.
+const crDefault = crApi.CR_MERGE_STEPS.find(step => step.key === "m128");
+if (!crDefault) throw new Error("compression-ratio: the check questions quote the 128-merge setting, it must stay selectable");
+const crPenalty = {};
+for (const target of crApi.CR_CORPORA) {
+  const matched = crCell[`${crDefault.key}/${target.key}/${target.key}`];
+  const other = crApi.CR_CORPORA.find(entry => entry.key !== target.key);
+  const crossed = crCell[`${crDefault.key}/${other.key}/${target.key}`];
+  if (crossed.numTokens <= matched.numTokens)
+    throw new Error(`compression-ratio: the crossed tokenizer must cost more tokens on ${target.key}, otherwise the matched/crossed framing is wrong`);
+  crPenalty[target.key] = crApi.crPercent(crossed.numTokens / matched.numTokens - 1);
+}
+if (crPenalty.stories !== "36.63" || crPenalty.web !== "12.79")
+  throw new Error(`compression-ratio: check question 2 quotes +36.63 % and +12.79 %; the data give +${crPenalty.stories} % and +${crPenalty.web} %`);
+if (crPenalty.stories === crPenalty.web)
+  throw new Error("compression-ratio: the two surcharges must differ, the whole answer is that the price belongs to the measured text");
+
+// The budget rows quoted in check question 3 and in the transfer answer.
+const crStoriesMatched = crCell[`${crDefault.key}/stories/stories`], crStoriesCrossed = crCell[`${crDefault.key}/web/stories`];
+const crBudgetMatched = crApi.crBudget(crStoriesMatched.numBytes, crStoriesMatched.numTokens);
+const crBudgetCrossed = crApi.crBudget(crStoriesCrossed.numBytes, crStoriesCrossed.numTokens);
+if (crApi.crGiB(crBudgetMatched.budgetBytes) !== "0.616" || crApi.crGiB(crBudgetCrossed.budgetBytes) !== "0.451")
+  throw new Error(`compression-ratio: check question 3 quotes 0.616 GiB against 0.451 GiB; the data give ${crApi.crGiB(crBudgetMatched.budgetBytes)} and ${crApi.crGiB(crBudgetCrossed.budgetBytes)}`);
+const crLessText = crApi.crPercent(1 - crBudgetCrossed.budgetBytes / crBudgetMatched.budgetBytes);
+if (crLessText !== "26.81")
+  throw new Error(`compression-ratio: the transfer answer quotes 26.81 % less text, the data give ${crLessText} %`);
+// The budget is a token count, so the same budget must give the same tokens and different bytes.
+if (crApi.crNumber(crBudgetMatched.budgetBytes) === crApi.crNumber(crBudgetCrossed.budgetBytes))
+  throw new Error("compression-ratio: a fixed token budget must buy different amounts of text, that is the sentence the lab is built on");
+
+// The uint16 break-even. The file is 2 * num_tokens bytes, so it grows exactly when r < 2 --
+// this is the whole answer to A1 2.7 (d)'s second half and the first half of the transfer answer.
+let crBelowTwo = 0, crAboveTwo = 0;
+for (const key of Object.keys(crCell)) {
+  const cell = crCell[key], budget = crApi.crBudget(cell.numBytes, cell.numTokens);
+  const grows = budget.uint16Growth > 1;
+  if (cell.ratio < 2 !== grows)
+    throw new Error(`compression-ratio: ${key} has r = ${cell.ratio} and growth ${budget.uint16Growth}; the file must grow exactly when r < 2`);
+  if (cell.ratio < 2) crBelowTwo++; else crAboveTwo++;
+  if (crShow(budget.uint16Bytes) !== crShow(2 * budget.datasetTokens))
+    throw new Error("compression-ratio: the uint16 file size must be 2 bytes per stored ID");
+  crValues++;
+}
+if (!crBelowTwo || !crAboveTwo)
+  throw new Error(`compression-ratio: both sides of the 2-bytes-per-token break-even must occur in the table; got ${crBelowTwo} below and ${crAboveTwo} above`);
+if (crApi.crNumber(crBudgetMatched.uint16Growth, 3) !== "0.990" || crApi.crNumber(crBudgetCrossed.uint16Growth, 3) !== "1.353")
+  throw new Error(`compression-ratio: the transfer answer quotes 0.990x and 1.353x; the data give ${crApi.crNumber(crBudgetMatched.uint16Growth, 3)} and ${crApi.crNumber(crBudgetCrossed.uint16Growth, 3)}`);
+
+// Throughput. A1 asks for the rate as the reader's own estimate, so only the arithmetic is fixed.
+for (const rate of crApi.CR_RATES) {
+  if (crShow(crApi.crHours(crApi.CR_PILE_BYTES, rate.rate)) !== crShow(crApi.CR_PILE_BYTES / rate.rate / 3600))
+    throw new Error("compression-ratio: the Pile runtime must be bytes / throughput / 3600");
+  crValues++;
+}
+const crSlowest = crApi.CR_RATES.reduce((slow, entry) => entry.rate < slow.rate ? entry : slow);
+if (crApi.crNumber(crApi.crHours(crApi.CR_PILE_BYTES, crSlowest.rate), 2) !== "246.07")
+  throw new Error("compression-ratio: at the slowest selectable rate the Pile must take 246.07 h, that is the number the extrapolation exists for");
+
+// Renderer guards: computing a number is not showing it. Each of these demands the display
+// expression at its own place, not merely the presence of the source function.
+const crDesignRenderer = sliceDeclaration(source, "renderCompressionDesigns");
+const crBudgetRenderer = sliceDeclaration(source, "renderCompressionBudget");
+if (!crDesignRenderer.includes("crNumber(row.ratio)"))
+  throw new Error("compression-ratio: the design table must print the ratio of each row");
+if (!crDesignRenderer.includes('crNumber(chosen.ratio)'))
+  throw new Error("compression-ratio: the ledger must print the ratio of the selected design");
+if (!crDesignRenderer.includes('crTokenize(item.text,"byte",demo)'))
+  throw new Error("compression-ratio: the comparison row must recompute the byte tokenizer over all four strings");
+if (!crDesignRenderer.includes('crTokenize(item.text,"character",demo)'))
+  throw new Error("compression-ratio: the comparison row must recompute the character tokenizer over all four strings");
+if (!crBudgetRenderer.includes("crNumber(cell.ratio)"))
+  throw new Error("compression-ratio: the matrix must print the ratio of every cell");
+if (!crBudgetRenderer.includes("crPercent(crossed.numTokens/matched.numTokens-1)"))
+  throw new Error("compression-ratio: the matrix must print the surcharge of the wrong choice, that is check question 2");
+if (!crBudgetRenderer.includes("crNumber(matchedBudget.uint16Growth,3)") || !crBudgetRenderer.includes("crNumber(crossedBudget.uint16Growth,3)"))
+  throw new Error("compression-ratio: the budget ledger must print the ratio to the raw text size for both tokenizers");
+if (!crBudgetRenderer.includes("crPercent(1-crossedBudget.budgetBytes/matchedBudget.budgetBytes)"))
+  throw new Error("compression-ratio: the budget ledger must print how much less text the same token budget buys, that is check question 3");
+if (!crBudgetRenderer.includes("crNumber(crHours(CR_PILE_BYTES,rateEntry.rate),2)"))
+  throw new Error("compression-ratio: the throughput ledger must print the hours on the Pile");
+if (!crBudgetRenderer.includes("model.requested") || !crBudgetRenderer.includes("model.learned"))
+  throw new Error("compression-ratio: requested and learned merges must be shown side by side, the saturation note reads them off");
+if (!crBudgetRenderer.includes("target.held") || crBudgetRenderer.includes("crEncodeBpe(target.train"))
+  throw new Error("compression-ratio: the matrix must measure the held-out text, never the training text");
+
+// PDF fidelity: lecture 1 is the only lecture that computes this number, so it is the only guide
+// that may carry the lab. A4's tokenize-train mission may cite it, that is a mission, not a lecture.
+const crLectures = Object.entries(base.lectureGuides || {}).filter(([, guide]) => (guide.labs || []).includes("compression-ratio")).map(([id]) => id);
+if (crLectures.join(",") !== "l01")
+  throw new Error(`compression-ratio: only lecture 1 computes get_compression_ratio, so only l01 may carry the lab; found ${crLectures.join(",") || "none"}`);
+const crMissions = base.assignments.flatMap(assignment => (assignment.missions || [])
+  .filter(mission => (mission.labs || []).includes("compression-ratio")).map(mission => `${assignment.id}:${mission.id}`));
+if (!crMissions.includes("a1:text-tokenizer"))
+  throw new Error("compression-ratio: tokenizer_experiments lives in a1:text-tokenizer, the lab must be cited there");
+if (!crMissions.includes("a4:tokenize-train"))
+  throw new Error("compression-ratio: a4:tokenize-train hangs on tokenizer-tradeoffs and had no lab of its own, the lab must be cited there");
+
+console.log(`compression-ratio OK: ${crValues} values, byte row ${crByteRow.join("/")} against character row ${crCharRow.join("/")} (${crHidden.length} strings hidden, ${crExposed.length} exposed), the same swap costs +${crPenalty.stories} % on stories and +${crPenalty.web} % on web, and a fixed budget of ${crApi.crMillions(crApi.CR_TOKEN_BUDGET)} M tokens buys ${crApi.crGiB(crBudgetMatched.budgetBytes)} GiB against ${crApi.crGiB(crBudgetCrossed.budgetBytes)} GiB (${crLessText} % less) at uint16 growth ${crApi.crNumber(crBudgetMatched.uint16Growth, 3)}x / ${crApi.crNumber(crBudgetCrossed.uint16Growth, 3)}x`);
+// Mode A's BPE row is measured on the demo corpus's own near-twin, so the lab warns about it in
+// so many words. The warning is a claim about numbers and has to stay true.
+const crDesignNote = crApi.CR_TEXTS.find(entry => entry.key === "ascii");
+const crDemoWord = (crDesignNote.text.match(/[\p{L}\p{N}_]+|[\s\S]/gu) || []).length;
+const crDemoBpe = crRefEncode(crDesignNote.text, crDemo);
+if (!(crDemoBpe < crDemoWord))
+  throw new Error("compression-ratio: the lab warns that BPE beats the word tokenizer on the ASCII string because it is a near-twin of the demo corpus; the numbers no longer say that");
+if (!sliceDeclaration(source, "renderCompressionDesigns").includes("misstrauisch"))
+  throw new Error("compression-ratio: the warning about the near-twin corpus must be rendered, not just true");
