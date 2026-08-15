@@ -3537,3 +3537,238 @@ if (!(crDemoBpe < crDemoWord))
   throw new Error("compression-ratio: the lab warns that BPE beats the word tokenizer on the ASCII string because it is a near-twin of the demo corpus; the numbers no longer say that");
 if (!sliceDeclaration(source, "renderCompressionDesigns").includes("misstrauisch"))
   throw new Error("compression-ratio: the warning about the near-twin corpus must be rendered, not just true");
+
+// ---- resume-contract ---------------------------------------------------------
+// Two A1 contracts that hang on one number, the step counter t: the three-branch schedule of
+// A1 4.4 (get_lr_cosine_schedule) and the checkpoint of A1 5.2 (save/load_checkpoint).
+const rcNames = ["RC_SCHEDULE", "RC_STEPS", "RC_VARIANTS", "rcSchedule", "rcBranch", "rcSame", "rcHiddenSteps",
+  "RC_RUN", "RC_CHECKPOINTS", "RC_CONTENTS", "rcGradients", "RC_GRADIENTS", "rcRunSchedule", "rcBiasFactor",
+  "rcAdamStep", "rcRun", "rcResume", "rcExp", "rcNumber"];
+const rcApi = new Function(`"use strict"; ${rcNames.map(name => sliceDeclaration(source, name)).join("\n")} return {${rcNames.join(",")}};`)();
+
+// A1 4.4, typed again from the handout rather than reused from the app.
+const rcRef = (t) => {
+  const { aMax, aMin, tWarm, tCosine } = rcApi.RC_SCHEDULE;
+  if (t < tWarm) return t / tWarm * aMax;
+  if (t > tCosine) return aMin;
+  return aMin + 0.5 * (1 + Math.cos((t - tWarm) / (tCosine - tWarm) * Math.PI)) * (aMax - aMin);
+};
+let rcValues = 0;
+for (let t = 0; t <= rcApi.RC_SCHEDULE.tCosine + 2000; t += 7) {
+  if (!Object.is(rcApi.rcSchedule("correct", t), rcRef(t)))
+    throw new Error(`resume-contract: the correct schedule departs from A1 4.4 at t=${t}: ${rcApi.rcSchedule("correct", t)} instead of ${rcRef(t)}`);
+  rcValues++;
+}
+// The two boundaries the concept page claims in prose. Both must be exact, not close.
+const { aMax: rcAMax, aMin: rcAMin, tWarm: rcTw, tCosine: rcTc } = rcApi.RC_SCHEDULE;
+if (!Object.is(rcApi.rcSchedule("correct", rcTw), rcAMax))
+  throw new Error("resume-contract: at t = T_w the cosine branch must return exactly alpha_max, otherwise the transition is not continuous");
+if (!Object.is(rcApi.rcSchedule("correct", rcTc), rcAMin))
+  throw new Error("resume-contract: at t = T_c the decay must land exactly on alpha_min");
+for (const t of [rcTc + 1, rcTc + 500, rcTc + 4000]) {
+  if (!Object.is(rcApi.rcSchedule("correct", t), rcAMin))
+    throw new Error(`resume-contract: the post-annealing branch is missing at t=${t}`);
+}
+// Every wrong variant must be hidden somewhere and exposed somewhere, and no two may be exposed
+// by the same set of steps -- that is the didactic claim of the mode, not a nice-to-have.
+const rcWrong = rcApi.RC_VARIANTS.filter(variant => !variant.ok);
+if (rcWrong.length < 4) throw new Error("resume-contract: the schedule mode needs at least four wrong implementations");
+if (rcApi.RC_VARIANTS.filter(variant => variant.ok).length !== 1)
+  throw new Error("resume-contract: exactly one variant may be marked correct");
+const rcExposure = new Map();
+for (const variant of rcWrong) {
+  const hidden = rcApi.rcHiddenSteps(variant.key).map(step => step.t);
+  const exposed = rcApi.RC_STEPS.map(step => step.t).filter(t => !hidden.includes(t));
+  if (!hidden.length)
+    throw new Error(`resume-contract: ${variant.key} is exposed at every step, so it teaches nothing about tests that pass`);
+  if (!exposed.length)
+    throw new Error(`resume-contract: ${variant.key} is hidden at every step, so the lab can never show it is wrong`);
+  const signature = exposed.join(",");
+  if (rcExposure.has(signature))
+    throw new Error(`resume-contract: ${variant.key} and ${rcExposure.get(signature)} are exposed by the same steps, so one of them is redundant`);
+  rcExposure.set(signature, variant.key);
+  rcValues += rcApi.RC_STEPS.length;
+}
+// The sharpest single claim: the missing third branch survives every step inside the decay and is
+// visible only beyond T_c. If a step past T_c ever leaves the list, this claim dies silently.
+const rcClampExposed = rcApi.RC_STEPS.filter(step => !rcApi.rcSame(rcApi.rcSchedule("noPostClamp", step.t), rcApi.rcSchedule("correct", step.t)));
+if (rcClampExposed.length !== 1 || rcClampExposed[0].t <= rcTc)
+  throw new Error("resume-contract: the missing post-annealing branch must be exposed by exactly one selectable step, and that step must lie beyond T_c");
+if (!(rcApi.rcSchedule("noPostClamp", rcClampExposed[0].t) > rcAMin))
+  throw new Error("resume-contract: past T_c the unclamped cosine must rise above alpha_min, that is the whole point of the variant");
+if (!rcApi.RC_STEPS.some(step => step.t === rcTw) || !rcApi.RC_STEPS.some(step => step.t === rcTc))
+  throw new Error("resume-contract: both boundaries T_w and T_c must stay selectable, they are where schedulers actually break");
+// The observe text says the rate past T_c is "nearly twice alpha_min". A guard that only compares
+// the app against constants read from the app itself would let the constants drift under that
+// sentence, so this one checks the sentence.
+if (!(rcApi.rcSchedule("noPostClamp", rcClampExposed[0].t) / rcAMin > 1.5))
+  throw new Error("resume-contract: the lab says the unclamped rate past T_c is nearly twice alpha_min; with these constants it is not");
+
+// The resume run carries its own miniature schedule. It is the same three-branch definition, so it
+// gets the same independent reference -- otherwise mode B's learning rates rest on nothing.
+const rcRunRef = (t) => {
+  const { aMax, aMin, tWarm, tCosine } = rcApi.RC_RUN;
+  if (t < tWarm) return t / tWarm * aMax;
+  if (t > tCosine) return aMin;
+  return aMin + 0.5 * (1 + Math.cos((t - tWarm) / (tCosine - tWarm) * Math.PI)) * (aMax - aMin);
+};
+for (let t = 0; t <= rcApi.RC_RUN.steps + 5; t++) {
+  if (!Object.is(rcApi.rcRunSchedule(t), rcRunRef(t)))
+    throw new Error(`resume-contract: the resume run's schedule departs from A1 4.4 at t=${t}: ${rcApi.rcRunSchedule(t)} instead of ${rcRunRef(t)}`);
+  rcValues++;
+}
+if (!Object.is(rcApi.rcRunSchedule(rcApi.RC_RUN.tWarm), rcApi.RC_RUN.aMax) || !Object.is(rcApi.rcRunSchedule(rcApi.RC_RUN.tCosine), rcApi.RC_RUN.aMin))
+  throw new Error("resume-contract: the resume run's schedule must hit alpha_max at T_w and alpha_min at T_c like the big one");
+
+// AdamW exactly as A1 Algorithm 1 writes it: the bias correction is folded into alpha_t, and the
+// decoupled weight decay uses alpha, not alpha_t. Note that t starts at 1.
+const { beta1: rcB1, beta2: rcB2, decay: rcLam, eps: rcEps } = rcApi.RC_RUN;
+if (!Object.is(rcApi.rcBiasFactor(1), Math.sqrt(1 - rcB2) / (1 - rcB1)))
+  throw new Error("resume-contract: the bias factor at t = 1 must be sqrt(1-beta2)/(1-beta1)");
+// A1 names (0.9, 0.999) as the typical setting, and the lab quotes the resulting first-step factor
+// 0.316228 as a literal in its symbol list. Both must stay true of the actual constants.
+if (rcB1 !== 0.9 || rcB2 !== 0.999)
+  throw new Error("resume-contract: the run uses A1's typical betas (0.9, 0.999); the symbol list quotes the factor they produce");
+if (rcApi.rcNumber(rcApi.rcBiasFactor(1)) !== "0.316228")
+  throw new Error(`resume-contract: the symbol list states the t = 1 bias factor as 0.316228, the constants now give ${rcApi.rcNumber(rcApi.rcBiasFactor(1))}`);
+for (const t of [1, 2, 7, 21, 30]) {
+  if (!Object.is(rcApi.rcBiasFactor(t), Math.sqrt(1 - Math.pow(rcB2, t)) / (1 - Math.pow(rcB1, t))))
+    throw new Error(`resume-contract: the bias factor departs from A1 Algorithm 1 at t=${t}`);
+  rcValues++;
+}
+{
+  const probe = rcApi.rcAdamStep({ theta: 1, m: 0, v: 0 }, 0.5, 1e-3, 1);
+  const alphaT = 1e-3 * Math.sqrt(1 - rcB2) / (1 - rcB1);
+  const expected = (1 - 1e-3 * rcLam) * 1 - alphaT * ((1 - rcB1) * 0.5) / (Math.sqrt((1 - rcB2) * 0.25) + rcEps);
+  if (!Object.is(probe.theta, expected))
+    throw new Error("resume-contract: one AdamW step must follow A1 Algorithm 1, with the weight decay scaled by alpha rather than alpha_t");
+  rcValues++;
+}
+// The resume experiment. Every claim the renderer prints is checked at every selectable checkpoint,
+// never only at the one where it happens to hold.
+for (const checkpoint of rcApi.RC_CHECKPOINTS) {
+  const report = rcApi.rcResume(checkpoint.key);
+  const full = report.rows.find(row => row.content.key === "full");
+  const moments = report.rows.find(row => row.content.key === "noOptimizer");
+  const counter = report.rows.find(row => row.content.key === "noIteration");
+  if (!full || !moments || !counter) throw new Error("resume-contract: the four checkpoint contents must stay available");
+  if (full.deviation !== 0)
+    throw new Error(`resume-contract: a complete checkpoint must reproduce the uninterrupted run exactly, not to ${full.deviation} at ${checkpoint.key}`);
+  if (!report.rows.every(row => Object.is(row.loaded, report.saved.theta)))
+    throw new Error(`resume-contract: all four contents must load the identical theta at ${checkpoint.key}, that is what the loading note claims`);
+  if (!(counter.deviation > moments.deviation))
+    throw new Error(`resume-contract: at ${checkpoint.key} the forgotten step counter must cost more than the forgotten moments; the renderer claims this ordering holds at all four`);
+  if (!report.rows.filter(row => !row.content.ok).every(row => row.deviation > 0))
+    throw new Error(`resume-contract: every incomplete checkpoint must deviate at ${checkpoint.key}`);
+  // The counter is lost exactly when iteration was not saved, the moments exactly when the
+  // optimizer was not saved -- derived from the rows, not asserted in prose.
+  if (counter.first.scheduleStep !== 1 || counter.first.factor !== full.first.factor)
+    throw new Error(`resume-contract: without iteration the schedule must restart at step 1 while AdamW keeps its own counter (${checkpoint.key})`);
+  if (moments.first.scheduleStep !== full.first.scheduleStep || !Object.is(moments.first.factor, rcApi.rcBiasFactor(1)))
+    throw new Error(`resume-contract: without the optimizer the schedule must be right while the bias correction restarts at t = 1 (${checkpoint.key})`);
+  if (!(moments.first.factor > full.first.factor))
+    throw new Error(`resume-contract: a restarted bias correction must make the next step larger, not smaller (${checkpoint.key})`);
+  rcValues += report.rows.length * 4;
+}
+// Showing two counters is only worth the space if they really come apart. noIteration moves the
+// schedule counter alone, noOptimizer the AdamW counter alone -- checked, not assumed.
+for (const checkpoint of rcApi.RC_CHECKPOINTS) {
+  const report = rcApi.rcResume(checkpoint.key);
+  const counter = report.rows.find(row => row.content.key === "noIteration");
+  const moments = report.rows.find(row => row.content.key === "noOptimizer");
+  if (counter.first.adamStep !== report.reference.adamStep || counter.first.scheduleStep === report.reference.scheduleStep)
+    throw new Error(`resume-contract: at ${checkpoint.key} a lost iteration must move the schedule counter and leave AdamW's own counter alone`);
+  if (moments.first.scheduleStep !== report.reference.scheduleStep || moments.first.adamStep === report.reference.adamStep)
+    throw new Error(`resume-contract: at ${checkpoint.key} a lost optimizer must move AdamW's counter and leave the schedule counter alone`);
+  rcValues += 4;
+}
+if (rcApi.RC_GRADIENTS.length !== rcApi.RC_RUN.steps)
+  throw new Error("resume-contract: the gradient stream must cover the whole run, both branches replay the same batches");
+// The intro sentence of mode B names these four numbers as literals, so they may not drift.
+if (rcApi.RC_RUN.theta0 !== 1 || rcApi.RC_RUN.steps !== 30 || rcApi.RC_RUN.tWarm !== 5 || rcApi.RC_RUN.tCosine !== 30)
+  throw new Error("resume-contract: the mode B intro states theta0 = 1, 30 steps, T_w = 5 and T_c = 30 in words; the constants must match");
+if (rcApi.RC_CHECKPOINTS.some(checkpoint => checkpoint.step >= rcApi.RC_RUN.steps || checkpoint.step < 1))
+  throw new Error("resume-contract: every checkpoint must leave at least one step to run afterwards");
+
+// Renderer guards. Per the house rule they demand the complete markup fragment, so they check the
+// place a number is printed rather than the mere occurrence of an identifier.
+const rcSchedRenderer = sliceDeclaration(source, "renderResumeSchedule");
+const rcResumeRenderer = sliceDeclaration(source, "renderResumeCheckpoint");
+for (const [fragment, why] of [
+  ['<td>${rcExp(row.value)}</td>', "the learning rate of every variant must be printed in the table"],
+  ['<td>${row.same?tr("nicht zu unterscheiden"):`${rcNumber(100*(row.ratio-1),2)} %`}</td>', "the comparison against A1 must be printed per row"],
+  ['<strong>α_t = ${rcExp(chosen.value)}</strong>', "the selected implementation's result must be printed"],
+  ['<strong>${rcExp(correct)}</strong>', "the A1 reference must be printed beside it"],
+  ['${hidden.map(item=>"t = "+item.t).join(" · ")||tr("keiner")}', "the steps at which the variant stays hidden must be printed"]
+]) {
+  if (!rcSchedRenderer.includes(fragment)) throw new Error(`resume-contract: ${why}`);
+}
+for (const [fragment, why] of [
+  ['<td>${rcNumber(row.loaded,8)}</td>', "theta right after loading must be printed for every content"],
+  ['<td>${rcExp(row.first.alpha)}</td>', "the first learning rate after the resume must be printed"],
+  ['<td>${row.deviation===0?tr("exakt null"):rcExp(row.deviation)}</td>', "the deviation from branch A must be printed"],
+  ['<strong>${tr("Schedule-Schritt")} ${chosen.first.scheduleStep} · ${tr("AdamW-Schritt")} ${chosen.first.adamStep} · α = ${rcExp(chosen.first.alpha)} · ${tr("Bias-Faktor")} ${rcNumber(chosen.first.factor)}</strong>', "both step counters, the learning rate and the bias factor this checkpoint uses must be printed"],
+  ['<strong>${tr("Schedule-Schritt")} ${report.reference.scheduleStep} · ${tr("AdamW-Schritt")} ${report.reference.adamStep} · α = ${rcExp(report.reference.alpha)} · ${tr("Bias-Faktor")} ${rcNumber(report.reference.factor)}</strong>', "the uninterrupted run's two counters must be printed beside them"],
+  ['${tr("Vergessene Momente kosten hier")} ${rcExp(optimizerRow.deviation)}', "the two deviations that carry the ordering claim must be printed"],
+  ['${rcNumber(counterRow.deviation/optimizerRow.deviation,2)}', "the ratio between them must be printed"]
+]) {
+  if (!rcResumeRenderer.includes(fragment)) throw new Error(`resume-contract: ${why}`);
+}
+// Lecture 2's own checkpoint dict has model and optimizer and no iteration -- verified against
+// `Trace - lecture_02.pdf`. The lab points at that row, so the note and the row must both stay.
+if (!rcResumeRenderer.includes("Lecture 2 speichert in ihrem eigenen Abschnitt checkpointing() genau zwei Felder: model.state_dict() und optimizer.state_dict()"))
+  throw new Error("resume-contract: the note tying row two to Lecture 2's own checkpointing() section must be rendered");
+if (!rcResumeRenderer.includes("${lecture}"))
+  throw new Error("resume-contract: the Lecture 2 note must actually be placed in the output");
+if (rcApi.RC_CONTENTS[1].key !== "noIteration")
+  throw new Error("resume-contract: the note calls the model+optimizer checkpoint row two, so it must stay in second place");
+if (rcApi.RC_CONTENTS[1].saves !== "model.state_dict(), optimizer.state_dict()")
+  throw new Error("resume-contract: row two must save exactly what Lecture 2 saves, model and optimizer and nothing else");
+// The loading note states a computed fact; it must be derived from the rows, never hard-coded.
+if (!rcResumeRenderer.includes("const identical=report.rows.every(row=>rcNumber(row.loaded,8)===rcNumber(report.saved.theta,8));"))
+  throw new Error("resume-contract: the claim that all four rows load the same theta must be computed from the rows");
+
+// Registration. Lecture 2 is the one lecture that actually saves a checkpoint (its own
+// checkpointing() section writes model and optimizer via torch.save -- and no iteration, which is
+// exactly the gap this lab prices). The schedule contract itself is assignment material, so no
+// other lecture may claim the lab.
+const rcGuides = readConstant("LECTURE_GUIDES");
+const rcLectures = Object.entries(rcGuides).filter(([, guide]) => (guide.labs || []).includes("resume-contract")).map(([id]) => id);
+if (rcLectures.length !== 1 || rcLectures[0] !== "l02")
+  throw new Error(`resume-contract: the lab belongs to Lecture 2 alone, found ${JSON.stringify(rcLectures)}`);
+const rcModules = readConstant("MODULES");
+if (!rcModules.find(entry => entry.id === "training")?.labs.includes("resume-contract"))
+  throw new Error("resume-contract: the lab must be listed in the training module");
+const rcAssignments = readConstant("ASSIGNMENTS");
+for (const missionId of ["optimization", "training-state"]) {
+  const mission = rcAssignments.find(entry => entry.id === "a1").missions.find(entry => entry.id === missionId);
+  if (!mission.labs.includes("resume-contract"))
+    throw new Error(`resume-contract: mission a1:${missionId} owns one of the two contracts and must list the lab`);
+}
+const rcLabs = readConstant("LABS");
+const rcEntry = rcLabs.find(entry => entry.id === "resume-contract");
+if (!rcEntry) throw new Error("resume-contract: missing from LABS");
+if (rcEntry.module !== "training") throw new Error("resume-contract: the lab belongs to the training module");
+if (!sliceDeclaration(source, "OBJECTIVE_LAB_IDS").includes('"resume-contract"'))
+  throw new Error("resume-contract: the lab must be registered in OBJECTIVE_LAB_IDS");
+// The stored answers and the answers the check accepts must be the same three.
+const rcAccepted = sliceDeclaration(source, "checkResumeContract");
+for (const answer of ["postAnnealing", "nothing", "counter"]) {
+  if (!rcAccepted.includes(`"${answer}"`))
+    throw new Error(`resume-contract: the quick check must accept ${answer}`);
+  if (!sliceDeclaration(source, "restorePassedLab").includes(answer))
+    throw new Error(`resume-contract: the restore preset must carry ${answer}`);
+}
+if (!sliceDeclaration(source, "initLab").includes('if(id==="resume-contract")'))
+  throw new Error("resume-contract: the lab must be wired up in initLab");
+// Both adapter hooks must be reachable from the lab's own control panel, so the reader can find
+// the two handout problems this lab was built for.
+const rcControls = source.slice(source.indexOf('if(id==="resume-contract") return `'));
+for (const hook of ["get_lr_cosine_schedule", "run_save_checkpoint"]) {
+  if (!rcControls.slice(0, rcControls.indexOf("\n")).includes(hook))
+    throw new Error(`resume-contract: the mode selector must name ${hook}`);
+}
+const rcReport20 = rcApi.rcResume("k20");
+const rcCounter20 = rcReport20.rows.find(row => row.content.key === "noIteration");
+const rcMoments20 = rcReport20.rows.find(row => row.content.key === "noOptimizer");
+console.log(`resume-contract OK: ${rcValues} values, the three branches exact at T_w (${rcApi.rcExp(rcApi.rcSchedule("correct", rcTw))}) and T_c (${rcApi.rcExp(rcApi.rcSchedule("correct", rcTc))}), the missing clamp hidden at ${rcApi.rcHiddenSteps("noPostClamp").length} of ${rcApi.RC_STEPS.length} steps and rising to ${rcApi.rcExp(rcApi.rcSchedule("noPostClamp", rcClampExposed[0].t))} past T_c, all four checkpoints load the identical theta, and a forgotten step counter costs ${rcApi.rcNumber(rcCounter20.deviation / rcMoments20.deviation, 2)}x the forgotten moments`);
