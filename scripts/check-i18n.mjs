@@ -3772,3 +3772,349 @@ const rcReport20 = rcApi.rcResume("k20");
 const rcCounter20 = rcReport20.rows.find(row => row.content.key === "noIteration");
 const rcMoments20 = rcReport20.rows.find(row => row.content.key === "noOptimizer");
 console.log(`resume-contract OK: ${rcValues} values, the three branches exact at T_w (${rcApi.rcExp(rcApi.rcSchedule("correct", rcTw))}) and T_c (${rcApi.rcExp(rcApi.rcSchedule("correct", rcTc))}), the missing clamp hidden at ${rcApi.rcHiddenSteps("noPostClamp").length} of ${rcApi.RC_STEPS.length} steps and rising to ${rcApi.rcExp(rcApi.rcSchedule("noPostClamp", rcClampExposed[0].t))} past T_c, all four checkpoints load the identical theta, and a forgotten step counter costs ${rcApi.rcNumber(rcCounter20.deviation / rcMoments20.deviation, 2)}x the forgotten moments`);
+
+// ---- ablation-controls -------------------------------------------------------
+// A1 7.3 prescribes four ablations, each a one-line change, each asking for a learning curve.
+// Before this lab the platform had zero occurrences of postNorm/preNorm as computed identifiers,
+// exactly one occurrence of "NoPE" (the raw handout title), and no computed FFN_SiLU baseline at
+// all -- d_ff = 4*d_model, FFN_SiLU and "ungated" had 0 hits. These guards hold two things: the
+// parameter arithmetic that decides whether each comparison is controlled, and the residual-path
+// arithmetic that decides what the interventions actually change.
+const abNames = ["AB_ROUND64", "AB_ARCHS", "AB_VARIANTS", "abFfnParams", "abParams", "abFfnFlops",
+  "abIdealFf", "abResidue", "abNumber", "AB_DEPTH", "AB_DIM", "AB_EPS", "AB_THETA", "AB_GAINS",
+  "AB_PLACEMENTS", "AB_X0", "abRms", "abLen", "abRotate", "abRotateT", "abNorm", "abNormJ",
+  "abStep", "abJvp", "abVjp", "abStream", "abLambda"];
+const abRenderNames = ["abInt", "renderAblationParams", "renderAblationStream"];
+const abStubs = `
+  const esc = value => String(value).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  const localeCode = () => "en-US";
+  const localizedUi = value => String(value);
+`;
+const abAll = [...abNames, ...abRenderNames];
+const abApi = runInNewContext(`${abStubs}${abAll.map(name => sliceDeclaration(source, name)).join("\n")}; ({${abAll.join(",")}})`, {});
+let abValues = 0;
+
+// A1 3.4 and A1 7.2.1 both state d_ff themselves. The rounding rule has to reproduce both.
+if (abApi.AB_ROUND64(8 * 1600 / 3) !== 4288)
+  throw new Error("ablation-controls: A1 3.4 calls d_ff 'the nearest multiple of 64 to 8/3 x 1,600' and prints 4288");
+if (abApi.AB_ROUND64(8 * 512 / 3) !== 1344)
+  throw new Error("ablation-controls: A1 7.2.1 states d_ff 1344 for d_model 512");
+// The two configurations A1 states itself must carry the handout's own numbers, not merely the rule.
+if (abApi.AB_ARCHS.find(arch => arch.key === "ts")?.F !== 1344)
+  throw new Error("ablation-controls: the A1 7.2.1 configuration must carry the handout's d_ff 1344");
+if (abApi.AB_ARCHS.find(arch => arch.key === "xl")?.F !== 4288)
+  throw new Error("ablation-controls: the A1 3.4 configuration must carry the handout's d_ff 4288");
+if (abApi.AB_ARCHS.find(arch => arch.key === "ts")?.D !== 512 || abApi.AB_ARCHS.find(arch => arch.key === "xl")?.D !== 1600)
+  throw new Error("ablation-controls: the two handout configurations must keep their d_model");
+for (const arch of abApi.AB_ARCHS) {
+  if (arch.F !== abApi.AB_ROUND64(8 * arch.D / 3))
+    throw new Error(`ablation-controls: ${arch.key} does not follow the handout's own d_ff rule`);
+  if (arch.F % 64 !== 0) throw new Error(`ablation-controls: ${arch.key} has a d_ff that is not a multiple of 64`);
+}
+
+// The A1 parameter contract, typed again from the handout instead of reused from the app.
+const abRefParams = (arch, variant) => {
+  const embed = 2 * arch.V * arch.D;
+  const attn = 4 * arch.D * arch.D;
+  const ffn = variant === "silu" ? 2 * arch.D * (4 * arch.D) : 3 * arch.D * arch.F;
+  const norms = variant === "noNorm" ? 0 : 2 * arch.D;
+  const final = variant === "noNorm" ? 0 : arch.D;
+  return embed + arch.L * (attn + ffn + norms) + final;
+};
+for (const arch of abApi.AB_ARCHS) {
+  const base = abApi.abParams(arch, "base");
+  for (const variant of abApi.AB_VARIANTS) {
+    const mine = abApi.abParams(arch, variant.key), reference = abRefParams(arch, variant.key);
+    if (mine !== reference)
+      throw new Error(`ablation-controls: ${arch.key}/${variant.key} gives ${mine} instead of ${reference}`);
+    abValues++;
+    const delta = mine - base;
+    // Post-norm moves the norm and NoPE removes a parameter-free rotation: both must be exactly zero,
+    // because that is the whole claim the ledger makes about them being controlled comparisons.
+    if ((variant.key === "postNorm" || variant.key === "noPE") && delta !== 0)
+      throw new Error(`ablation-controls: ${variant.key} must leave the parameter count exactly unchanged, not by ${delta}`);
+    if (variant.key === "noNorm" && delta !== -(2 * arch.L * arch.D + arch.D))
+      throw new Error(`ablation-controls: layer_norm_ablation must remove exactly 2LD + D gains at ${arch.key}`);
+    // The entire SwiGLU/SiLU mismatch is the rounding remainder, times 3*d_model, times L.
+    if (variant.key === "silu" && delta !== -Math.round(arch.L * 3 * arch.D * abApi.abResidue(arch)))
+      throw new Error(`ablation-controls: the FFN_SiLU delta at ${arch.key} is not L*3*d_model*remainder`);
+  }
+  // Without rounding both sides are 8*d_model^2 per block -- that is why A1 can call them matched.
+  if (3 * arch.D * abApi.abIdealFf(arch) !== 8 * arch.D * arch.D || 2 * arch.D * (4 * arch.D) !== 8 * arch.D * arch.D)
+    throw new Error(`ablation-controls: the idealised SwiGLU and FFN_SiLU widths must both come to 8*d_model^2 at ${arch.key}`);
+  // The lab claims the match is exact exactly when d_model is divisible by 24.
+  const exact = abApi.abParams(arch, "silu") === base;
+  if (exact !== (arch.D % 24 === 0))
+    throw new Error(`ablation-controls: the parameter match must be exact precisely when d_model % 24 === 0, broken at ${arch.key}`);
+}
+// Both directions of the rounding must occur, otherwise the ledger cannot show the sign flip it claims.
+const abSigns = new Set(abApi.AB_ARCHS.map(arch => Math.sign(abApi.abResidue(arch))));
+if (!abSigns.has(1) || !abSigns.has(-1) || !abSigns.has(0))
+  throw new Error("ablation-controls: the configuration list must round up, round down, and land exactly, or the sign flip is not visible");
+// The forward FLOPs of the two feed-forward variants follow the same 8*d_model^2 identity.
+for (const arch of abApi.AB_ARCHS) {
+  if (abApi.abFfnFlops(arch, "silu") !== 16 * arch.D * arch.D)
+    throw new Error(`ablation-controls: FFN_SiLU forward FLOPs per token must be 16*d_model^2 at ${arch.key}`);
+  if (abApi.abFfnFlops(arch, "base") !== 6 * arch.D * arch.F)
+    throw new Error(`ablation-controls: SwiGLU forward FLOPs per token must be 6*d_model*d_ff at ${arch.key}`);
+}
+
+// The numbers the lab quotes in prose about the TinyStories configuration.
+const abTs = abApi.AB_ARCHS.find(arch => arch.key === "ts");
+if (!abTs) throw new Error("ablation-controls: the A1 7.2.1 configuration must stay selectable");
+if (abApi.abParams(abTs, "noNorm") - abApi.abParams(abTs, "base") !== -4608)
+  throw new Error("ablation-controls: the observe text quotes -4,608 for layer_norm_ablation at d_model 512");
+if (3 * abTs.D * abTs.F - 2 * abTs.D * 4 * abTs.D !== -32768)
+  throw new Error("ablation-controls: the transfer answer quotes 32,768 parameters per block at d_model 512");
+if (abApi.abParams(abTs, "silu") - abApi.abParams(abTs, "base") !== 131072)
+  throw new Error("ablation-controls: the transfer answer quotes +131,072 parameters in total at d_model 512");
+if (abApi.abNumber(100 * (abApi.abParams(abTs, "silu") - abApi.abParams(abTs, "base")) / abApi.abParams(abTs, "base"), 2) !== "0.58")
+  throw new Error("ablation-controls: the transfer answer quotes +0.58 % for the FFN_SiLU model at d_model 512");
+if (abApi.abNumber(abApi.abIdealFf(abTs), 2) !== "1365.33" || abApi.abNumber(abApi.abResidue(abTs), 2) !== "-21.33")
+  throw new Error("ablation-controls: the transfer answer quotes 8/3*512 = 1365.33 and a remainder of -21.33");
+
+// --- the residual path -------------------------------------------------------
+// Q is a rotation, so I + cQ is conformal and every factor below is exact rather than measured.
+for (const gain of abApi.AB_GAINS) {
+  const lambda = abApi.abLambda(gain.c);
+  if (Math.abs(lambda - Math.sqrt(1 + 2 * gain.c * Math.cos(abApi.AB_THETA) + gain.c * gain.c)) > 1e-12)
+    throw new Error(`ablation-controls: lambda must be sqrt(1 + 2c cos theta + c^2) at c = ${gain.c}`);
+  const runs = {};
+  for (const placement of abApi.AB_PLACEMENTS) runs[placement.key] = abApi.abStream(placement.key, gain.c);
+  abValues += 3 * (abApi.AB_DEPTH + 1);
+  // Post-norm rescales the main path, so the stream has RMS one at every single depth.
+  for (const value of runs.post.rms) {
+    if (abApi.abNumber(value, 4) !== "1.0000")
+      throw new Error(`ablation-controls: under post-norm every depth must show RMS 1.0000, found ${abApi.abNumber(value, 4)} at c = ${gain.c}`);
+  }
+  // Without a norm both the stream and the gradient scale by exactly lambda per block.
+  for (let depth = 1; depth <= abApi.AB_DEPTH; depth++) {
+    const step = runs.none.rms[depth] / runs.none.rms[depth - 1];
+    if (Math.abs(step - lambda) > 1e-4)
+      throw new Error(`ablation-controls: without a norm each block must multiply the stream by lambda, found ${step} at c = ${gain.c}`);
+  }
+  if (Math.abs(runs.none.gradFactor - Math.pow(lambda, abApi.AB_DEPTH)) > 1e-3 * Math.pow(lambda, abApi.AB_DEPTH))
+    throw new Error(`ablation-controls: the gradient without a norm must grow by lambda^L at c = ${gain.c}`);
+  // Pre-norm grows by the radial part of a contribution of fixed length: c*cos(theta) per block.
+  const preStep = runs.pre.rms[abApi.AB_DEPTH] - runs.pre.rms[abApi.AB_DEPTH - 1];
+  if (Math.abs(preStep - gain.c * Math.cos(abApi.AB_THETA)) > 0.12 * gain.c)
+    throw new Error(`ablation-controls: under pre-norm the late growth per block must approach c*cos(theta) at c = ${gain.c}`);
+  if (runs.pre.rms[abApi.AB_DEPTH] >= runs.none.rms[abApi.AB_DEPTH])
+    throw new Error(`ablation-controls: the pre-norm stream must stay below the unnormalised one at c = ${gain.c}`);
+  // The one test that separates all three placements: the stream direction through one block.
+  for (let depth = 0; depth < abApi.AB_DEPTH; depth++) {
+    if (Math.abs(runs.pre.radial[depth] - 1) > 1e-4)
+      throw new Error(`ablation-controls: pre-norm must pass the stream direction at factor 1, found ${runs.pre.radial[depth]} at c = ${gain.c}`);
+    if (runs.post.radial[depth] > 1e-4)
+      throw new Error(`ablation-controls: post-norm must delete the stream direction down to the RMSNorm epsilon, found ${runs.post.radial[depth]} at c = ${gain.c}`);
+    if (Math.abs(runs.none.radial[depth] - lambda) > 1e-9)
+      throw new Error(`ablation-controls: without a norm the stream direction must be scaled by exactly lambda at c = ${gain.c}`);
+  }
+  // The epsilon is what keeps post-norm off exact zero; if it were gone the claim would change.
+  if (abApi.AB_EPS <= 0) throw new Error("ablation-controls: the RMSNorm epsilon must stay positive, the lab names it as the reason post-norm is not exactly zero");
+}
+// The two numbers the quick check and the observe text quote by name.
+const abOne = abApi.AB_GAINS.find(entry => entry.c === 1), abTwo = abApi.AB_GAINS.find(entry => entry.c === 2);
+if (!abOne || !abTwo) throw new Error("ablation-controls: c = 1 and c = 2 must stay selectable, the quick check quotes both");
+if (abApi.abNumber(Math.pow(abApi.abLambda(1), abApi.AB_DEPTH), 0) !== "729")
+  throw new Error("ablation-controls: the quick check quotes 729 for c = 1 across twelve blocks");
+if (abApi.abNumber(Math.pow(abApi.abLambda(2), abApi.AB_DEPTH), 0) !== "117649")
+  throw new Error("ablation-controls: the quick check quotes 117,649 for c = 2 across twelve blocks");
+// The observe text names the smallest gain by value, so it has to stay selectable at that value.
+const abQuarterGain = abApi.AB_GAINS.find(entry => entry.key === "g025");
+if (!abQuarterGain || abQuarterGain.c !== 0.25)
+  throw new Error("ablation-controls: the observe text quotes c = 0.25 by name, so that gain must stay selectable");
+const abQuarter = abApi.abStream("none", abQuarterGain.c), abQuarterPre = abApi.abStream("pre", abQuarterGain.c);
+if (abApi.abNumber(abQuarter.rms[abApi.AB_DEPTH], 2) !== "5.11" || abApi.abNumber(abQuarterPre.rms[abApi.AB_DEPTH], 2) !== "2.66")
+  throw new Error("ablation-controls: the observe text quotes 5.11 without a norm and 2.66 under pre-norm at c = 0.25");
+if (abApi.AB_GAINS.find(entry => entry.key === "g1")?.c !== 1 || abApi.AB_GAINS.find(entry => entry.key === "g2")?.c !== 2)
+  throw new Error("ablation-controls: the quick check quotes c = 1 and c = 2 by name, so both gains must keep their value");
+if (abApi.AB_DEPTH !== 12) throw new Error("ablation-controls: the prose says twelve blocks throughout");
+if (abApi.abNumber(abApi.abRms(abApi.AB_X0), 4) !== "1.0000")
+  throw new Error("ablation-controls: the starting vector is introduced as having RMS one");
+
+// --- an independently typed reference for the whole stack --------------------
+// Retyped from the definition rather than reused, so a change to the app's own arithmetic
+// has something to disagree with.
+const abRefTheta = Math.PI / 3, abRefDim = 4, abRefEps = 1e-5;
+const abRefRms = x => Math.sqrt(x.reduce((a, b) => a + b * b, 0) / abRefDim + abRefEps);
+const abRefLen = x => Math.sqrt(x.reduce((a, b) => a + b * b, 0));
+const abRefRot = x => {
+  const co = Math.cos(abRefTheta), si = Math.sin(abRefTheta);
+  return [co * x[0] - si * x[1], si * x[0] + co * x[1], co * x[2] - si * x[3], si * x[2] + co * x[3]];
+};
+const abRefRotT = v => {
+  const co = Math.cos(abRefTheta), si = Math.sin(abRefTheta);
+  return [co * v[0] + si * v[1], -si * v[0] + co * v[1], co * v[2] + si * v[3], -si * v[2] + co * v[3]];
+};
+const abRefNorm = x => { const r = abRefRms(x); return x.map(v => v / r); };
+const abRefNormJ = (x, v) => {
+  const r = abRefRms(x), dot = x.reduce((a, b, i) => a + b * v[i], 0);
+  return x.map((xi, i) => v[i] / r - xi * dot / (abRefDim * r * r * r));
+};
+const abRefStep = (placement, c, x) => {
+  const f = abRefRot(placement === "pre" ? abRefNorm(x) : x), u = x.map((v, i) => v + c * f[i]);
+  return placement === "post" ? abRefNorm(u) : u;
+};
+const abRefJvp = (placement, c, x, d) => {
+  if (placement === "pre") { const f = abRefRot(abRefNormJ(x, d)); return d.map((v, i) => v + c * f[i]); }
+  const f = abRefRot(d), u1 = d.map((v, i) => v + c * f[i]);
+  if (placement === "none") return u1;
+  const fx = abRefRot(x), u = x.map((v, i) => v + c * fx[i]);
+  return abRefNormJ(u, u1);
+};
+const abRefVjp = (placement, c, x, v) => {
+  if (placement === "pre") { const back = abRefRotT(v).map(u => u * c); const through = abRefNormJ(x, back); return v.map((u, i) => u + through[i]); }
+  if (placement === "none") { const back = abRefRotT(v).map(u => u * c); return v.map((u, i) => u + back[i]); }
+  const fx = abRefRot(x), u = x.map((t, i) => t + c * fx[i]), a = abRefNormJ(u, v), back = abRefRotT(a).map(t => t * c);
+  return a.map((t, i) => t + back[i]);
+};
+const abRefStream = (placement, c, depth, x0) => {
+  const xs = [x0.slice()];
+  for (let l = 0; l < depth; l++) xs.push(abRefStep(placement, c, xs[l]));
+  const gs = new Array(depth + 1); gs[depth] = [1, 0, 0, 0];
+  for (let l = depth - 1; l >= 0; l--) gs[l] = abRefVjp(placement, c, xs[l], gs[l + 1]);
+  return { rms: xs.map(abRefRms), grad: gs.map(abRefLen),
+    radial: xs.slice(0, depth).map(x => abRefLen(abRefJvp(placement, c, x, x)) / abRefLen(x)) };
+};
+if (abApi.AB_THETA !== abRefTheta || abApi.AB_DIM !== abRefDim || abApi.AB_EPS !== abRefEps)
+  throw new Error("ablation-controls: the stack's constants no longer match the reference the guards were written against");
+const abRefX0 = (() => { const raw = [1, 0.5, -0.5, 1], r = abRefRms(raw); return raw.map(v => v / r); })();
+if (abApi.AB_X0.some((value, index) => Math.abs(value - abRefX0[index]) > 1e-12))
+  throw new Error("ablation-controls: the starting vector is not the one the reference and the prose describe");
+for (const gain of abApi.AB_GAINS) {
+  for (const placement of abApi.AB_PLACEMENTS) {
+    const mine = abApi.abStream(placement.key, gain.c);
+    const reference = abRefStream(placement.key, gain.c, abApi.AB_DEPTH, abRefX0);
+    for (const field of ["rms", "grad", "radial"]) {
+      mine[field].forEach((value, index) => {
+        if (Math.abs(value - reference[field][index]) > 1e-9 * Math.max(1, Math.abs(reference[field][index])))
+          throw new Error(`ablation-controls: ${placement.key}/${field}[${index}] at c = ${gain.c} gives ${value} instead of ${reference[field][index]}`);
+        abValues++;
+      });
+    }
+  }
+}
+
+// --- what the renderers actually put on the page -----------------------------
+// A guard that only checks the computation does not check that the reader ever sees it, and a
+// guard that only greps the source does not check it either when the same call appears twice.
+const abParamHtml = {}, abStreamHtml = {};
+for (const arch of abApi.AB_ARCHS) for (const variant of abApi.AB_VARIANTS)
+  abParamHtml[`${arch.key}/${variant.key}`] = abApi.renderAblationParams(arch.key, variant.key);
+for (const placement of abApi.AB_PLACEMENTS) for (const gain of abApi.AB_GAINS)
+  abStreamHtml[`${placement.key}/${gain.key}`] = abApi.renderAblationStream(placement.key, gain.key);
+for (const [state, html] of Object.entries(abParamHtml)) {
+  if (/undefined|NaN|\[object/.test(html)) throw new Error(`ablation-controls: ${state} renders an undefined or NaN value`);
+  const arch = abApi.AB_ARCHS.find(entry => entry.key === state.split("/")[0]);
+  // Every row's parameter total, and the rounding remainder that explains the whole mismatch.
+  for (const variant of abApi.AB_VARIANTS) {
+    if (!html.includes(`<td>${abApi.abInt(abApi.abParams(arch, variant.key))}</td>`))
+      throw new Error(`ablation-controls: ${state} does not show the parameter total of the ${variant.key} row`);
+    const delta = abApi.abParams(arch, variant.key) - abApi.abParams(arch, "base");
+    // Every row that does move must print its own relative delta, not a placeholder.
+    if (delta !== 0 && !html.includes(`<td>${abApi.abNumber(100 * delta / abApi.abParams(arch, "base"), 6)} %</td>`))
+      throw new Error(`ablation-controls: ${state} does not show the relative delta of the ${variant.key} row`);
+  }
+  // Both ledger rows that carry the remainder, anchored on their markup: the remainder is the
+  // entire explanation of the word "approximately", and it is stated twice on purpose.
+  if (!html.includes(`= ${abApi.abNumber(abApi.abResidue(arch), 4)}</strong>`))
+    throw new Error(`ablation-controls: ${state} does not show the rounding remainder in the d_ff row`);
+  if (!html.includes(`\u00b7 ${abApi.abNumber(abApi.abResidue(arch), 4)}</strong>`))
+    throw new Error(`ablation-controls: ${state} does not show the remainder again as 3*d_model*remainder`);
+  if (!html.includes(abApi.abInt(3 * arch.D * arch.F - 2 * arch.D * 4 * arch.D)))
+    throw new Error(`ablation-controls: ${state} does not show the per-block difference between SwiGLU and FFN_SiLU`);
+  if (!html.includes(abApi.abInt(abApi.abFfnFlops(arch, "silu"))))
+    throw new Error(`ablation-controls: ${state} does not show the FFN_SiLU forward FLOPs`);
+  if (!html.includes(abApi.abInt(2 * arch.L * arch.D + arch.D)))
+    throw new Error(`ablation-controls: ${state} does not show the gains layer_norm_ablation removes`);
+  // The count of self-controlled ablations has to be the count of exactly-zero rows, not of rows.
+  const controlled = abApi.AB_VARIANTS.filter(variant => variant.key !== "base"
+    && abApi.abParams(arch, variant.key) === abApi.abParams(arch, "base")).length;
+  const abControlSentence = html.match(/<span>(\d+) der vier Eingriffe/);
+  if (!abControlSentence)
+    throw new Error(`ablation-controls: ${state} does not state how many of the four ablations are self-controlled`);
+  if (Number(abControlSentence[1]) !== controlled)
+    throw new Error(`ablation-controls: ${state} states ${abControlSentence[1]} self-controlled ablations, the ledger has ${controlled}`);
+  // The divisibility sentence must follow the configuration.
+  // The stub localizedUi is the identity, so the guard reads the German source wording.
+  const abSaysExact = html.includes("durch 24 teilbar \u2013 der Abgleich ist exakt.");
+  const abSaysRounded = html.includes("nicht durch 24 teilbar; d_ff wird gerundet");
+  if (abSaysExact === abSaysRounded)
+    throw new Error(`ablation-controls: ${state} must state exactly one of the two verdicts about d_model % 24`);
+  if (abSaysExact !== (arch.D % 24 === 0))
+    throw new Error(`ablation-controls: ${state} states the wrong verdict about d_model % 24`);
+}
+for (const [state, html] of Object.entries(abStreamHtml)) {
+  if (/undefined|NaN|\[object/.test(html)) throw new Error(`ablation-controls: ${state} renders an undefined or NaN value`);
+  const gain = abApi.AB_GAINS.find(entry => entry.key === state.split("/")[1]);
+  const lambda = abApi.abLambda(gain.c);
+  // All three placements must stand next to each other, at every listed depth.
+  for (const placement of abApi.AB_PLACEMENTS) {
+    const run = abApi.abStream(placement.key, gain.c);
+    for (const depth of [0, 2, 4, 6, 8, 10, 12]) {
+      if (!html.includes(`data-stream="${placement.key}-${depth}">${abApi.abNumber(run.rms[depth], 4)}<`))
+        throw new Error(`ablation-controls: ${state} does not show the RMS of ${placement.key} at depth ${depth}`);
+      if (!html.includes(`data-grad="${placement.key}-${depth}">${abApi.abNumber(run.grad[depth], 6)}<`))
+        throw new Error(`ablation-controls: ${state} does not show the gradient norm of ${placement.key} at depth ${depth}`);
+    }
+    if (!html.includes(abApi.abNumber(run.radial[6], 6)))
+      throw new Error(`ablation-controls: ${state} does not show the radial test of ${placement.key}`);
+  }
+  // Anchored on the markup of the row itself: counting occurrences would be satisfied by the
+  // gradient factor, which without a norm happens to be lambda^L as well.
+  if (!html.includes(`\u03bb\u00b9\u00b2 = ${abApi.abNumber(Math.pow(lambda, abApi.AB_DEPTH), 6)}</strong>`))
+    throw new Error(`ablation-controls: ${state} does not show lambda^L in its own ledger row`);
+  // The guard's localizedUi stub is the identity, so this reads the German source wording.
+  if (!html.includes(`hier also ${abApi.abNumber(Math.pow(lambda, abApi.AB_DEPTH), 6)} `))
+    throw new Error(`ablation-controls: ${state} does not repeat lambda^L in the answer about the learning rate`);
+  if (!html.includes(abApi.abNumber(gain.c * Math.cos(abApi.AB_THETA), 6)))
+    throw new Error(`ablation-controls: ${state} does not show the pre-norm growth per block`);
+  if (!html.includes(abApi.abNumber(lambda, 6)))
+    throw new Error(`ablation-controls: ${state} does not show lambda itself`);
+}
+
+// --- registration ------------------------------------------------------------
+const abGuides = readConstant("LECTURE_GUIDES");
+const abLectures = Object.entries(abGuides).filter(([, guide]) => (guide.labs || []).includes("ablation-controls")).map(([id]) => id);
+if (JSON.stringify(abLectures) !== JSON.stringify(["l03"]))
+  throw new Error(`ablation-controls: lecture 3 is the one that teaches pre- vs post-norm and the gated activations, found ${JSON.stringify(abLectures)}`);
+const abModules = readConstant("MODULES");
+if (!abModules.find(entry => entry.id === "transformer")?.labs.includes("ablation-controls"))
+  throw new Error("ablation-controls: the lab must be listed in the transformer module");
+if (!abModules.find(entry => entry.id === "transformer")?.sources.includes("l03"))
+  throw new Error("ablation-controls: the transformer module must cite lecture 3, otherwise the lab sits in the wrong module");
+const abAssignments = readConstant("ASSIGNMENTS");
+const abMission = abAssignments.find(entry => entry.id === "a1").missions.find(mission => mission.id === "generation-experiments");
+if (!abMission || abMission.labs[0] !== "ablation-controls")
+  throw new Error("ablation-controls: a1:generation-experiments owns all four ablation problems and must lead with this lab");
+for (const problem of ["layer_norm_ablation", "pre_norm_ablation", "no_pos_emb", "swiglu_ablation"]) {
+  if (!abMission.scope.includes(problem))
+    throw new Error(`ablation-controls: the mission scope must still name ${problem}`);
+  // Every ablation must be named on the ledger itself, so the reader can find the problem it answers.
+  if (!abApi.AB_VARIANTS.some(variant => variant.problem === `a1:${problem}`))
+    throw new Error(`ablation-controls: the ledger must carry a row for the handout problem ${problem}`);
+  if (!Object.values(abParamHtml).every(html => html.includes(`a1:${problem}`)))
+    throw new Error(`ablation-controls: every rendered ledger must name a1:${problem}`);
+}
+const abLabs = readConstant("LABS");
+const abEntry = abLabs.find(entry => entry.id === "ablation-controls");
+if (!abEntry) throw new Error("ablation-controls: missing from LABS");
+if (abEntry.module !== "transformer") throw new Error("ablation-controls: the lab belongs to the transformer module");
+if (!sliceDeclaration(source, "OBJECTIVE_LAB_IDS").includes('"ablation-controls"'))
+  throw new Error("ablation-controls: the lab must be registered in OBJECTIVE_LAB_IDS");
+const abAccepted = sliceDeclaration(source, "checkAblationControls");
+for (const answer of ["twoExact", "rounding", "exponent"]) {
+  if (!abAccepted.includes(`"${answer}"`)) throw new Error(`ablation-controls: the quick check must accept ${answer}`);
+  if (!sliceDeclaration(source, "restorePassedLab").includes(answer))
+    throw new Error(`ablation-controls: the restore preset must carry ${answer}`);
+}
+if (!sliceDeclaration(source, "initLab").includes('if(id==="ablation-controls")'))
+  throw new Error("ablation-controls: the lab must be wired up in initLab");
+const abControls = source.slice(source.indexOf('if(id==="ablation-controls") return `'));
+const abControlLine = abControls.slice(0, abControls.indexOf("\n"));
+for (const hook of ["layer_norm_ablation", "pre_norm_ablation", "no_pos_emb", "swiglu_ablation"]) {
+  if (!abControlLine.includes(hook))
+    throw new Error(`ablation-controls: the control panel must name the handout problem ${hook}`);
+}
+console.log(`ablation-controls OK: ${abValues} values, d_ff reproduced at both of A1's own anchors (${abApi.AB_ROUND64(8 * 512 / 3)} and ${abApi.AB_ROUND64(8 * 1600 / 3)}), post-norm and NoPE exactly parameter-neutral at all ${abApi.AB_ARCHS.length} configurations, the SwiGLU/FFN_SiLU match exact precisely at d_model % 24 === 0, and the stream direction through one block reading 1 / 0 / lambda for pre-norm / post-norm / no norm (lambda^12 = ${abApi.abNumber(Math.pow(abApi.abLambda(1), 12), 0)} at c = 1)`);
