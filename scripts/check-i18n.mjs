@@ -4118,3 +4118,354 @@ for (const hook of ["layer_norm_ablation", "pre_norm_ablation", "no_pos_emb", "s
     throw new Error(`ablation-controls: the control panel must name the handout problem ${hook}`);
 }
 console.log(`ablation-controls OK: ${abValues} values, d_ff reproduced at both of A1's own anchors (${abApi.AB_ROUND64(8 * 512 / 3)} and ${abApi.AB_ROUND64(8 * 1600 / 3)}), post-norm and NoPE exactly parameter-neutral at all ${abApi.AB_ARCHS.length} configurations, the SwiGLU/FFN_SiLU match exact precisely at d_model % 24 === 0, and the stream direction through one block reading 1 / 0 / lambda for pre-norm / post-norm / no norm (lambda^12 = ${abApi.abNumber(Math.pow(abApi.abLambda(1), 12), 0)} at c = 1)`);
+
+// ---- position-signal ---------------------------------------------------------
+// A1 7.3 Ablation 2 asks for a learning curve for no_pos_emb and states in the same
+// paragraph that a causal decoder "can in theory infer relative or absolute position
+// information without being provided with position embeddings explicitly". Before this
+// lab the platform mentioned NoPE only as a raw handout title and as one row label in
+// the v73 ledger: "Kazemnejad", "absolute Position" and "1/t" had 0 hits, and nothing
+// computed a score under two competing position schemes. These guards hold two things:
+// L3's design goal read as two separate tests, and the 1/t channel the causal mask alone
+// makes readable -- including where it dies in a given precision.
+const psNames = ["PS_D", "PS_THETA", "PS_PE_BASE", "PS_HORIZON", "PS_CONTEXT", "PS_CONTENTS",
+  "PS_LEARNED", "PS_TABLES", "PS_OFFSETS", "PS_PAIRS", "PS_SCHEMES", "PS_BREAKS", "PS_PRECS",
+  "psDot", "psAngle", "psRope", "psPe", "psAdd", "psNorm", "psScore", "psRopeClosed", "psTerms",
+  "psSpread", "psRoundBits", "psFirstCollision", "psContextCollisions", "psDistinctInContext"];
+const psRenderNames = ["psNumber", "psInt", "psSci", "renderPositionRelative", "renderPositionSignal"];
+const psStubs = `
+  const esc = value => String(value ?? "").replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+  const localeCode = () => "en-US";
+  const localizedUi = value => String(value);
+`;
+const psAll = [...psNames, ...psRenderNames];
+const psApi = runInNewContext(`${psStubs}${psAll.map(name => sliceDeclaration(source, name)).join("\n")}; ({${psAll.join(",")}})`, {});
+let psValues = 0;
+
+// --- A1's own RoPE angle rule, typed again from the handout ---------------------
+// A1: theta_{i,k} = i / Theta^((2k-2)/d), k from one, adjacent pairs.
+const psRefAngle = (i, k) => i / Math.pow(psApi.PS_THETA, (2 * k - 2) / psApi.PS_D);
+for (let i = 0; i <= 12; i++) for (let k = 1; k <= psApi.PS_D / 2; k++) {
+  if (Math.abs(psApi.psAngle(i, k) - psRefAngle(i, k)) > 1e-15)
+    throw new Error(`position-signal: the RoPE angle at i=${i}, k=${k} does not follow A1's rule`);
+  psValues++;
+}
+// At d = 4 and Theta = 100 the two pairs must rotate by i and i/10 -- the reason the lab
+// can show both a fast and a slow pair inside a handful of positions.
+if (psApi.psAngle(3, 1) !== 3 || Math.abs(psApi.psAngle(3, 2) - 0.3) > 1e-15)
+  throw new Error("position-signal: at d = 4 and Theta = 100 the pairs must rotate by i and i/10");
+
+// --- reference implementations, typed from the sources rather than reused --------
+const psRefDot = (a, b) => a.reduce((sum, v, i) => sum + v * b[i], 0);
+function psRefRope(x, i) {
+  const out = x.slice();
+  for (let k = 1; k <= psApi.PS_D / 2; k++) {
+    const a = 2 * (k - 1), b = a + 1, th = psRefAngle(i, k);
+    out[a] = x[a] * Math.cos(th) - x[b] * Math.sin(th);
+    out[b] = x[a] * Math.sin(th) + x[b] * Math.cos(th);
+  }
+  return out;
+}
+function psRefPe(i, table) {
+  if (table === "learned") return psApi.PS_LEARNED[i].slice();
+  const out = [];
+  for (let m = 0; m < psApi.PS_D / 2; m++) {
+    const w = i / Math.pow(psApi.PS_PE_BASE, 2 * m / psApi.PS_D);
+    out.push(Math.sin(w), Math.cos(w));
+  }
+  return out;
+}
+function psRefScore(scheme, q, k, i, j, table) {
+  if (scheme === "nope") return psRefDot(q, k);
+  if (scheme === "rope") return psRefDot(psRefRope(q, i), psRefRope(k, j));
+  const ui = psRefPe(i, table), uj = psRefPe(j, table);
+  return psRefDot(q.map((v, n) => v + ui[n]), k.map((v, n) => v + uj[n]));
+}
+
+// --- L3's design goal, read as the two separate tests it actually is -------------
+// "a relative position embedding should be some f(x,i) s.t. <f(x,i),f(y,j)> = g(x,y,i-j)"
+// Test one: same distance, shifted positions -> the score may not move.
+// Test two: different distance -> the score has to move. NoPE passes one and fails two,
+// which is the whole reason the ablation looks harmless on a single score.
+let psAbsFailures = 0, psRopeMax = 0;
+for (const content of psApi.PS_CONTENTS) for (const table of psApi.PS_TABLES) {
+  for (const offset of psApi.PS_OFFSETS) {
+    const pairs = psApi.PS_PAIRS[offset.delta];
+    if (!pairs || pairs.length !== 4)
+      throw new Error(`position-signal: offset ${offset.delta} must carry four position pairs`);
+    for (const [i, j] of pairs) {
+      if (j - i !== offset.delta)
+        throw new Error(`position-signal: pair ${i}/${j} does not have distance ${offset.delta}`);
+      for (const scheme of psApi.PS_SCHEMES) {
+        const mine = psApi.psScore(scheme.key, content.q, content.k, i, j, table.key);
+        const reference = psRefScore(scheme.key, content.q, content.k, i, j, table.key);
+        if (Math.abs(mine - reference) > 1e-12)
+          throw new Error(`position-signal: ${scheme.key} at ${i}/${j} gives ${mine} instead of ${reference}`);
+        psValues++;
+      }
+    }
+    // The four pairs share one distance but sit at different absolute positions.
+    const spreads = psApi.PS_SCHEMES.map(scheme =>
+      psApi.psSpread(pairs.map(([i, j]) => psApi.psScore(scheme.key, content.q, content.k, i, j, table.key))));
+    // NoPE: exactly zero, and exactly zero for the wrong reason -- there is no position in it.
+    if (spreads[0] !== 0)
+      throw new Error("position-signal: the NoPE spread across equal distances must be exactly zero");
+    // RoPE: zero up to the floating-point remainder, because the identity is exact.
+    if (spreads[2] > 1e-12)
+      throw new Error(`position-signal: the RoPE spread across equal distances must vanish, got ${spreads[2]}`);
+    psRopeMax = Math.max(psRopeMax, spreads[2]);
+    // Additive: must actually fail, otherwise the lab shows a difference that is not there.
+    if (!(spreads[1] > 1e-6))
+      throw new Error(`position-signal: the additive spread must be non-zero at ${content.key}/${table.key}/${offset.delta}`);
+    psAbsFailures++;
+    psValues += 3;
+  }
+  // Test two: vary the distance from a fixed starting point.
+  const sens = psApi.PS_SCHEMES.map(scheme =>
+    psApi.psSpread(psApi.PS_OFFSETS.map(offset => psApi.psScore(scheme.key, content.q, content.k, 0, offset.delta, table.key))));
+  if (sens[0] !== 0)
+    throw new Error("position-signal: under NoPE a single score must carry no distance at all");
+  if (!(sens[2] > 0.1))
+    throw new Error("position-signal: RoPE has to move when the distance moves, otherwise it carries no position");
+  psValues += 3;
+}
+if (psAbsFailures !== 16)
+  throw new Error(`position-signal: the additive scheme must fail the first test in all 16 states, got ${psAbsFailures}`);
+
+// The RoPE identity itself: rotating both and dotting equals one rotation by the difference.
+let psClosedMax = 0;
+for (const content of psApi.PS_CONTENTS) for (const offset of psApi.PS_OFFSETS)
+  for (const [i, j] of psApi.PS_PAIRS[offset.delta]) {
+    const direct = psApi.psScore("rope", content.q, content.k, i, j, "sine");
+    const closed = psApi.psRopeClosed(content.q, content.k, j - i);
+    if (Math.abs(direct - closed) > 1e-12)
+      throw new Error(`position-signal: the closed form disagrees with rotate-then-dot at ${i}/${j}`);
+    psClosedMax = Math.max(psClosedMax, Math.abs(direct - closed));
+    psValues++;
+  }
+// A rotation preserves length exactly; that is the reason the score can stay comparable.
+for (const content of psApi.PS_CONTENTS) for (let i = 0; i <= 12; i++) {
+  if (Math.abs(psApi.psNorm(psApi.psRope(content.q, i)) - psApi.psNorm(content.q)) > 1e-12)
+    throw new Error(`position-signal: RoPE must not change the length of q at position ${i}`);
+  psValues++;
+}
+// The four terms have to add up to the additive score, otherwise the cross-term story is decoration.
+for (const content of psApi.PS_CONTENTS) for (const table of psApi.PS_TABLES)
+  for (const [i, j] of psApi.PS_PAIRS[2]) {
+    const terms = psApi.psTerms(content.q, content.k, i, j, table.key);
+    const total = terms[0] + terms[1] + terms[2] + terms[3];
+    if (Math.abs(total - psRefScore("abs", content.q, content.k, i, j, table.key)) > 1e-12)
+      throw new Error(`position-signal: the four terms must add up to the additive score at ${i}/${j}`);
+    // The content term is the same in every row -- so the whole difference is the cross terms.
+    if (Math.abs(terms[0] - psRefDot(content.q, content.k)) > 1e-12)
+      throw new Error("position-signal: the first term must be the plain content score");
+    psValues += 2;
+  }
+// The integer table exists so a reader can check a row by hand: A1's own d=4 with the
+// learned table at distance two has to give these four scores and a spread of exactly 6.
+const psHandRows = psApi.PS_PAIRS[2].map(([i, j]) => psApi.psScore("abs", [1, 0, 1, 0], [1, 1, 1, 1], i, j, "learned"));
+if (JSON.stringify(psHandRows) !== JSON.stringify([10, 6, 12, 11]))
+  throw new Error(`position-signal: the hand-checkable row must read 10/6/12/11, got ${psHandRows}`);
+if (psApi.psSpread(psHandRows) !== 6)
+  throw new Error("position-signal: the hand-checkable spread must be exactly 6");
+
+// --- the NoPE mechanism: what the causal mask alone makes readable ---------------
+// Uniform weights over the t visible positions put exactly 1/t into a marked channel,
+// so the absolute position follows from a reciprocal -- no embedding, no learned weight.
+for (let t = 1; t <= 64; t++) {
+  if (Math.abs(1 / t - 1 / t) > 0) throw new Error("unreachable");
+  // the increment law the lab prints
+  const exact = 1 / t - 1 / (t + 1), law = 1 / (t * (t + 1));
+  if (Math.abs(exact - law) > 1e-15)
+    throw new Error(`position-signal: the increment law fails at t=${t}`);
+  psValues++;
+}
+// Rounding to p significand bits, typed again here.
+function psRefRound(x, p) {
+  if (x === 0 || !isFinite(x)) return x;
+  const s = x < 0 ? -1 : 1, a = Math.abs(x);
+  let e = Math.floor(Math.log2(a));
+  while (Math.pow(2, e) > a) e--;
+  while (Math.pow(2, e + 1) <= a) e++;
+  const scale = Math.pow(2, p - 1 - e), m = a * scale;
+  let r = Math.floor(m);
+  const frac = m - r;
+  if (frac > 0.5) r += 1; else if (frac === 0.5 && r % 2 === 1) r += 1;
+  return s * r / scale;
+}
+for (const prec of psApi.PS_PRECS) {
+  for (let t = 1; t <= 512; t++) {
+    if (psApi.psRoundBits(1 / t, prec.bits) !== psRefRound(1 / t, prec.bits))
+      throw new Error(`position-signal: rounding to ${prec.bits} bits disagrees at t=${t}`);
+    psValues++;
+  }
+  // A collision needs the gap to fall under one ulp: 1/(t(t+1)) < (1/t)*2^-(p-1),
+  // i.e. t+1 > 2^(p-1). The bound is proved, so nothing may collide below it.
+  const bound = Math.pow(2, prec.bits - 1);
+  for (let t = 1; t < Math.min(bound - 1, 4096); t++) {
+    if (psApi.psRoundBits(1 / t, prec.bits) === psApi.psRoundBits(1 / (t + 1), prec.bits))
+      throw new Error(`position-signal: ${prec.key} collides at t=${t}, below the proved bound ${bound}`);
+  }
+}
+// Round-half-to-even is the correct rule, but no 1/t in this lab's range ever lands on a
+// tie -- a tie needs 1/t to be exactly representable in p+1 bits, and reciprocals of
+// non-powers-of-two are infinite binary fractions. So the tie branch cannot be exercised by
+// the lab's own data, and the guard says so instead of pretending otherwise. Its correctness
+// is still held, on inputs that do tie.
+function psFracAt(x, p) {
+  const a = Math.abs(x);
+  let e = Math.floor(Math.log2(a));
+  while (Math.pow(2, e) > a) e--;
+  while (Math.pow(2, e + 1) <= a) e++;
+  const m = a * Math.pow(2, p - 1 - e);
+  return m - Math.floor(m);
+}
+for (const prec of psApi.PS_PRECS) {
+  for (let t = 1; t <= psApi.PS_HORIZON; t++) {
+    if (psFracAt(1 / t, prec.bits) === 0.5)
+      throw new Error(`position-signal: 1/${t} ties in ${prec.key}; the tie branch is no longer unreachable and the lab has to say which way it rounds`);
+  }
+}
+// Ties do occur for other inputs, and there the rule has to be the IEEE one: half to even.
+for (const prec of psApi.PS_PRECS) {
+  // a = (2N+1)/2^p with N in [2^(p-1), 2^p) lands exactly one bit past the significand.
+  const base = Math.pow(2, prec.bits - 1);
+  for (let n = base; n < base + 64; n++) {
+    const tie = (2 * n + 1) / Math.pow(2, prec.bits);
+    if (psFracAt(tie, prec.bits) !== 0.5) continue;
+    if (psApi.psRoundBits(tie, prec.bits) !== psRefRound(tie, prec.bits))
+      throw new Error(`position-signal: rounding a tie in ${prec.key} must go to even`);
+    const rounded = psApi.psRoundBits(tie, prec.bits) * Math.pow(2, prec.bits - 1);
+    if (Math.abs(rounded - Math.round(rounded)) > 1e-9 || Math.round(rounded) % 2 !== 0)
+      throw new Error(`position-signal: a tie in ${prec.key} must round to an even significand`);
+    psValues++;
+  }
+}
+// The context window is counted over the pairs that lie inside it, so t runs to 255 and not
+// to 256. In these three formats the boundary pair happens to be indistinguishable either
+// way -- stated here as a checked fact, so nobody reads the range as arbitrary.
+for (const prec of psApi.PS_PRECS) {
+  if (psApi.psRoundBits(1 / psApi.PS_CONTEXT, prec.bits) === psApi.psRoundBits(1 / (psApi.PS_CONTEXT + 1), prec.bits))
+    throw new Error(`position-signal: ${prec.key} collides at the context boundary, so the counted range now matters and must be restated`);
+}
+// fp32 is A1's default and must survive the whole search horizon; bf16 must not.
+const psFirst = Object.fromEntries(psApi.PS_PRECS.map(prec => [prec.key, psApi.psFirstCollision(prec.bits)]));
+if (psFirst.fp32 !== null)
+  throw new Error("position-signal: fp32 must not lose the channel inside the search horizon");
+if (psFirst.bf16 !== 190)
+  throw new Error(`position-signal: in bf16 the channel must first collide at t = 190, got ${psFirst.bf16}`);
+if (psFirst.fp16 !== 1464)
+  throw new Error(`position-signal: in fp16 the channel must first collide at t = 1464, got ${psFirst.fp16}`);
+// The point of the whole mode: bf16 dies inside A1's own context length of 256.
+if (psApi.PS_CONTEXT !== 256)
+  throw new Error("position-signal: A1 7.2.1 states 'Context length 256' and the lab must use it");
+if (psFirst.bf16 >= psApi.PS_CONTEXT)
+  throw new Error("position-signal: the bf16 collision has to fall inside A1's context length, otherwise the finding is academic");
+const psCtx = psApi.psContextCollisions(8), psDistinct = psApi.psDistinctInContext(8);
+if (psCtx !== 22)
+  throw new Error(`position-signal: bf16 must lose 22 neighbour pairs within 256 positions, got ${psCtx}`);
+if (psDistinct !== 234)
+  throw new Error(`position-signal: bf16 must keep 234 of 256 positions distinguishable, got ${psDistinct}`);
+if (psApi.psContextCollisions(11) !== 0 || psApi.psDistinctInContext(11) !== 256)
+  throw new Error("position-signal: fp16 must keep all 256 positions apart -- the inversion against bf16 is the point");
+if (psApi.psContextCollisions(24) !== 0 || psApi.psDistinctInContext(24) !== 256)
+  throw new Error("position-signal: fp32 must keep all 256 positions apart");
+psValues += 6;
+
+// --- renderer guards, anchored to the rendered line rather than to a bare number --
+// v73's lesson, one turn sharper: a guard that searches for a number does not check the
+// row the number is supposed to stand in. Every check below pins the concrete cell.
+const psRelativeHtml = {};
+for (const content of psApi.PS_CONTENTS) for (const table of psApi.PS_TABLES) for (const offset of psApi.PS_OFFSETS)
+  psRelativeHtml[`${content.key}|${table.key}|${offset.key}`] =
+    psApi.renderPositionRelative(content.key, table.key, offset.key);
+const psSignalHtml = {};
+for (const brk of psApi.PS_BREAKS) for (const prec of psApi.PS_PRECS)
+  psSignalHtml[`${brk.key}|${prec.key}`] = psApi.renderPositionSignal(brk.key, prec.key);
+if (Object.keys(psRelativeHtml).length !== 16 || Object.keys(psSignalHtml).length !== 6)
+  throw new Error("position-signal: the lab must render 16 + 6 states");
+for (const [key, html] of [...Object.entries(psRelativeHtml), ...Object.entries(psSignalHtml)]) {
+  if (/undefined|NaN|\[object/.test(html))
+    throw new Error(`position-signal: state ${key} renders undefined/NaN`);
+}
+// Both spread cells of every mode-A state, in the cell they belong to.
+for (const [key, html] of Object.entries(psRelativeHtml)) {
+  if (!html.includes('<td data-spread="nope">exakt null</td>'))
+    throw new Error(`position-signal: ${key} must show the NoPE spread as exactly zero in its own cell`);
+  if (!html.includes('<td data-sensspread="nope">exakt null</td>'))
+    throw new Error(`position-signal: ${key} must show NoPE carrying no distance in its own cell`);
+  if (/<td data-sensspread="rope">exakt null<\/td>/.test(html))
+    throw new Error(`position-signal: ${key} must not claim RoPE ignores the distance`);
+}
+// The hand-checkable state has to print its four scores and its spread of 6.
+const psHandHtml = psRelativeHtml["weKnow|learned|o2"];
+for (const [pair, value] of [["0-2", "10.000000"], ["1-3", "6.000000"], ["3-5", "12.000000"], ["6-8", "11.000000"]]) {
+  if (!psHandHtml.includes(`<td data-equal="abs-${pair.replace("-", "-")}">${value}</td>`))
+    throw new Error(`position-signal: the hand-checkable additive cell ${pair} must read ${value}`);
+}
+if (!psHandHtml.includes('<td data-spread="abs">6.00e+0</td>'))
+  throw new Error("position-signal: the hand-checkable additive spread must render as 6 in its own cell");
+// Mode B: the marker channel, the recovered position, and the three numbers that carry the finding.
+const psMarked = psSignalHtml["marked|bf16"];
+if (!psMarked.includes('<td data-marker="3">0.333333</td>'))
+  throw new Error("position-signal: the marker channel must read 1/3 at position 3");
+if (!psMarked.includes('<td data-recovered="3">3.0000</td>'))
+  throw new Error("position-signal: position 3 must be recovered as exactly 3");
+if (!psMarked.includes('<strong data-first="1">190</strong>'))
+  throw new Error("position-signal: the bf16 state must print the first collision as 190 in its own row");
+if (!psMarked.includes('<strong data-ctxcoll="1">22</strong>'))
+  throw new Error("position-signal: the bf16 state must print 22 colliding neighbour pairs in its own row");
+if (!psMarked.includes('<strong data-distinct="1">234 von 256</strong>'))
+  throw new Error("position-signal: the bf16 state must print 234 of 256 distinguishable positions in its own row");
+const psFlat = psSignalHtml["flat|bf16"];
+if (!psFlat.includes('<td data-marker="3">1.000000</td>'))
+  throw new Error("position-signal: without a marker the channel must read one at every position");
+if (!psFlat.includes('<td data-recovered="3">nicht rekonstruierbar</td>'))
+  throw new Error("position-signal: without a marker no position may be claimed as recovered");
+if (psFlat.includes('data-first="1">190<'))
+  throw new Error("position-signal: the control state must not report a collision point");
+const psFp32 = psSignalHtml["marked|fp32"];
+if (!/<strong data-first="1">keines bis zum Suchhorizont 4,096<\/strong>/.test(psFp32))
+  throw new Error("position-signal: fp32 must report that it survives the whole horizon, in its own row");
+
+// --- registration: the lab has to be reachable from lecture, module and problem ----
+const psLabs = readConstant("LABS");
+const psEntry = psLabs.find(entry => entry.id === "position-signal");
+if (!psEntry) throw new Error("position-signal: missing from LABS");
+if (psEntry.module !== "transformer")
+  throw new Error("position-signal: the lab belongs to the transformer module");
+// Lecture 3 is the one that derives RoPE from <f(x,i),f(y,j)> = g(x,y,i-j); no other lecture may own this lab.
+const psGuides = readConstant("LECTURE_GUIDES");
+const psOwning = Object.entries(psGuides).filter(([, guide]) => (guide.labs || []).includes("position-signal")).map(([id]) => id);
+if (JSON.stringify(psOwning) !== JSON.stringify(["l03"]))
+  throw new Error(`position-signal: lecture 3 derives RoPE and must be the only owner, found ${JSON.stringify(psOwning)}`);
+const psModules = readConstant("MODULES");
+if (!psModules.find(entry => entry.id === "transformer")?.labs.includes("position-signal"))
+  throw new Error("position-signal: the lab must be listed in the transformer module");
+const psAssignments = readConstant("ASSIGNMENTS");
+const psMission = psAssignments.find(entry => entry.id === "a1").missions.find(mission => mission.id === "generation-experiments");
+if (!psMission || !psMission.labs.includes("position-signal"))
+  throw new Error("position-signal: a1:generation-experiments owns no_pos_emb and must carry this lab");
+if (!psMission.scope.includes("no_pos_emb"))
+  throw new Error("position-signal: the mission scope must still name no_pos_emb");
+const psProblems = readConstant("HANDOUT_PROBLEMS");
+if (!psProblems["a1:no_pos_emb"])
+  throw new Error("position-signal: the handout problem a1:no_pos_emb must still exist");
+if (!sliceDeclaration(source, "OBJECTIVE_LAB_IDS").includes('"position-signal"'))
+  throw new Error("position-signal: the lab must be registered in OBJECTIVE_LAB_IDS");
+const psAccepted = sliceDeclaration(source, "checkPositionSignal");
+for (const answer of ["ropeOnly", "maskAndToken", "t190"]) {
+  if (!psAccepted.includes(`"${answer}"`))
+    throw new Error(`position-signal: the quick check must accept ${answer}`);
+  if (!sliceDeclaration(source, "restorePassedLab").includes(answer))
+    throw new Error(`position-signal: the restore preset must carry ${answer}`);
+}
+if (!sliceDeclaration(source, "initLab").includes('if(id==="position-signal")'))
+  throw new Error("position-signal: the lab must be wired up in initLab");
+// The control panel has to name the handout problem, so the reader can find what this answers.
+const psControls = source.slice(source.indexOf('if(id==="position-signal") return `'));
+const psControlLine = psControls.slice(0, psControls.indexOf("\n"));
+if (!psControlLine.includes("no_pos_emb"))
+  throw new Error("position-signal: the control panel must name the handout problem no_pos_emb");
+
+console.log(`position-signal OK: ${psValues} values, L3's design goal split into its two tests (NoPE passes the first with an exact 0 and fails the second with an exact 0, the additive scheme fails the first in all ${psAbsFailures} states, RoPE passes both with a residue under ${psRopeMax.toExponential(1)}), the rotate-then-dot identity closed to ${psClosedMax.toExponential(1)}, and the 1/t channel of a causal mask dying at t = ${psFirst.bf16} in bf16 against ${psFirst.fp16} in fp16 -- ${psCtx} neighbour pairs lost and ${psDistinct} of ${psApi.PS_CONTEXT} positions left inside A1's own context length`);
