@@ -4469,3 +4469,304 @@ if (!psControlLine.includes("no_pos_emb"))
   throw new Error("position-signal: the control panel must name the handout problem no_pos_emb");
 
 console.log(`position-signal OK: ${psValues} values, L3's design goal split into its two tests (NoPE passes the first with an exact 0 and fails the second with an exact 0, the additive scheme fails the first in all ${psAbsFailures} states, RoPE passes both with a residue under ${psRopeMax.toExponential(1)}), the rotate-then-dot identity closed to ${psClosedMax.toExponential(1)}, and the 1/t channel of a causal mask dying at t = ${psFirst.bf16} in bf16 against ${psFirst.fp16} in fp16 -- ${psCtx} neighbour pairs lost and ${psDistinct} of ${psApi.PS_CONTEXT} positions left inside A1's own context length`);
+
+// ---- stability-edge ----------------------------------------------------------
+// A1 Problem (learning_rate) (b) states the folk wisdom that the best learning rate is
+// "at the edge of stability" and asks how the divergence point relates to the best value.
+// A1 Problem (batch_size_experiment) asks for batch sizes "all the way from 1 to the GPU
+// memory limit" and writes that "The learning rates should be optimized again if necessary".
+// L9 defines "Critical batch = min number of examples for target loss / min number of steps
+// for target loss", L1 cites McCandlish+ 2018 for it. Before this lab "edge of stability",
+// "curvature", "Hessian", "eigenvalue" and "condition number" had 0 hits, and "critical batch
+// size" appeared in exactly one learning-goal sentence without ever being computed. These
+// guards hold the two exact quantities: the divergence threshold that follows from curvature
+// alone, and the hyperbola that ties steps against examples.
+const seNames = ["SE_SPECTRA", "SE_PROBES", "SE_SWEEP", "SE_OVERSHOOTS", "SE_GROWTH_TARGET",
+  "SE_S_MIN", "SE_E_MIN", "SE_BATCHES", "SE_TUNING", "SE_TUNE_REF", "seEtaDiv", "seEtaOpt",
+  "seFactor", "seWorst", "seProbeEta", "seStepsToGrow", "seStepsToShrink", "seBCrit",
+  "seSteps", "seExamples", "seLrFraction"];
+const seRenderNames = ["seNum", "seInt", "seSci", "sePct", "renderStabilityThreshold",
+  "renderStabilityBatch", "stabilityEdgeSuccessMarkup"];
+const seStubs = `
+  const esc = value => String(value ?? "").replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+  const localeCode = () => "en-US";
+  const localizedUi = value => String(value);
+`;
+const seAll = [...seNames, ...seRenderNames];
+const seApi = runInNewContext(`${seStubs}${seAll.map(name => sliceDeclaration(source, name)).join("\n")}; ({${seAll.join(",")}})`, {});
+let seValues = 0;
+
+// --- Mode A, reference typed from the update rule rather than reused -------------
+// A gradient step on f(theta) = 1/2 sum lambda_i theta_i^2 is theta_i <- (1 - eta*lambda_i) theta_i.
+// It contracts exactly when |1 - eta*lambda_i| < 1, i.e. eta < 2/lambda_i.
+for (const spec of seApi.SE_SPECTRA) {
+  const { lmax, lmin } = spec, kappa = lmax / lmin;
+  const refDiv = 2 / lmax, refOpt = 2 / (lmax + lmin);
+  if (Math.abs(seApi.seEtaDiv(lmax) - refDiv) > 1e-15)
+    throw new Error(`stability-edge: ${spec.key} divergence threshold is not 2/lambda_max`);
+  if (Math.abs(seApi.seEtaOpt(lmax, lmin) - refOpt) > 1e-15)
+    throw new Error(`stability-edge: ${spec.key} best learning rate is not 2/(lambda_max+lambda_min)`);
+  // eta_opt is the value that balances both directions: |1-eta*lmax| == |1-eta*lmin|.
+  if (Math.abs(Math.abs(1 - refOpt * lmax) - Math.abs(1 - refOpt * lmin)) > 1e-15)
+    throw new Error(`stability-edge: ${spec.key} eta_opt must equalise both directions`);
+  // The claim the whole lab turns on: the ratio is kappa/(kappa+1) and nothing else.
+  if (Math.abs(refOpt / refDiv - kappa / (kappa + 1)) > 1e-15)
+    throw new Error(`stability-edge: ${spec.key} eta_opt/eta_div must be kappa/(kappa+1)`);
+  if (Math.abs(seApi.seWorst(refOpt, lmax, lmin) - (kappa - 1) / (kappa + 1)) > 1e-15)
+    throw new Error(`stability-edge: ${spec.key} contraction at eta_opt must be (kappa-1)/(kappa+1)`);
+  seValues += 5;
+  // The sweep has to change behaviour exactly at the threshold, not near it.
+  for (const mult of seApi.SE_SWEEP) {
+    const worst = seApi.seWorst(mult * refDiv, lmax, lmin);
+    const expected = mult < 1 ? "converges" : mult > 1 ? "diverges" : "neither";
+    const actual = worst < 1 ? "converges" : worst > 1 ? "diverges" : "neither";
+    if (expected !== actual)
+      throw new Error(`stability-edge: ${spec.key} at ${mult}x the threshold should ${expected}, got ${actual}`);
+    seValues++;
+  }
+  // At exactly the threshold the amplitude is preserved -- neither convergence nor blow-up.
+  if (seApi.seWorst(refDiv, lmax, lmin) !== 1)
+    throw new Error(`stability-edge: ${spec.key} must sit at exactly 1 on the threshold itself`);
+  seValues++;
+}
+// kappa = 1 is the case that refutes the folk wisdom: the optimum is at half the threshold.
+const seIso = seApi.SE_SPECTRA.find(s => s.key === "iso");
+if (seApi.seEtaOpt(seIso.lmax, seIso.lmin) / seApi.seEtaDiv(seIso.lmax) !== 0.5)
+  throw new Error("stability-edge: at kappa = 1 the best learning rate must be half the threshold");
+// ... and it reaches the minimum in one step, which is why its contraction is exactly zero.
+if (seApi.seWorst(seApi.seEtaOpt(seIso.lmax, seIso.lmin), seIso.lmax, seIso.lmin) !== 0)
+  throw new Error("stability-edge: at kappa = 1 the optimal step must land exactly on the minimum");
+seValues += 2;
+
+// --- how long a divergent run stays invisible ------------------------------------
+const seGrowRef = {};
+for (const over of seApi.SE_OVERSHOOTS) {
+  const g = Math.abs(1 - 2 * over);
+  const ref = Math.ceil(Math.log(seApi.SE_GROWTH_TARGET) / Math.log(g));
+  if (seApi.seStepsToGrow(g, seApi.SE_GROWTH_TARGET) !== ref)
+    throw new Error(`stability-edge: steps to grow at ${over}x do not follow log(target)/log(growth)`);
+  seGrowRef[over] = ref;
+  seValues++;
+}
+if (seGrowRef[1.01] !== 349 || seGrowRef[2] !== 7)
+  throw new Error("stability-edge: 1 % over the threshold must need 349 steps and 2x only 7");
+// A run below the threshold never grows, so the function has to say so instead of returning a number.
+if (seApi.seStepsToGrow(0.99, seApi.SE_GROWTH_TARGET) !== null)
+  throw new Error("stability-edge: a contracting factor must not report a growth horizon");
+seValues += 3;
+
+// --- Mode B, reference typed from L9's definition --------------------------------
+// L9: critical batch = min examples / min steps. McCandlish+ 2018 then gives
+// S/S_min = 1 + B_crit/B and E/E_min = 1 + B/B_crit.
+const seBCritRef = seApi.SE_E_MIN / seApi.SE_S_MIN;
+if (seApi.seBCrit() !== seBCritRef || seBCritRef !== 256)
+  throw new Error("stability-edge: the critical batch size must be E_min/S_min = 256");
+seValues++;
+for (const entry of seApi.SE_BATCHES) {
+  const B = entry.B;
+  const refSteps = seApi.SE_S_MIN * (1 + seBCritRef / B);
+  const refExamples = seApi.SE_E_MIN * (1 + B / seBCritRef);
+  if (seApi.seSteps(B) !== refSteps || seApi.seExamples(B) !== refExamples)
+    throw new Error(`stability-edge: B = ${B} does not follow McCandlish's two relations`);
+  // The two relations have to be consistent with the definition E = B*S, which is not
+  // assumed anywhere in the code -- it is the cross-check that they describe one model.
+  if (Math.abs(refExamples - B * refSteps) > 1e-9)
+    throw new Error(`stability-edge: B = ${B} breaks E = B * S`);
+  // Both are integers here, so a rounding slip cannot hide in the table.
+  if (!Number.isInteger(refSteps) || !Number.isInteger(refExamples))
+    throw new Error(`stability-edge: B = ${B} must give whole steps and whole examples`);
+  // The hyperbola, which is the single statement both relations amount to.
+  const hyperbola = (refSteps / seApi.SE_S_MIN - 1) * (refExamples / seApi.SE_E_MIN - 1);
+  if (Math.abs(hyperbola - 1) > 1e-12)
+    throw new Error(`stability-edge: B = ${B} does not sit on (S/S_min - 1)(E/E_min - 1) = 1`);
+  if (Math.abs(seApi.seLrFraction(B) - B / (B + seBCritRef)) > 1e-15)
+    throw new Error(`stability-edge: B = ${B} optimal learning rate fraction is not B/(B+B_crit)`);
+  seValues += 5;
+}
+// The critical batch size is exactly the point that costs twice both minima.
+if (seApi.seSteps(seBCritRef) !== 2 * seApi.SE_S_MIN || seApi.seExamples(seBCritRef) !== 2 * seApi.SE_E_MIN)
+  throw new Error("stability-edge: at B = B_crit the run must cost exactly twice both minima");
+seValues += 2;
+// The exchange rate has to get monotonically worse -- that is L9's "diminishing returns".
+let sePrevRate = 0;
+for (const B of [64, 128, 256, 512, 1024, 2048]) {
+  const sFactor = seApi.seSteps(2 * B) / seApi.seSteps(B);
+  const eFactor = seApi.seExamples(2 * B) / seApi.seExamples(B);
+  const rate = (eFactor - 1) / (1 - sFactor);
+  if (rate <= sePrevRate)
+    throw new Error(`stability-edge: the exchange rate must worsen monotonically, but ${B} did not`);
+  sePrevRate = rate;
+  seValues += 3;
+}
+// The two doublings the prose quotes by name.
+const seLow = { s: seApi.seSteps(128) / seApi.seSteps(64), e: seApi.seExamples(128) / seApi.seExamples(64) };
+const seHigh = { s: seApi.seSteps(2048) / seApi.seSteps(1024), e: seApi.seExamples(2048) / seApi.seExamples(1024) };
+if (Math.abs(seLow.s - 0.6) > 1e-12 || Math.abs(seLow.e - 1.2) > 1e-12)
+  throw new Error("stability-edge: the prose claims 64 -> 128 costs 60 % steps at 120 % examples");
+if (Math.abs(seHigh.s - 0.9) > 1e-12 || Math.abs(seHigh.e - 1.8) > 1e-12)
+  throw new Error("stability-edge: the prose claims 1024 -> 2048 costs 90 % steps at 180 % examples");
+seValues += 4;
+// The confound: a learning rate tuned at one batch size and held fixed.
+const seRefFraction = seApi.seLrFraction(seApi.SE_TUNE_REF);
+const seMismatch = B => seRefFraction / seApi.seLrFraction(B);
+if (Math.abs(seMismatch(1) - 257 / 3) > 1e-12)
+  throw new Error("stability-edge: at B = 1 the fixed learning rate must sit 257/3 above its own optimum");
+if (Math.abs(1 / seMismatch(1024) - 2.4) > 1e-12)
+  throw new Error("stability-edge: at B = 1024 the fixed learning rate must sit 2.4 below its own optimum");
+if (seMismatch(seApi.SE_TUNE_REF) !== 1)
+  throw new Error("stability-edge: the batch size the learning rate was tuned at must be hit exactly");
+// Direction matters: below the tuning point too large, above it too small.
+for (const entry of seApi.SE_BATCHES) {
+  const expected = entry.B < seApi.SE_TUNE_REF ? 1 : entry.B > seApi.SE_TUNE_REF ? -1 : 0;
+  const actual = Math.sign(seMismatch(entry.B) - 1);
+  if (expected !== actual)
+    throw new Error(`stability-edge: the fixed learning rate must be too large below B = ${seApi.SE_TUNE_REF} and too small above it, but B = ${entry.B} broke that`);
+  seValues++;
+}
+seValues += 3;
+
+// --- the numbers the prose quotes have to be the numbers the tables render --------
+// Prose numerals are their own failure mode: they do not move when the code does.
+const seRatioText = {};
+for (const spec of seApi.SE_SPECTRA) {
+  seRatioText[spec.key] = seApi.sePct(seApi.seEtaOpt(spec.lmax, spec.lmin) / seApi.seEtaDiv(spec.lmax), 4);
+}
+if (seRatioText.iso !== "50.0000 %" || seRatioText.mild !== "90.9091 %"
+  || seRatioText.ill !== "99.0099 %" || seRatioText.extreme !== "99.9001 %")
+  throw new Error("stability-edge: the four ratios the prose quotes must be what sePct renders");
+seValues += 4;
+const seThresholdHtml = seApi.renderStabilityThreshold("ill", "over");
+const seBatchHtml = seApi.renderStabilityBatch("b1", "fixed");
+for (const needle of ["99.0099 %", "50.0000 %", "90.9091 %", "99.9001 %", "349"]) {
+  if (!seThresholdHtml.includes(needle))
+    throw new Error(`stability-edge: mode A must render ${needle}, which its prose quotes`);
+  seValues++;
+}
+for (const needle of ["85.6667", "2.4000", "256", "4,000", "1,024,000", "512,000"]) {
+  if (!seBatchHtml.includes(needle))
+    throw new Error(`stability-edge: mode B must render ${needle}, which its prose quotes`);
+  seValues++;
+}
+// The honest paragraph has to stay: both modes are models, not measurements.
+if (!seThresholdHtml.includes("keine Vorhersage f\u00fcr deinen Lauf"))
+  throw new Error("stability-edge: mode A must keep saying that 2/lambda_max is no prediction");
+if (!seBatchHtml.includes("sind hier gesetzt, nicht gemessen"))
+  throw new Error("stability-edge: mode B must keep saying that B_crit is set and not measured");
+seValues += 2;
+
+// --- the sweep has to contain the threshold itself, or the "neither" case is untested ---
+if (seApi.SE_SWEEP.filter(m => m === 1).length !== 1)
+  throw new Error("stability-edge: the sweep must contain exactly the threshold itself, where the amplitude is preserved");
+if (!seApi.SE_SWEEP.some(m => m < 1) || !seApi.SE_SWEEP.some(m => m > 1))
+  throw new Error("stability-edge: the sweep must straddle the threshold in both directions");
+seValues += 3;
+
+// --- every probe has to be the learning rate its label promises -------------------
+for (const spec of seApi.SE_SPECTRA) {
+  const refDiv = 2 / spec.lmax, refOpt = 2 / (spec.lmax + spec.lmin);
+  const expected = { opt: refOpt, half: 0.5 * refDiv, near: 0.99 * refDiv, over: 1.01 * refDiv };
+  for (const probe of seApi.SE_PROBES) {
+    if (Math.abs(seApi.seProbeEta(probe.key, spec.lmax, spec.lmin) - expected[probe.key]) > 1e-15)
+      throw new Error(`stability-edge: probe ${probe.key} does not deliver the learning rate its label promises`);
+    seValues++;
+  }
+  // "near" has to stay stable and "over" has to diverge -- otherwise the two labels lie.
+  if (!(seApi.seWorst(expected.near, spec.lmax, spec.lmin) < 1))
+    throw new Error(`stability-edge: the probe just below the threshold must stay stable at ${spec.key}`);
+  if (!(seApi.seWorst(expected.over, spec.lmax, spec.lmin) > 1))
+    throw new Error(`stability-edge: the probe just above the threshold must diverge at ${spec.key}`);
+  seValues += 2;
+}
+
+// --- steps to shrink: the loss is quadratic in theta, so a factor r on theta is r^2 on the loss ---
+for (const r of [0.5, 0.8, 0.9, 0.980198019801980, 0.998001998001998]) {
+  const ref = Math.ceil(Math.log(1 / 1e-3) / (2 * Math.log(1 / r)));
+  if (seApi.seStepsToShrink(r, 1e-3) !== ref)
+    throw new Error(`stability-edge: steps to shrink at r = ${r} must account for the loss being quadratic in theta`);
+  seValues++;
+}
+// A factor of exactly 1 never shrinks, and 0 lands in a single step.
+if (seApi.seStepsToShrink(1, 1e-3) !== null)
+  throw new Error("stability-edge: a factor of 1 must never reach the target");
+if (seApi.seStepsToShrink(0, 1e-3) !== 1)
+  throw new Error("stability-edge: a factor of 0 must land in a single step");
+seValues += 2;
+
+// --- prose numerals: they do not move when the code does, so each one gets a guard ---
+const seDe = value => String(value).replace(".", ",");
+const seProse = [
+  [seThresholdHtml, `Bei κ = 1 sind das ${(100 * (seApi.seEtaOpt(1, 1) / seApi.seEtaDiv(1))).toFixed(0)} %`],
+  [seThresholdHtml, `Bei κ = 100 sind es ${seDe((100 * (seApi.seEtaOpt(100, 1) / seApi.seEtaDiv(100))).toFixed(4))} %, bei κ = 1000 sind es ${seDe((100 * (seApi.seEtaOpt(1000, 1) / seApi.seEtaDiv(1000))).toFixed(4))} %`],
+  [seThresholdHtml, `bis zum Faktor ${seApi.SE_GROWTH_TARGET} sind das ${seGrowRef[1.01]} Schritte`],
+  [seThresholdHtml, `nach ${seGrowRef[2]} Schritten offensichtlich`],
+  [seThresholdHtml, `mit ${seDe(Math.abs(1 - 2 * 1.01).toFixed(2))} pro Schritt`],
+  [seBatchHtml, `fallen die Schritte auf ${(100 * seLow.s).toFixed(0)} % und die Beispiele steigen nur auf ${(100 * seLow.e).toFixed(0)} %`],
+  [seBatchHtml, `fallen die Schritte nur noch auf ${(100 * seHigh.s).toFixed(0)} %, die Beispiele steigen aber auf ${(100 * seHigh.e).toFixed(0)} %`],
+  [seBatchHtml, `um den Faktor ${seDe(seMismatch(1).toFixed(4))} über seiner eigenen optimalen Lernrate`],
+  [seBatchHtml, `B = 1024 um den Faktor ${seDe((1 / seMismatch(1024)).toFixed(1))} darunter`],
+];
+for (const [html, needle] of seProse) {
+  if (!html.includes(needle))
+    throw new Error(`stability-edge: the prose must quote the computed number -- missing ${JSON.stringify(needle)}`);
+  seValues++;
+}
+// The two ratios the spectrum notes quote as fractions rather than percentages.
+const seMildNote = seApi.SE_SPECTRA.find(s => s.key === "mild").note;
+const seIllNote = seApi.SE_SPECTRA.find(s => s.key === "ill").note;
+if (!seMildNote.includes("10/11 der Schwelle"))
+  throw new Error("stability-edge: the kappa = 10 note must quote 10/11, the value kappa/(kappa+1) takes there");
+if (!seIllNote.includes("100/101 der Schwelle"))
+  throw new Error("stability-edge: the kappa = 100 note must quote 100/101, the value kappa/(kappa+1) takes there");
+seValues += 2;
+
+
+// --- registration -----------------------------------------------------------------
+const seLabs = readConstant("LABS");
+const seLab = seLabs.find(entry => entry.id === "stability-edge");
+if (!seLab) throw new Error("stability-edge: the lab must exist in LABS");
+if (seLab.module !== "training")
+  throw new Error("stability-edge: the lab belongs to the training module, which cites A1 and L2");
+const seModules = readConstant("MODULES");
+if (!seModules.find(entry => entry.id === "training")?.labs.includes("stability-edge"))
+  throw new Error("stability-edge: the lab must be listed in the training module");
+const seGuides = readConstant("LECTURE_GUIDES");
+const seLectures = Object.keys(seGuides).filter(id => (seGuides[id].labs || []).includes("stability-edge"));
+// L2 is the lecture that implements SGD as p.data -= lr * grad, which is the update this
+// lab decides the stability of. Any other lecture would be a claim the sources do not carry.
+if (seLectures.length !== 1 || seLectures[0] !== "l02")
+  throw new Error(`stability-edge: the lab belongs to exactly l02, not ${JSON.stringify(seLectures)}`);
+const seAssignments = readConstant("ASSIGNMENTS");
+const seMission = seAssignments.find(entry => entry.id === "a1").missions.find(mission => mission.id === "generation-experiments");
+if (!seMission || !seMission.labs.includes("stability-edge"))
+  throw new Error("stability-edge: a1:generation-experiments owns both problems and must carry this lab");
+// v73 reserves the lead of this mission for the lab covering all four ablations, v74 put
+// position-signal second. This lab answers two different problems and must not take the lead.
+if (seMission.labs[0] !== "ablation-controls")
+  throw new Error("stability-edge: ablation-controls must keep the lead of a1:generation-experiments");
+for (const problem of ["learning_rate", "batch_size_experiment"]) {
+  if (!seMission.scope.includes(problem))
+    throw new Error(`stability-edge: the mission scope must still name ${problem}`);
+}
+const seProblems = readConstant("HANDOUT_PROBLEMS");
+for (const id of ["a1:learning_rate", "a1:batch_size_experiment"]) {
+  if (!seProblems[id]) throw new Error(`stability-edge: the handout problem ${id} must still exist`);
+}
+if (!sliceDeclaration(source, "OBJECTIVE_LAB_IDS").includes('"stability-edge"'))
+  throw new Error("stability-edge: the lab must be registered in OBJECTIVE_LAB_IDS");
+const seAccepted = sliceDeclaration(source, "checkStabilityEdge");
+for (const answer of ["kappaRatio", "doubleBoth", "perRunOffset"]) {
+  if (!seAccepted.includes(`"${answer}"`))
+    throw new Error(`stability-edge: the quick check must accept ${answer}`);
+  if (!sliceDeclaration(source, "restorePassedLab").includes(answer))
+    throw new Error(`stability-edge: the restore preset must carry ${answer}`);
+}
+if (!sliceDeclaration(source, "initLab").includes('if(id==="stability-edge")'))
+  throw new Error("stability-edge: the lab must be wired up in initLab");
+const seControls = source.slice(source.indexOf('if(id==="stability-edge") return `'));
+const seControlLine = seControls.slice(0, seControls.indexOf("\n"));
+for (const problem of ["learning_rate", "batch_size_experiment"]) {
+  if (!seControlLine.includes(problem))
+    throw new Error(`stability-edge: the control panel must name the handout problem ${problem}`);
+}
+
+console.log(`stability-edge OK: ${seValues} values, the folk wisdom from A1 (b) resolved into kappa/(kappa+1) -- ${seRatioText.iso} at kappa = 1 against ${seRatioText.extreme} at kappa = 1000 -- a run 1 % past the threshold staying invisible for ${seGrowRef[1.01]} steps against ${seGrowRef[2]} at twice the threshold, and L9's critical batch size of ${seBCritRef} costing exactly twice both minima while one doubling moves from ${(100 * seLow.s).toFixed(0)} %/${(100 * seLow.e).toFixed(0)} % steps-per-examples at 64 to ${(100 * seHigh.s).toFixed(0)} %/${(100 * seHigh.e).toFixed(0)} % at 1024, and a learning rate tuned once at B = ${seApi.SE_TUNE_REF} sitting ${seMismatch(1).toFixed(4)}x too high at B = 1`);
