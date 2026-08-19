@@ -4470,6 +4470,477 @@ if (!psControlLine.includes("no_pos_emb"))
 
 console.log(`position-signal OK: ${psValues} values, L3's design goal split into its two tests (NoPE passes the first with an exact 0 and fails the second with an exact 0, the additive scheme fails the first in all ${psAbsFailures} states, RoPE passes both with a residue under ${psRopeMax.toExponential(1)}), the rotate-then-dot identity closed to ${psClosedMax.toExponential(1)}, and the 1/t channel of a causal mask dying at t = ${psFirst.bf16} in bf16 against ${psFirst.fp16} in fp16 -- ${psCtx} neighbour pairs lost and ${psDistinct} of ${psApi.PS_CONTEXT} positions left inside A1's own context length`);
 
+
+// ---- pipeline-yield ----------------------------------------------------------
+// A4 Problem (filter_data) (a) asks for "A written breakdown of what proportion of the
+// discarded examples are removed by each filter step" and (b) for "How long does it take
+// to filter the provided WET files (originally 2,500 raw WET files)? How long would it
+// take to filter the entire Common Crawl dump?". Both hang on the same quantity: how many
+// documents a stage actually gets to see. Before this lab "Kaskade", "cascade",
+// "Zurechnung" and "per stage" had 0 hits, and no lab computed a stage count at all.
+// These guards hold the one structural fact the lab claims -- the kept set is an
+// intersection and therefore order-free, while attribution and cost are not -- against a
+// reference typed from the definitions rather than reused from the app.
+const fcNames = ["FC_STAGES", "FC_SIGNATURES", "FC_COST", "FC_ORDERS", "FC_MEASURES",
+  "FC_SAMPLE_SHARE", "FC_A4_FILES", "FC_DOCS_PER_FILE", "FC_WORKERS", "FC_PUBLISHED",
+  "fcTotal", "fcKept", "fcRejected", "fcIsolated", "fcAttribution", "fcReaching",
+  "fcCascadeCost", "fcFullCost", "fcMeasureCost", "fcPermutations", "fcAllOrders",
+  "fcCostExtremes", "fcAttributionRange", "fcRuleKey"];
+const fcRenderNames = ["fcNum", "fcInt", "fcPct", "renderPipelineAttribution",
+  "renderPipelineCost", "pipelineYieldSuccessMarkup"];
+const fcStubs = `
+  const esc = value => String(value ?? "").replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+  const localeCode = () => "en-US";
+  const localizedUi = value => String(value);
+`;
+const fcAll = [...fcNames, ...fcRenderNames];
+const fcApi = runInNewContext(`${fcStubs}${fcAll.map(name => sliceDeclaration(source, name)).join("\n")}; ({${fcAll.join(",")}})`, {});
+let fcValues = 0;
+
+// --- reference, typed from the definitions and not from the app -------------------
+// A document survives iff it passes every stage, so the kept set is the intersection of
+// the pass sets. Everything below is counted off the explicit failure signatures.
+const fcKeys = ["L", "G", "Q", "D"];
+const fcRefTotal = fcApi.FC_SIGNATURES.reduce((sum, entry) => sum + entry.n, 0);
+const fcRefKept = fcApi.FC_SIGNATURES.filter(entry => entry.sig === "").reduce((sum, entry) => sum + entry.n, 0);
+const fcRefRejected = fcRefTotal - fcRefKept;
+if (fcRefTotal !== 10000) throw new Error(`pipeline-yield: the corpus must hold 10000 documents, found ${fcRefTotal}`);
+if (fcApi.fcTotal() !== fcRefTotal || fcApi.fcKept() !== fcRefKept || fcApi.fcRejected() !== fcRefRejected)
+  throw new Error("pipeline-yield: corpus totals disagree with the signature table");
+// Each signature must be a subset of the four stages, spelled in canonical order, and
+// each combination must appear exactly once -- otherwise a count could hide in a duplicate.
+const fcSeen = new Set();
+for (const entry of fcApi.FC_SIGNATURES) {
+  if (!/^[LGQD]*$/.test(entry.sig)) throw new Error(`pipeline-yield: signature ${entry.sig} names a stage that does not exist`);
+  if (entry.sig !== fcKeys.filter(key => entry.sig.includes(key)).join(""))
+    throw new Error(`pipeline-yield: signature ${entry.sig} is not written in canonical stage order`);
+  if (fcSeen.has(entry.sig)) throw new Error(`pipeline-yield: signature ${entry.sig} appears twice`);
+  if (!Number.isInteger(entry.n) || entry.n <= 0) throw new Error(`pipeline-yield: signature ${entry.sig} must carry a positive whole count`);
+  fcSeen.add(entry.sig);
+}
+if (fcSeen.size !== 16)
+  throw new Error(`pipeline-yield: all 16 failure combinations must be spelled out, found ${fcSeen.size}`);
+fcValues += 3;
+
+// The keep rate is set, but it is set to a published number and must stay on it.
+// L13: RefinedWeb "Release 600B (out of 5T) tokens".
+const fcRefined = fcApi.FC_PUBLISHED.find(entry => entry.key === "refined");
+if (!fcRefined || fcRefined.out !== 600 || fcRefined.inp !== 5000)
+  throw new Error("pipeline-yield: RefinedWeb's published yield is 600B out of 5T and must be quoted as such");
+const fcDclm = fcApi.FC_PUBLISHED.find(entry => entry.key === "dclm");
+if (!fcDclm || fcDclm.out !== 3800 || fcDclm.inp !== 240000)
+  throw new Error("pipeline-yield: DCLM-baseline's published yield is 3.8T out of a 240T pool");
+if (fcRefKept / fcRefTotal !== fcRefined.out / fcRefined.inp)
+  throw new Error("pipeline-yield: the corpus keep rate is chosen to sit on RefinedWeb's published share and must stay there");
+if (!(fcDclm.out / fcDclm.inp < fcRefined.out / fcRefined.inp))
+  throw new Error("pipeline-yield: the classifier-filtered pipeline must be the more aggressive of the two");
+fcValues += 4;
+
+// --- isolated rejection, and why it cannot answer A4's question -------------------
+const fcRefIsolated = {};
+for (const key of fcKeys) {
+  fcRefIsolated[key] = fcApi.FC_SIGNATURES.filter(entry => entry.sig.includes(key)).reduce((sum, entry) => sum + entry.n, 0);
+  if (fcApi.fcIsolated(key) !== fcRefIsolated[key])
+    throw new Error(`pipeline-yield: isolated rejection for ${key} disagrees with the signature table`);
+  fcValues++;
+}
+const fcIsoSum = fcKeys.reduce((sum, key) => sum + fcRefIsolated[key], 0);
+// Inclusion-exclusion: counting each stage alone counts a document once per reason.
+const fcOverlap = fcApi.FC_SIGNATURES.filter(entry => entry.sig).reduce((sum, entry) => sum + entry.n * (entry.sig.length - 1), 0);
+if (fcIsoSum - fcRefRejected !== fcOverlap)
+  throw new Error(`pipeline-yield: the overcount must equal the number of extra reasons, ${fcIsoSum - fcRefRejected} != ${fcOverlap}`);
+if (!(fcIsoSum > fcRefRejected))
+  throw new Error("pipeline-yield: without overlapping reasons the lab has nothing to show -- the isolated shares must overcount");
+if (fcOverlap !== 4420) throw new Error(`pipeline-yield: the overcount is 4420 documents, found ${fcOverlap}`);
+const fcIsoShare = 100 * fcIsoSum / fcRefRejected;
+if (fcIsoShare.toFixed(4) !== "150.2273")
+  throw new Error(`pipeline-yield: the isolated shares must sum to 150.2273 % of the discards, found ${fcIsoShare.toFixed(4)}`);
+fcValues += 3;
+
+// --- attribution: order-free total, order-dependent split -------------------------
+// Reference attribution: charge a document to the first stage in the order it fails.
+function fcRefAttribution(order) {
+  const out = Object.fromEntries(fcKeys.map(key => [key, 0]));
+  for (const entry of fcApi.FC_SIGNATURES) {
+    for (const key of order) { if (entry.sig.includes(key)) { out[key] += entry.n; break; } }
+  }
+  return out;
+}
+// Reference reaching: a stage sees whatever every earlier stage let through.
+function fcRefReaching(order) {
+  const out = {};
+  for (let i = 0; i < order.length; i++) {
+    const before = order.slice(0, i);
+    out[order[i]] = fcApi.FC_SIGNATURES.filter(entry => !before.some(key => entry.sig.includes(key)))
+      .reduce((sum, entry) => sum + entry.n, 0);
+  }
+  return out;
+}
+const fcOrders = fcApi.fcAllOrders();
+if (fcOrders.length !== 24) throw new Error(`pipeline-yield: there are 24 orders of four stages, found ${fcOrders.length}`);
+if (new Set(fcOrders.map(order => order.join(""))).size !== 24)
+  throw new Error("pipeline-yield: the permutation helper must produce 24 distinct orders");
+const fcSpread = Object.fromEntries(fcKeys.map(key => [key, { low: Infinity, high: -Infinity }]));
+for (const order of fcOrders) {
+  const attribution = fcApi.fcAttribution(order), reference = fcRefAttribution(order);
+  const reaching = fcApi.fcReaching(order), reachRef = fcRefReaching(order);
+  let sum = 0;
+  for (const key of fcKeys) {
+    if (attribution[key] !== reference[key])
+      throw new Error(`pipeline-yield: attribution for ${key} in ${order.join("")} disagrees with the reference`);
+    if (reaching[key] !== reachRef[key])
+      throw new Error(`pipeline-yield: reaching count for ${key} in ${order.join("")} disagrees with the reference`);
+    sum += attribution[key];
+    fcSpread[key].low = Math.min(fcSpread[key].low, attribution[key]);
+    fcSpread[key].high = Math.max(fcSpread[key].high, attribution[key]);
+  }
+  // The claim the whole lab rests on: the split moves, the total never does.
+  if (sum !== fcRefRejected)
+    throw new Error(`pipeline-yield: order ${order.join("")} attributes ${sum} documents, but ${fcRefRejected} are discarded`);
+  // The first stage always sees everything; no stage ever sees more than the one before it.
+  if (reaching[order[0]] !== fcRefTotal)
+    throw new Error(`pipeline-yield: the first stage of ${order.join("")} must see the whole corpus`);
+  for (let i = 1; i < order.length; i++) {
+    if (!(reaching[order[i]] <= reaching[order[i - 1]]))
+      throw new Error(`pipeline-yield: a stage cannot see more documents than the stage before it (${order.join("")})`);
+  }
+  // A stage placed first is charged exactly what it rejects alone.
+  if (attribution[order[0]] !== fcRefIsolated[order[0]])
+    throw new Error(`pipeline-yield: a stage running first must be charged its isolated rejection (${order.join("")})`);
+  fcValues += 2;
+}
+for (const key of fcKeys) {
+  const range = fcApi.fcAttributionRange(key);
+  if (range.low !== fcSpread[key].low || range.high !== fcSpread[key].high)
+    throw new Error(`pipeline-yield: the reported range for ${key} disagrees with the brute-force spread`);
+  // A stage that never moved would make the lab's point vanish.
+  if (!(range.high > range.low))
+    throw new Error(`pipeline-yield: stage ${key} must actually move across the 24 orders`);
+  // The maximum is reached by placing the stage first, the minimum by placing it last.
+  if (range.high !== fcRefIsolated[key])
+    throw new Error(`pipeline-yield: the largest attribution for ${key} must be its isolated rejection`);
+  fcValues += 2;
+}
+// The three numbers the prose and the quick check quote by name.
+if (fcSpread.Q.low !== 1800 || fcSpread.Q.high !== 4500)
+  throw new Error(`pipeline-yield: the quality classifier ranges from 1800 to 4500, found ${fcSpread.Q.low}..${fcSpread.Q.high}`);
+if ((100 * fcSpread.Q.low / fcRefRejected).toFixed(4) !== "20.4545" || (100 * fcSpread.Q.high / fcRefRejected).toFixed(4) !== "51.1364")
+  throw new Error("pipeline-yield: the classifier's share of the discards must run from 20.4545 % to 51.1364 %");
+if ((fcSpread.G.high / fcSpread.G.low).toFixed(6) !== "3.857143")
+  throw new Error("pipeline-yield: the Gopher rules must swing by a factor of 3.857143");
+fcValues += 3;
+
+// --- cost: order-dependent, with the same output ----------------------------------
+function fcRefCost(order) {
+  const reaching = fcRefReaching(order);
+  return order.reduce((sum, key) => sum + fcApi.FC_COST[key] * reaching[key], 0);
+}
+const fcScored = fcOrders.map(order => ({ order, cost: fcRefCost(order) }));
+let fcLow = fcScored[0], fcHigh = fcScored[0];
+for (const entry of fcScored) {
+  if (entry.cost < fcLow.cost) fcLow = entry;
+  if (entry.cost > fcHigh.cost) fcHigh = entry;
+  if (Math.abs(fcApi.fcCascadeCost(entry.order) - entry.cost) > 1e-9)
+    throw new Error(`pipeline-yield: cascade cost for ${entry.order.join("")} disagrees with the reference`);
+  fcValues++;
+}
+const fcExtremes = fcApi.fcCostExtremes();
+if (fcExtremes.low.order.join("") !== fcLow.order.join("") || fcExtremes.high.order.join("") !== fcHigh.order.join(""))
+  throw new Error(`pipeline-yield: the reported extremes ${fcExtremes.low.order.join("")}/${fcExtremes.high.order.join("")} are not the brute-force extremes`);
+if (fcLow.order.join("") !== "GLQD" || fcHigh.order.join("") !== "DQLG")
+  throw new Error(`pipeline-yield: the cheapest order is GLQD and the dearest DQLG, found ${fcLow.order.join("")}/${fcHigh.order.join("")}`);
+if ((fcHigh.cost / fcLow.cost).toFixed(6) !== "1.887338")
+  throw new Error(`pipeline-yield: the spread between cheapest and dearest order is 1.887338, found ${(fcHigh.cost / fcLow.cost).toFixed(6)}`);
+fcValues += 3;
+
+// c/p, the rule that weighs price against selectivity, must pick the brute-force optimum.
+const fcRuleOrder = fcKeys.slice().sort((a, b) =>
+  (fcApi.FC_COST[a] / (fcRefIsolated[a] / fcRefTotal)) - (fcApi.FC_COST[b] / (fcRefIsolated[b] / fcRefTotal)));
+if (fcRuleOrder.join("") !== fcLow.order.join(""))
+  throw new Error(`pipeline-yield: c/p orders to ${fcRuleOrder.join("")} but the cheapest order is ${fcLow.order.join("")}`);
+for (const key of fcKeys) {
+  if (Math.abs(fcApi.fcRuleKey(key) - fcApi.FC_COST[key] / (fcRefIsolated[key] / fcRefTotal)) > 1e-12)
+    throw new Error(`pipeline-yield: the c/p key for ${key} is not price over rejected share`);
+  fcValues++;
+}
+// Sorting by price alone must land somewhere else -- otherwise the lab's point is empty.
+const fcPriceOrder = fcKeys.slice().sort((a, b) => fcApi.FC_COST[a] - fcApi.FC_COST[b]);
+if (fcPriceOrder.join("") === fcLow.order.join(""))
+  throw new Error("pipeline-yield: price alone must not already produce the optimum, or the lab claims nothing");
+if (!(fcRefCost(fcPriceOrder) > fcLow.cost))
+  throw new Error("pipeline-yield: ordering by price alone must cost strictly more than the optimum");
+fcValues += 2;
+
+// The four named orders must be exactly the ones the prose calls them.
+const fcNamed = Object.fromEntries(fcApi.FC_ORDERS.map(entry => [entry.key, entry.order.join("")]));
+if (fcNamed.a4 !== "LGQD") throw new Error("pipeline-yield: the a4 order must follow the sequence the handout introduces the filters in");
+if (fcNamed.cost !== fcPriceOrder.join("")) throw new Error("pipeline-yield: the cost order must be the one price alone produces");
+if (fcNamed.rule !== fcRuleOrder.join("")) throw new Error("pipeline-yield: the rule order must be the one c/p produces");
+if (fcNamed.worst !== fcHigh.order.join("")) throw new Error("pipeline-yield: the worst order must be the brute-force dearest");
+// Every named order keeps the same corpus -- that is the whole claim.
+for (const entry of fcApi.FC_ORDERS) {
+  const attribution = fcApi.fcAttribution(entry.order);
+  if (fcKeys.reduce((sum, key) => sum + attribution[key], 0) !== fcRefRejected)
+    throw new Error(`pipeline-yield: named order ${entry.key} does not discard the same documents`);
+  fcValues++;
+}
+fcValues += 4;
+
+// --- measurement designs, and A4's two halves pulling apart -----------------------
+const fcFull = fcKeys.reduce((sum, key) => sum + fcApi.FC_COST[key] * fcRefTotal, 0);
+if (Math.abs(fcApi.fcFullCost() - fcFull) > 1e-9)
+  throw new Error("pipeline-yield: evaluating every stage on every document must cost the full price four times over");
+// Running everything on everything must be the same whatever order is named.
+for (const entry of fcApi.FC_ORDERS) {
+  if (Math.abs(fcApi.fcMeasureCost(entry.order, "full") - fcFull) > 1e-9)
+    throw new Error("pipeline-yield: the full-signature run cannot depend on the order");
+}
+const fcRuleCascade = fcRefCost(fcRuleOrder);
+const fcFullRatio = fcFull / fcRuleCascade;
+if (fcFullRatio.toFixed(6) !== "2.392822")
+  throw new Error(`pipeline-yield: the full signature costs 2.392822x the cheapest cascade, found ${fcFullRatio.toFixed(6)}`);
+const fcSampleCost = fcApi.FC_SAMPLE_SHARE * fcFull + (1 - fcApi.FC_SAMPLE_SHARE) * fcRuleCascade;
+if (Math.abs(fcApi.fcMeasureCost(fcRuleOrder, "sample") - fcSampleCost) > 1e-9)
+  throw new Error("pipeline-yield: the sampled design must mix the two costs by the sample share");
+if ((fcSampleCost / fcRuleCascade).toFixed(6) !== "1.013928")
+  throw new Error(`pipeline-yield: a 1 % sample costs 1.013928x the cascade, found ${(fcSampleCost / fcRuleCascade).toFixed(6)}`);
+if (fcApi.FC_SAMPLE_SHARE !== 0.01)
+  throw new Error("pipeline-yield: the sampled design is stated as 1 % and must stay 1 %");
+// The resolution only exists if the sample really is far cheaper than the full pass.
+if (!(fcSampleCost < fcFull && fcSampleCost / fcRuleCascade < fcFullRatio))
+  throw new Error("pipeline-yield: the sampled design must be the cheap way to buy an order-free split");
+fcValues += 4;
+
+// --- A4 (b): the runtime the handout asks for ------------------------------------
+if (fcApi.FC_A4_FILES !== 2500)
+  throw new Error("pipeline-yield: A4 names 2,500 raw WET files and the lab must use that number");
+const fcPerDoc = fcRuleCascade / fcRefTotal;
+const fcHoursAt = workers => fcPerDoc * fcApi.FC_DOCS_PER_FILE * fcApi.FC_A4_FILES / workers / 1000 / 3600;
+for (const workers of fcApi.FC_WORKERS) {
+  if (!Number.isInteger(workers) || workers < 1)
+    throw new Error("pipeline-yield: the worker counts must be whole processes");
+  if (Math.abs(fcHoursAt(workers) * workers - fcHoursAt(1)) > 1e-9)
+    throw new Error("pipeline-yield: the runtime table must scale strictly with the number of processes");
+  fcValues++;
+}
+if (fcHoursAt(1).toFixed(6) !== "27.861111")
+  throw new Error(`pipeline-yield: one process needs 27.861111 h for A4's 2,500 files, found ${fcHoursAt(1).toFixed(6)}`);
+if (fcHoursAt(8).toFixed(6) !== "3.482639")
+  throw new Error(`pipeline-yield: eight processes need 3.482639 h, found ${fcHoursAt(8).toFixed(6)}`);
+fcValues += 2;
+// The reference above proves the arithmetic; these read the numbers the table actually
+// prints, so the rendered runtime cannot drift away from it.
+const fcRunHtml = fcApi.renderPipelineCost("rule", "short");
+const fcCell = (html, attribute, key) => {
+  const match = html.match(new RegExp(`data-${attribute}="${key}">([^<]*)`));
+  if (!match) throw new Error(`pipeline-yield: the rendered table has no ${attribute} cell for ${key}`);
+  return match[1];
+};
+for (const workers of fcApi.FC_WORKERS) {
+  const printed = fcCell(fcRunHtml, "fchours", workers).replace(" h", "");
+  if (printed !== fcApi.fcNum(fcHoursAt(workers), 6))
+    throw new Error(`pipeline-yield: the runtime printed for ${workers} processes (${printed}) is not the computed one`);
+  const perFile = fcCell(fcRunHtml, "fcperfile", workers).replace(" s", "");
+  if (perFile !== fcApi.fcNum(fcPerDoc * fcApi.FC_DOCS_PER_FILE / 1000, 4))
+    throw new Error(`pipeline-yield: the per-file time printed for ${workers} processes is not the computed one`);
+  fcValues += 2;
+}
+if (fcCell(fcRunHtml, "fcperdoc", "1").replace(" ms", "") !== fcApi.fcNum(fcPerDoc, 6))
+  throw new Error("pipeline-yield: the per-document cost printed in the ledger is not the computed one");
+if (fcCell(fcRunHtml, "fcthroughput", "1").split(" ")[0] !== fcApi.fcNum(1000 / fcPerDoc, 4))
+  throw new Error("pipeline-yield: the throughput printed in the ledger is not 1000 / the per-document cost");
+// The whole point of the worker column is that it divides; a sublinear stand-in would
+// still look plausible in the table.
+const fcHoursPrinted = workers => Number(fcCell(fcRunHtml, "fchours", workers).replace(" h", ""));
+for (const workers of fcApi.FC_WORKERS) {
+  // The printed values carry six decimals, so the slack has to grow with the multiplier.
+  if (Math.abs(fcHoursPrinted(workers) * workers - fcHoursPrinted(1)) > 5e-7 * (workers + 1))
+    throw new Error(`pipeline-yield: the printed runtime for ${workers} processes does not divide the single-process runtime`);
+  fcValues++;
+}
+
+// --- rendered states: 4x4 attribution plus 4x3 cost ------------------------------
+const fcStates = [];
+for (const order of fcApi.FC_ORDERS) {
+  for (const stage of fcApi.FC_STAGES)
+    fcStates.push([`A:${order.key}/${stage.key}`, fcApi.renderPipelineAttribution(order.key, stage.key)]);
+  for (const measure of fcApi.FC_MEASURES)
+    fcStates.push([`B:${order.key}/${measure.key}`, fcApi.renderPipelineCost(order.key, measure.key)]);
+}
+if (fcStates.length !== 28)
+  throw new Error(`pipeline-yield: the lab must expose 28 states, found ${fcStates.length}`);
+for (const [name, html] of fcStates) {
+  if (/undefined|NaN/.test(html)) throw new Error(`pipeline-yield: state ${name} renders undefined or NaN`);
+  if (/\$\{/.test(html)) throw new Error(`pipeline-yield: state ${name} leaves a template literal unresolved`);
+  for (const table of html.split("<table").slice(1)) {
+    const columns = (table.match(/<th scope="col"/g) || []).length;
+    if (!columns) throw new Error(`pipeline-yield: a table in ${name} has no header`);
+    // Split on "<tr" rather than "<tr>": rows carrying class="is-active" are still rows,
+    // and gluing them onto the header would hide exactly the states the controls select.
+    for (const row of table.split("<tr").slice(2)) {
+      const cells = (row.match(/<t[dh][ >]/g) || []).length;
+      if (cells && cells !== columns)
+        throw new Error(`pipeline-yield: a row in ${name} does not match its header width (${cells} cells against ${columns} columns)`);
+    }
+  }
+  fcValues++;
+}
+// Every mode-A state must show the two numbers that never move, and every mode-B state
+// must show that the kept count is the same in each of the four orders.
+const fcKeptText = fcApi.fcInt(fcRefKept), fcRejText = fcApi.fcInt(fcRefRejected);
+for (const [name, html] of fcStates) {
+  if (name.startsWith("A:")) {
+    if (!html.includes(`data-fckept="1">${fcKeptText}`))
+      throw new Error(`pipeline-yield: ${name} must report the invariant kept count`);
+    if (!html.includes(`data-fcattrsum="1"><strong>${fcRejText}`))
+      throw new Error(`pipeline-yield: ${name} must report the invariant attributed total`);
+  } else {
+    for (const entry of fcApi.FC_ORDERS) {
+      if (!html.includes(`data-fcorderkept="${entry.key}">${fcKeptText}`))
+        throw new Error(`pipeline-yield: ${name} must show that order ${entry.key} keeps the same documents`);
+    }
+  }
+  fcValues++;
+}
+
+// --- prose numerals: they do not move when the code does, so each one gets a guard ---
+const fcDe = value => String(value).replace(".", ",");
+const fcAttrHtml = fcApi.renderPipelineAttribution("a4", "Q");
+const fcCostHtml = fcApi.renderPipelineCost("a4", "short");
+const fcQLowPct = fcDe((100 * fcSpread.Q.low / fcRefRejected).toFixed(4));
+const fcQHighPct = fcDe((100 * fcSpread.Q.high / fcRefRejected).toFixed(4));
+const fcProse = [
+  [fcAttrHtml, `zwischen ${fcQLowPct} % und ${fcQHighPct} % der verworfenen Dokumente`],
+  [fcAttrHtml, `um den Faktor ${fcDe((fcSpread.G.high / fcSpread.G.low).toFixed(6))}`],
+  [fcAttrHtml, `also ${fcDe((100 * fcRefined.out / fcRefined.inp).toFixed(6))} %`],
+  [fcAttrHtml, `${fcDe(String(fcDclm.out / 1000))}T aus ${fcDclm.inp / 1000}T, also ${fcDe((100 * fcDclm.out / fcDclm.inp).toFixed(6))} %`],
+  [fcCostHtml, `den Faktor ${fcDe(fcFullRatio.toFixed(6))} gegenüber der billigsten Kaskade`],
+  [fcCostHtml, `kostet das den Faktor ${fcDe((fcSampleCost / fcRuleCascade).toFixed(6))}`],
+];
+for (const [html, needle] of fcProse) {
+  if (!html.includes(needle))
+    throw new Error(`pipeline-yield: the prose must quote the computed number -- missing ${JSON.stringify(needle)}`);
+  fcValues++;
+}
+// The numbers the lab card and the quick check quote outside any render.
+const fcLabs = readConstant("LABS");
+const fcLab = fcLabs.find(entry => entry.id === "pipeline-yield");
+if (!fcLab) throw new Error("pipeline-yield: the lab must exist in LABS");
+// The card is German prose, so its thousands separators are German ones -- the rendered
+// tables above go through the app's own locale helper instead.
+const fcDeInt = value => Number(value).toLocaleString("de-DE");
+const fcCardProse = [
+  [fcLab.desc, fcDe((fcSpread.G.high / fcSpread.G.low).toFixed(6))],
+  [fcLab.desc, fcDe((fcHigh.cost / fcLow.cost).toFixed(6))],
+  [fcLab.observe, fcDeInt(fcRefKept)],
+  [fcLab.observe, fcDeInt(fcRefRejected)],
+  [fcLab.observe, fcDe(fcIsoShare.toFixed(4))],
+  [fcLab.observe, fcDeInt(fcOverlap)],
+  [fcLab.observe, fcDe(fcFullRatio.toFixed(6))],
+  [fcLab.observe, fcDe((fcSampleCost / fcRuleCascade).toFixed(6))],
+  [fcLab.misconception, fcDe(fcIsoShare.toFixed(4))],
+  [fcLab.misconception, fcDe((fcSpread.G.high / fcSpread.G.low).toFixed(6))],
+  [fcLab.transferAnswer, fcDeInt(fcOverlap)],
+  [fcLab.transferAnswer, fcDe((100 * fcRefAttribution(["D", "Q", "L", "G"]).Q / fcRefRejected).toFixed(4))],
+];
+// Every remaining numeral the card quotes, each tied back to the value it names. A number
+// in prose does not move when the code does, so none of them may sit here unguarded.
+const fcA4Attr = fcRefAttribution(["L", "G", "Q", "D"]);
+const fcWorstAttr = fcRefAttribution(["D", "Q", "L", "G"]);
+fcCardProse.push(
+  // the classifier's floor and ceiling, and the shares they correspond to
+  [fcLab.observe, fcDeInt(fcSpread.Q.low)],
+  [fcLab.observe, fcDeInt(fcSpread.Q.high)],
+  [fcLab.observe, fcDe((100 * fcSpread.Q.low / fcRefRejected).toFixed(4))],
+  [fcLab.observe, fcDe((100 * fcSpread.Q.high / fcRefRejected).toFixed(4))],
+  [fcLab.observe, fcDe((fcHigh.cost / fcLow.cost).toFixed(6))],
+  // the two attributions the card contrasts by name
+  // These numbers occur more than once in the same paragraph, so each needle carries the
+  // words around it -- a bare numeral would still be found after one site was changed.
+  [fcLab.observe, `Reihenfolge ${fcDeInt(fcA4Attr.Q)} Dokumente`],
+  [fcLab.observe, `dagegen ${fcDeInt(fcWorstAttr.Q)}`],
+  [fcLab.transferAnswer, `Handout-Reihenfolge ${fcDeInt(fcA4Attr.Q)} Dokumente`],
+  [fcLab.transferAnswer, `laufen lässt, ${fcDeInt(fcWorstAttr.Q)} (`],
+  [fcLab.transferAnswer, `von ${fcDeInt(fcSpread.Q.low)} bis ${fcDeInt(fcSpread.Q.high)}`],
+  [fcLab.transferAnswer, `${fcDeInt(fcRefKept)} behaltene und ${fcDeInt(fcRefRejected)} verworfene`],
+  // the two isolated counts the answer says are the ones worth reporting
+  [fcLab.transferAnswer, `hier ${fcDeInt(fcRefIsolated.L)} für Language`],
+  [fcLab.transferAnswer, `und ${fcDeInt(fcRefIsolated.Q)} für den Classifier`],
+  // the two shares the question puts in the student's mouth
+  [fcLab.transferQuestion, fcDe((100 * fcA4Attr.L / fcRefRejected).toFixed(4))],
+  [fcLab.transferQuestion, fcDe((100 * fcWorstAttr.Q / fcRefRejected).toFixed(4))],
+  [fcLab.transferQuestion, `${fcDe(String(100 * fcA4Attr.Q / fcRefRejected))} %`],
+  [fcLab.transferAnswer, `${fcDe(String(100 * fcA4Attr.Q / fcRefRejected))} %`],
+  // the success panel repeats the three numbers the quick check turns on
+  [fcApi.pipelineYieldSuccessMarkup(), fcDe(fcIsoShare.toFixed(4))],
+  [fcApi.pipelineYieldSuccessMarkup(), fcDe((100 * fcSpread.Q.low / fcRefRejected).toFixed(4))],
+  [fcApi.pipelineYieldSuccessMarkup(), fcDe((100 * fcSpread.Q.high / fcRefRejected).toFixed(4))],
+  [fcApi.pipelineYieldSuccessMarkup(), fcDe(fcFullRatio.toFixed(6))],
+  [fcApi.pipelineYieldSuccessMarkup(), fcDe((fcSampleCost / fcRuleCascade).toFixed(6))],
+);
+for (const [text, needle] of fcCardProse) {
+  if (!text.includes(needle))
+    throw new Error(`pipeline-yield: the card prose must quote the computed number -- missing ${JSON.stringify(needle)}`);
+  fcValues++;
+}
+// The two honesty paragraphs must keep saying what is set rather than measured.
+if (!fcAttrHtml.includes("gesetzt, nicht gemessen"))
+  throw new Error("pipeline-yield: mode A must keep saying that the 16 counts are set and not measured");
+if (!fcCostHtml.includes("gesetzt, nicht gemessen"))
+  throw new Error("pipeline-yield: mode B must keep saying that the prices are set and not measured");
+if (!fcCostHtml.includes("nicht wie lange dein Skript braucht"))
+  throw new Error("pipeline-yield: mode B must keep disclaiming that it predicts a real script's runtime");
+fcValues += 3;
+
+// --- registration -----------------------------------------------------------------
+if (fcLab.module !== "data")
+  throw new Error("pipeline-yield: the lab belongs to the data module, which cites A4, L13 and L14");
+const fcModules = readConstant("MODULES");
+if (!fcModules.find(entry => entry.id === "data")?.labs.includes("pipeline-yield"))
+  throw new Error("pipeline-yield: the lab must be listed in the data module");
+const fcGuides = readConstant("LECTURE_GUIDES");
+const fcLectures = Object.keys(fcGuides).filter(id => (fcGuides[id].labs || []).includes("pipeline-yield"));
+// L13 is the lecture that walks the published Common Crawl pipelines and quotes their
+// yields; it is the only lecture whose material this lab computes.
+if (fcLectures.length !== 1 || fcLectures[0] !== "l13")
+  throw new Error(`pipeline-yield: the lab belongs to exactly l13, not ${JSON.stringify(fcLectures)}`);
+const fcAssignments = readConstant("ASSIGNMENTS");
+const fcMission = fcAssignments.find(entry => entry.id === "a4").missions.find(mission => mission.id === "pipeline-audit");
+if (!fcMission || !fcMission.labs.includes("pipeline-yield"))
+  throw new Error("pipeline-yield: a4:pipeline-audit owns both problems and must carry this lab");
+// This mission had no lab of its own before v77; the new lab takes the lead.
+if (fcMission.labs[0] !== "pipeline-yield")
+  throw new Error("pipeline-yield: the lab that computes the mission's two deliverables must lead it");
+for (const problem of ["filter_data", "inspect_filtered_data"]) {
+  if (!fcMission.scope.includes(problem))
+    throw new Error(`pipeline-yield: the mission scope must still name ${problem}`);
+}
+const fcProblems = readConstant("HANDOUT_PROBLEMS");
+for (const id of ["a4:filter_data", "a4:inspect_filtered_data"]) {
+  if (!fcProblems[id]) throw new Error(`pipeline-yield: the handout problem ${id} must still exist`);
+}
+if (!sliceDeclaration(source, "OBJECTIVE_LAB_IDS").includes('"pipeline-yield"'))
+  throw new Error("pipeline-yield: the lab must be registered in OBJECTIVE_LAB_IDS");
+const fcAccepted = sliceDeclaration(source, "checkPipelineYield");
+for (const answer of ["orderOnly", "multipleReasons", "sampleCheap"]) {
+  if (!fcAccepted.includes(`"${answer}"`))
+    throw new Error(`pipeline-yield: the quick check must accept ${answer}`);
+  if (!sliceDeclaration(source, "restorePassedLab").includes(answer))
+    throw new Error(`pipeline-yield: the restore preset must carry ${answer}`);
+}
+if (!sliceDeclaration(source, "initLab").includes('if(id==="pipeline-yield")'))
+  throw new Error("pipeline-yield: the lab must be wired up in initLab");
+const fcControls = source.slice(source.indexOf('if(id==="pipeline-yield") return `'));
+const fcControlLine = fcControls.slice(0, fcControls.indexOf("\n"));
+for (const problem of ["filter_data", "inspect_filtered_data"]) {
+  if (!fcControlLine.includes(problem))
+    throw new Error(`pipeline-yield: the control panel must name the handout problem ${problem}`);
+}
+if (!fcControlLine.includes("2,500 raw WET files"))
+  throw new Error("pipeline-yield: the control panel must quote A4's own file count");
+
+console.log(`pipeline-yield OK: ${fcValues} values, A4's breakdown deliverable resolved -- the kept ${fcRefKept} and the discarded ${fcRefRejected} stand still across all 24 orders while the quality classifier's share of the discards runs from ${(100 * fcSpread.Q.low / fcRefRejected).toFixed(4)} % to ${(100 * fcSpread.Q.high / fcRefRejected).toFixed(4)} %, the isolated shares sum to ${fcIsoShare.toFixed(4)} % because ${fcOverlap} documents carry more than one reason, cost swings by ${(fcHigh.cost / fcLow.cost).toFixed(6)} between ${fcLow.order.join("")} and ${fcHigh.order.join("")} for the same corpus, and an order-free split costs ${fcFullRatio.toFixed(6)}x on everything against ${(fcSampleCost / fcRuleCascade).toFixed(6)}x on a 1 % sample`);
+
 // ---- stability-edge ----------------------------------------------------------
 // A1 Problem (learning_rate) (b) states the folk wisdom that the best learning rate is
 // "at the edge of stability" and asks how the divergence point relates to the best value.
