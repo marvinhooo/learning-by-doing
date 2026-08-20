@@ -66,6 +66,34 @@ function sliceDeclaration(text, name) {
   return text.slice(functionIndex, index + 1);
 }
 
+// Every displayed number in the app goes through fixedNum, whose decimal separator follows
+// the locale. The guards pin en-US, which makes it behave exactly like the toFixed it
+// replaced -- that is why no guard value moved when the app became locale-aware.
+const numberPrelude = `const localeCode = () => "en-US";\n${sliceDeclaration(source, "fixedNum")}\n`;
+
+// ---- the decimal separator ---------------------------------------------------
+// German writes decimals with a comma. Until this pass the app printed grouped integers with
+// toLocaleString and decimals with toFixed, so one German table could read "1.200" for twelve
+// hundred and "20.4545 %" for a fifth -- and a lab whose observe text says "read 20,4545 % in
+// that column" sent the reader after a string that was not there. Every displayed number now
+// goes through fixedNum, whose separator follows the locale.
+{
+  const decl = sliceDeclaration(source, "fixedNum");
+  if (!decl.includes("toLocaleString(localeCode()")) throw new Error("fixedNum: the separator has to follow the locale, otherwise the German render drifts from its own prose again");
+  // Grouping stays off so the English render is byte-identical to what toFixed produced; the
+  // seven older locale-aware helpers group, which only shows on values with a thousands part.
+  if (!decl.includes("useGrouping:false")) throw new Error("fixedNum: grouping stays off, so the English render matches what toFixed printed");
+  if (decl.includes("digits===undefined")) throw new Error("fixedNum: every caller names its digit count, so a default would be unreachable code");
+  // Comparisons and keys keep toFixed: they must not depend on the display language. rcSame
+  // is the only place that needs it, and it compares two learning rates to twelve decimals.
+  const rest = source.replace(sliceDeclaration(source, "rcSame"), "");
+  const strays = [...rest.matchAll(/\.toFixed\(/g)];
+  if (strays.length)
+    throw new Error(`decimal separator: ${strays.length} displayed number(s) still format with toFixed instead of fixedNum -- the German render would print them with a point`);
+  if (!sliceDeclaration(source, "rcSame").includes(".toFixed(12)"))
+    throw new Error("rcSame: the equality test must keep toFixed, a locale-aware string is not a comparison key");
+}
+
 const base = {
   nav: readConstant("NAV_ITEMS"),
   sources: readConstant("SOURCES"),
@@ -959,7 +987,7 @@ const a1GenerationMission = base.assignments.find(assignment => assignment.id ==
 if (!a1GenerationMission.labs.includes("decode-sampling")) throw new Error("A1 generation-experiments: the decoding problem would have no lab that computes temperature or top-p");
 if (!base.assignments.find(assignment => assignment.id === "a5").missions.find(mission => mission.id === "prompting").labs.includes("decode-sampling")) throw new Error("A5 prompting: the rollouts are sampled, so the sampling lab belongs there");
 const decodeSource = [sliceDeclaration(source, "DECODE_GROUP"), sliceDeclaration(source, "DECODE_CASES"), sliceDeclaration(source, "DECODE_TAUS"), sliceDeclaration(source, "DECODE_PS"), sliceDeclaration(source, "DECODE_VARIANTS"), sliceDeclaration(source, "decodeSoftmax"), sliceDeclaration(source, "decodeNucleus"), sliceDeclaration(source, "decodeReport"), sliceDeclaration(source, "decodeDrift")].join("\n");
-const decodeApi = runInNewContext(`${decodeSource}; ({DECODE_GROUP,DECODE_CASES,DECODE_TAUS,DECODE_PS,DECODE_VARIANTS,decodeReport,decodeDrift})`, {});
+const decodeApi = runInNewContext(`${numberPrelude}${decodeSource}; ({DECODE_GROUP,DECODE_CASES,DECODE_TAUS,DECODE_PS,DECODE_VARIANTS,decodeReport,decodeDrift})`, {});
 const decodeCaseKeys = Object.keys(decodeApi.DECODE_CASES), decodeTauKeys = decodeApi.DECODE_TAUS.map(entry => entry.key), decodePKeys = decodeApi.DECODE_PS.map(entry => entry.key), decodeVariantKeys = decodeApi.DECODE_VARIANTS.map(entry => entry.key);
 if (decodeApi.DECODE_GROUP !== 8) throw new Error("decode-sampling: the group size must stay 8, which is the A5 handout's group_size");
 if (JSON.stringify(decodeCaseKeys) !== JSON.stringify(["paris", "garden", "morning", "said"])) throw new Error("decode-sampling: the four contexts are quoted in order as 1, 3, 5, 7 in the observe text, so their order is fixed");
@@ -1066,7 +1094,7 @@ if (!base.lectureGuides.l12.labs.includes("winrate-lc")) throw new Error("lectur
 const a5Supplement = base.assignments.find(assignment => assignment.id === "a5").missions.find(mission => mission.id === "supplement");
 if (!a5Supplement.labs.includes("winrate-lc")) throw new Error("A5 supplement: alpaca_eval_baseline, alpaca_eval_sft and dpo_training all report a winrate, so the lab belongs to that block");
 const winrateSource = ["WINRATE_REFERENCE_N", "WINRATE_ITEMS", "WINRATE_PROFILES", "WINRATE_BOUNDS", "WINRATE_BUCKET_LABELS", "WINRATE_VARIANTS", "winrateScore", "winrateBucket", "winratePooledMix", "winrateRows", "winrateReport", "winratePaired"];
-const winrateApi = runInNewContext(`${winrateSource.map(name => sliceDeclaration(source, name)).join("\n")}; ({${winrateSource.join(",")}})`, {});
+const winrateApi = runInNewContext(`${numberPrelude}${winrateSource.map(name => sliceDeclaration(source, name)).join("\n")}; ({${winrateSource.join(",")}})`, {});
 if (winrateApi.WINRATE_REFERENCE_N !== 805) throw new Error("winrate-lc: AlpacaEval has 805 instructions per Lecture 12, and the standard error line quotes that number");
 if (winrateApi.WINRATE_ITEMS.length !== 12) throw new Error("winrate-lc: the ledger is quoted as twelve rows in the observe text and the transfer check");
 const winrateProfileKeys = winrateApi.WINRATE_PROFILES.map(entry => entry.key);
@@ -1207,7 +1235,7 @@ if (!batchMission.labs.includes("batch-windows")) throw new Error("A1 training-s
 if (!readConstant("PROBLEM_CONCEPTS")["a1:data_loading"].includes("token-array-loading")) throw new Error("a1:data_loading: the problem must stay linked to token-array-loading, which is what the lab teaches");
 
 const batchSource = ["BATCH_SEED", "BATCH_LEDGER_LIMIT", "BATCH_UINT16_MAX", "BATCH_SETUPS", "BATCH_START_RULES", "BATCH_TARGET_RULES", "batchRandom", "batchStarts", "batchWindow", "batchReport", "batchCoverage", "batchDtype"];
-const batchApi = runInNewContext(`${batchSource.map(name => sliceDeclaration(source, name)).join("\n")}; ({${batchSource.join(",")}})`, {});
+const batchApi = runInNewContext(`${numberPrelude}${batchSource.map(name => sliceDeclaration(source, name)).join("\n")}; ({${batchSource.join(",")}})`, {});
 const batchSetupKeys = batchApi.BATCH_SETUPS.map(entry => entry.key);
 const batchStartKeys = batchApi.BATCH_START_RULES.map(entry => entry.key);
 const batchTargetKeys = batchApi.BATCH_TARGET_RULES.map(entry => entry.key);
@@ -1381,7 +1409,7 @@ console.log(`batch-windows OK: ${batchStates} states, ${batchValues} values, one
 const precSource = ["PREC_LN_EPS", "PREC_LN_BASE", "precF32Buffer", "precU32Buffer", "precBf16", "precRound",
   "PREC_DTYPES", "PREC_CASES", "PREC_SCHEMES", "precAccumulate", "precAllSchemes", "precLayerNorm",
   "PREC_SCALES", "PREC_AUTOCAST_ROWS"];
-const precApi = runInNewContext(`${precSource.map(name => sliceDeclaration(source, name)).join("\n")}; ({${precSource.join(",")}})`,
+const precApi = runInNewContext(`${numberPrelude}${precSource.map(name => sliceDeclaration(source, name)).join("\n")}; ({${precSource.join(",")}})`,
   { Math, Float32Array, Uint32Array, Number });
 
 // Independent bf16 round-to-nearest-even, written from the format definition rather than reused.
@@ -1519,7 +1547,7 @@ console.log(`mixed-precision OK: ${precValues} values, handout lines 3+4 agree a
 // reference below is re-derived from the handout's own printed figures, not imported from the app.
 const ckptSource = ["CKPT_BLOCK_RESIDUAL", "CKPT_BOUNDARY", "CKPT_DEPTHS", "CKPT_RATIOS",
   "ckptFlatPeak", "ckptFlatRow", "ckptFlatTable", "ckptBestSegments", "ckptNestedPeak", "ckptNestedRecompute"];
-const ckptApi = runInNewContext(`${ckptSource.map(name => sliceDeclaration(source, name)).join("\n")}; ({${ckptSource.join(",")}})`,
+const ckptApi = runInNewContext(`${numberPrelude}${ckptSource.map(name => sliceDeclaration(source, name)).join("\n")}; ({${ckptSource.join(",")}})`,
   { Math });
 const ckptR = ckptApi.CKPT_BLOCK_RESIDUAL, ckptC = ckptApi.CKPT_BOUNDARY;
 // The handout prints "14605.25 MiB" for four blocks and "160.00 MiB" for two boundary tensors.
@@ -1605,8 +1633,8 @@ if (!ckptSegmentRenderer.includes("ckptNumber(current.peak)")) throw new Error("
 if (!ckptSegmentRenderer.includes("ckptNumber(current.held)") || !ckptSegmentRenderer.includes("ckptNumber(current.materialized)")) throw new Error("checkpoint-segments: both items of the peak must be shown separately, the trade-off is only visible as two rows");
 if (!/rows\.map\(row\s*=>/.test(ckptSegmentRenderer)) throw new Error("checkpoint-segments: the full table must be rendered from the computed rows, not from a fixed selection");
 if (!/\[segment-1,segment,segment\+1\]/.test(ckptSegmentRenderer)) throw new Error("checkpoint-segments: the neighbour probe must show both neighbours — that is literally what part (b) asks for");
-if (!ckptSegmentRenderer.includes("optimumReal.toFixed(4)")) throw new Error("checkpoint-segments: the renderer must display k* = √(N·c/r) itself, the rule-of-thumb argument is read off against it");
-if (!/\(boundary\/residual\)\.toFixed\(4\)/.test(ckptSegmentRenderer)) throw new Error("checkpoint-segments: the renderer must display the ratio ρ, which is the quantity the whole lab turns on");
+if (!ckptSegmentRenderer.includes("fixedNum(optimumReal,4)")) throw new Error("checkpoint-segments: the renderer must display k* = √(N·c/r) itself, the rule-of-thumb argument is read off against it");
+if (!/fixedNum\(\(boundary\/residual\),4\)/.test(ckptSegmentRenderer)) throw new Error("checkpoint-segments: the renderer must display the ratio ρ, which is the quantity the whole lab turns on");
 const ckptNestingRenderer = sliceDeclaration(source, "ckptNestingStage");
 if (!ckptNestingRenderer.includes("ckptNumber(nested)")) throw new Error("checkpoint-segments: the nesting renderer must display the nested peak");
 if (!ckptNestingRenderer.includes("nestedForwards")) throw new Error("checkpoint-segments: the nesting renderer must display the price in extra forwards, the asymptotic claim is meaningless without it");
@@ -1647,7 +1675,7 @@ const shardSource = ["SHARD_D", "SHARD_DFF", "SHARD_LAYERS", "SHARD_VOCAB", "SHA
   "SHARD_MOMENTS", "SHARD_STRATEGIES", "SHARD_WORLDS", "SHARD_PRECISIONS", "SHARD_ACTIVATIONS",
   "shardLedger", "shardRing", "shardComm", "shardMib"];
 const shardApi = runInNewContext(
-  `const CKPT_BLOCK_RESIDUAL = ${14605.25 / 4}, CKPT_BOUNDARY = ${(4 * 2048 * 2560 * 4) / (1024 * 1024)};
+  `${numberPrelude}const CKPT_BLOCK_RESIDUAL = ${14605.25 / 4}, CKPT_BOUNDARY = ${(4 * 2048 * 2560 * 4) / (1024 * 1024)};
    ${shardSource.map(name => sliceDeclaration(source, name)).join("\n")}; ({${shardSource.join(",")}})`,
   { Math });
 
@@ -1780,7 +1808,7 @@ if (!/SHARD_ACTIVATIONS\.map\(/.test(shardLedgerRenderer)) throw new Error("shar
 if (!/shardShare\(saved\s*\/\s*ddpPeak\s*\*\s*100\)/.test(shardLedgerRenderer)) throw new Error("shard-ledger: the peak section must display the saved share, which is the answer fsdp_accounting (a) asks for");
 const shardCommRenderer = source.slice(source.indexOf("function shardCommStage()"), source.indexOf("function shardStageMarkup()"));
 if (shardCommRenderer.length < 300) throw new Error("shard-ledger: the communication renderer was not found");
-if (!shardCommRenderer.includes("ratio.toFixed(3)")) throw new Error("shard-ledger: the communication renderer must display the ratio against DDP, the 1.500 and 0.750 are the whole comparison");
+if (!shardCommRenderer.includes("fixedNum(ratio,3)")) throw new Error("shard-ledger: the communication renderer must display the ratio against DDP, the 1.500 and 0.750 are the whole comparison");
 if (!/result\.parts\.map\(/.test(shardCommRenderer)) throw new Error("shard-ledger: each strategy's collectives must be listed from its own definition");
 if (!/memoryRows/.test(shardCommRenderer)) throw new Error("shard-ledger: the communication mode must also show the memory column, that is how the own sharding and ZeRO-1 are shown to be equal");
 // v57's trap: `hidden` does nothing on a .field, whose display is grid. Mode fields need a plain div.
@@ -1820,7 +1848,7 @@ console.log(`shard-ledger OK: ${shardValues} values, ${shardDdpAt("init") / (102
 // not just that some number is produced.
 const offNames = ["OFF_REWARDS", "OFF_STD_EPS", "OFF_TOKENS_PER_RESPONSE", "offAdvantages", "OFF_DRIFTS", "OFF_EPSILONS",
   "OFF_VARIANTS", "offTokenTerm", "offObjective", "OFF_SEQS", "OFF_SEQ_VARIANTS", "offSeqWeight", "offGspoRow"];
-const offApi = runInNewContext(`${offNames.map(name => sliceDeclaration(source, name)).join("\n")}; ({${offNames.join(",")}})`, {});
+const offApi = runInNewContext(`${numberPrelude}${offNames.map(name => sliceDeclaration(source, name)).join("\n")}; ({${offNames.join(",")}})`, {});
 const offShow = value => value.toFixed(6);
 let offValues = 0;
 
@@ -1952,7 +1980,7 @@ console.log(`offpolicy-clip OK: ${offValues} values, every wrong version hidden 
 const advNames = ["ADV_EPS", "ADV_LENGTHS", "ADV_MAX_LEN", "ADV_Z", "ADV_GROUPS", "ADV_VARIANTS",
   "ADV_LOSS_NORMS", "ADV_EPS_MODES", "advMean", "advSampleStd", "advAdvantages", "advSeqWeights",
   "advPrunedShare", "ADV_LADDER", "ADV_CONVENTIONS", "advPromptWeight", "advEqualAdvantagePair"];
-const advApi = runInNewContext(`${advNames.map(name => sliceDeclaration(source, name)).join("\n")}; ({${advNames.join(",")}})`, {});
+const advApi = runInNewContext(`${numberPrelude}${advNames.map(name => sliceDeclaration(source, name)).join("\n")}; ({${advNames.join(",")}})`, {});
 const advShow = value => (Number.isNaN(value) ? "NaN" : value.toFixed(6));
 let advValues = 0;
 
@@ -2164,7 +2192,7 @@ console.log(`advantage-normalizers OK: ${advValues} values, all four settings id
 const mbdNames = ["MBD_BATCH", "MBD_GROUP_SIZE", "MBD_MAX_LEN", "MBD_Z", "MBD_SEQ", "MBD_SPLITS",
   "MBD_RULES", "MBD_NORMS", "mbdTokenSum", "mbdSeqMean", "mbdAggregate", "mbdScale",
   "mbdWholeBatch", "mbdWeights", "mbdAccumulated", "mbdUniformFactor", "mbdGroupDrift"];
-const mbdApi = runInNewContext(`${mbdNames.map(name => sliceDeclaration(source, name)).join("\n")}; ({${mbdNames.join(",")}})`, {});
+const mbdApi = runInNewContext(`${numberPrelude}${mbdNames.map(name => sliceDeclaration(source, name)).join("\n")}; ({${mbdNames.join(",")}})`, {});
 const mbdShow = value => (Number.isNaN(value) ? "NaN" : value.toFixed(10));
 let mbdValues = 0;
 
@@ -2572,6 +2600,26 @@ for (const id of selfStudyConcepts) {
   if (!conceptIds.has(id)) throw new Error(`lecture outlook: assignment-only concept ${id} no longer exists`);
   if (lectureTaughtConcepts.has(id)) throw new Error(`lecture outlook: ${id} is taught by a lecture now and must leave the assignment-only list`);
 }
+// The counterpart for labs. A lab whose subject is an assignment-only concept must stay off every
+// lecture page for the same reason the concept does: no lecture PDF teaches it, and listing it there
+// would claim a coverage the sources do not carry. Each entry names the concept that decides it, so
+// the guard fails the moment a lecture starts teaching that concept and the decision has to be retaken.
+for (const [lab, concept] of [["optimizer", "adamw"], ["loss-and-clip", "clipping"], ["decode-sampling", "sampling"]]) {
+  if (!selfStudyConcepts.includes(concept))
+    throw new Error(`lecture path: ${concept} left the assignment-only list, so the placement of ${lab} has to be decided again`);
+  for (const [lectureId, guide] of Object.entries(base.lectureGuides))
+    if ((guide.labs || []).includes(lab))
+      throw new Error(`lecture path: ${lectureId} lists ${lab}, but no lecture PDF teaches ${concept} -- it belongs to the assignment page`);
+}
+// The two placements this leaves are the ones a lecture really curates: the lecture that teaches the
+// concept must also offer the lab that practises it, or the concept is read-only on that page.
+for (const [lab, concept, lectureId] of [["shapes", "shapes", "l02"], ["scaling", "isoflops", "l09"]]) {
+  if (!(base.lectureGuides[lectureId].concepts || []).includes(concept))
+    throw new Error(`lecture path: ${lectureId} no longer curates ${concept}, so ${lab} has lost its reason to sit there`);
+  if (!(base.lectureGuides[lectureId].labs || []).includes(lab))
+    throw new Error(`lecture path: ${lectureId} curates ${concept} but offers no way to practise it -- ${lab} belongs on that page`);
+}
+
 const decidingConcepts = new Map([...scopedProblemKeys].map(key => {
   const named = problemConcepts[key];
   return [key, named && named.length ? named : (missionOfProblem.get(key)?.concepts || [])];
@@ -2653,7 +2701,7 @@ const lshNames = ["LSH_BANDS", "LSH_ROWS", "LSH_TAUS", "LSH_SIMS", "LSH_LECTURE_
   "LSH_CORPUS_DOCS", "LSH_PAIRS", "LSH_NS", "LSH_DOC_PAIRS",
   "lshProbMatch", "lshProbCollision", "lshThreshold", "lshPairTotal", "lshCorpusReport",
   "lshWords", "lshNgrams", "lshJaccard", "lshPairReport"];
-const lshApi = runInNewContext(`${lshNames.map(name => sliceDeclaration(source, name)).join("\n")}; ({${lshNames.join(",")}})`, {});
+const lshApi = runInNewContext(`${numberPrelude}${lshNames.map(name => sliceDeclaration(source, name)).join("\n")}; ({${lshNames.join(",")}})`, {});
 const lshShow = value => Number(value).toFixed(6);
 let lshValues = 0;
 
@@ -2976,7 +3024,7 @@ const qtNames = ["QT_DOCS", "QT_TOKENIZERS", "QT_RULES", "QT_RULESETS", "QT_AUDI
   "QT_TAUS", "QT_PARETO_A", "QT_KEEP_RULES", "QT_BREAKDOWNS",
   "qtTokenize", "qtMeasure", "qtActiveRules", "qtVerdict", "qtConfusion", "qtTokenizerDiff",
   "qtParetoKeep", "qtDetReport", "qtStochReport", "qtNumber", "qtPercent", "qtRatio"];
-const qtApi = runInNewContext(`${qtNames.map(name => sliceDeclaration(source, name)).join("\n")}; ({${qtNames.join(",")}})`, {});
+const qtApi = runInNewContext(`${numberPrelude}${qtNames.map(name => sliceDeclaration(source, name)).join("\n")}; ({${qtNames.join(",")}})`, {});
 const qtShow = value => (value === null ? "n/a" : Number(value).toFixed(8));
 let qtValues = 0;
 
@@ -3297,7 +3345,7 @@ const crNames = ["CR_DESIGNS", "CR_TEXTS", "CR_CORPORA", "CR_MERGE_STEPS", "CR_R
   "crBytes", "crRatio", "crPretokens", "crCharacterTokens", "crByteTokens", "crWordTokens",
   "crApplyMerge", "crTrainBpe", "crEncodeBpe", "crTokenize", "crBpeCache", "crTokenizerFor",
   "crBudget", "crNumber", "crPercent", "crGiB", "crMiB", "crMillions", "crHours"];
-const crApi = runInNewContext(`${crNames.map(name => sliceDeclaration(source, name)).join("\n")}; ({${crNames.join(",")}})`, { TextEncoder });
+const crApi = runInNewContext(`${numberPrelude}${crNames.map(name => sliceDeclaration(source, name)).join("\n")}; ({${crNames.join(",")}})`, { TextEncoder });
 const crShow = value => Number(value).toFixed(8);
 let crValues = 0;
 
@@ -3544,7 +3592,7 @@ if (!sliceDeclaration(source, "renderCompressionDesigns").includes("misstrauisch
 const rcNames = ["RC_SCHEDULE", "RC_STEPS", "RC_VARIANTS", "rcSchedule", "rcBranch", "rcSame", "rcHiddenSteps",
   "RC_RUN", "RC_CHECKPOINTS", "RC_CONTENTS", "rcGradients", "RC_GRADIENTS", "rcRunSchedule", "rcBiasFactor",
   "rcAdamStep", "rcRun", "rcResume", "rcExp", "rcNumber"];
-const rcApi = new Function(`"use strict"; ${rcNames.map(name => sliceDeclaration(source, name)).join("\n")} return {${rcNames.join(",")}};`)();
+const rcApi = new Function(`"use strict"; ${numberPrelude} ${rcNames.map(name => sliceDeclaration(source, name)).join("\n")} return {${rcNames.join(",")}};`)();
 
 // A1 4.4, typed again from the handout rather than reused from the app.
 const rcRef = (t) => {
@@ -3789,6 +3837,7 @@ const abStubs = `
   const esc = value => String(value).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
   const localeCode = () => "en-US";
   const localizedUi = value => String(value);
+${sliceDeclaration(source, "fixedNum")}
 `;
 const abAll = [...abNames, ...abRenderNames];
 const abApi = runInNewContext(`${abStubs}${abAll.map(name => sliceDeclaration(source, name)).join("\n")}; ({${abAll.join(",")}})`, {});
@@ -4137,6 +4186,7 @@ const psStubs = `
   const esc = value => String(value ?? "").replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
   const localeCode = () => "en-US";
   const localizedUi = value => String(value);
+${sliceDeclaration(source, "fixedNum")}
 `;
 const psAll = [...psNames, ...psRenderNames];
 const psApi = runInNewContext(`${psStubs}${psAll.map(name => sliceDeclaration(source, name)).join("\n")}; ({${psAll.join(",")}})`, {});
@@ -4492,6 +4542,7 @@ const fcStubs = `
   const esc = value => String(value ?? "").replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
   const localeCode = () => "en-US";
   const localizedUi = value => String(value);
+${sliceDeclaration(source, "fixedNum")}
 `;
 const fcAll = [...fcNames, ...fcRenderNames];
 const fcApi = runInNewContext(`${fcStubs}${fcAll.map(name => sliceDeclaration(source, name)).join("\n")}; ({${fcAll.join(",")}})`, {});
@@ -4962,6 +5013,7 @@ const seStubs = `
   const esc = value => String(value ?? "").replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
   const localeCode = () => "en-US";
   const localizedUi = value => String(value);
+${sliceDeclaration(source, "fixedNum")}
 `;
 const seAll = [...seNames, ...seRenderNames];
 const seApi = runInNewContext(`${seStubs}${seAll.map(name => sliceDeclaration(source, name)).join("\n")}; ({${seAll.join(",")}})`, {});
@@ -5257,12 +5309,13 @@ console.log(`stability-edge OK: ${seValues} values, the folk wisdom from A1 (b) 
 const dhNames = ["DH_A_MAX", "DH_A_MIN", "DH_T_W", "DH_N", "DH_HORIZONS", "DH_PROBES",
   "DH_DECAY_SHARES", "DH_LADDER_STEP", "DH_LADDERS", "dhLr", "dhBranch", "dhBudget",
   "dhFloorSteps", "dhExecuted", "dhEndsAtFloor", "dhLadderCost"];
-const dhRenderNames = ["dhNum", "dhInt", "dhExp", "dhPct", "renderDecayHorizonRun",
+const dhRenderNames = ["dhInt", "dhExp", "dhPct", "renderDecayHorizonRun",
   "renderDecayHorizonSweep", "decayHorizonSuccessMarkup"];
 const dhStubs = `
   const esc = value => String(value ?? "").replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
   const localeCode = () => "en-US";
   const localizedUi = value => String(value);
+${sliceDeclaration(source, "fixedNum")}
 `;
 const dhAll = [...dhNames, ...dhRenderNames];
 const dhApi = runInNewContext(`${dhStubs}${dhAll.map(name => sliceDeclaration(source, name)).join("\n")}; ({${dhAll.join(",")}})`, {});
@@ -5571,7 +5624,7 @@ for (const value of ["1,191190", "1,915144", "16,4231", "5,500000", "1,450000"])
 // Until this version its schedule() had two branches and pinned T_c to the width of the
 // chart, so the third branch of A1 4.4 could not be drawn at all while the app's own
 // resume-contract quiz asked about it.
-const optSchedule = runInNewContext(`${sliceDeclaration(source, "schedule")}; schedule`, {});
+const optSchedule = runInNewContext(`${numberPrelude}${sliceDeclaration(source, "schedule")}; schedule`, {});
 if (optSchedule.length !== 5) throw new Error("optimizer: A1 4.4's schedule takes t, T_w, alpha_max, T_c and alpha_min");
 for (const [tc, min] of [[100, 1e-4], [60, 2e-4], [40, 1e-3]]) {
   for (const t of [0, 5, 9, 10, 11, 30, tc - 1, tc, tc + 1, 100]) {
@@ -5589,7 +5642,7 @@ if (!source.includes('<input id="optCosine" type="range"')) throw new Error("opt
 // The panel tells the reader alpha_min is a tenth of alpha_max; the code must agree.
 if (!source.includes("lrMin=.1*max")) throw new Error("optimizer: alpha_min is a tenth of alpha_max, as the panel says");
 if (!source.includes("η_min ist auf 0,1·η_max gesetzt")) throw new Error("optimizer: the panel must say which value alpha_min is fixed to");
-if (source.includes("${lrMin.toFixed(4)}"))
+if (source.includes("${fixedNum(lrMin,4)}"))
   throw new Error("optimizer: alpha_min must not be printed with four decimals, it rounds to zero on the small half of the slider");
 if ((source.match(/\$\{lrMin\.toExponential\(2\)\}/g) || []).length !== 2)
   throw new Error("optimizer: both branches of the printed formula must spell alpha_min out");
