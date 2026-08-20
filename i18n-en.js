@@ -4940,7 +4940,7 @@ window.CS336_EN = Object.freeze({
           "evidence": "You can test Loss reduction, global Gradient Clipping, Optimizer state, and Step indexing at boundary values and state the expected update direction.",
           "failure": "First lead: Log the Loss value, gradient, clipped gradient, adaptive Adam term, Decay term, and current Learning Rate separately.",
           "concepts": ["cross-entropy", "adamw", "schedules", "clipping"],
-          "labs": ["optimizer", "loss-and-clip", "resume-contract"]
+          "labs": ["decay-horizon", "optimizer", "loss-and-clip", "resume-contract"]
         },
         {
           "id": "training-state",
@@ -4950,7 +4950,7 @@ window.CS336_EN = Object.freeze({
           "evidence": "You can verify dtype and vocabulary bounds for an np.memmap, form random [B,m] inputs and one-position-shifted targets without an off-by-one error, overfit a tiny batch, and reproduce the next loss and parameter state after save/reload.",
           "failure": "First lead: For bad batches, first check file format, dtype, n≥m+1, exclusive bound n−m, and Y_b[:-1]=X_b[1:] for every batch example b. For resume divergence, compare the next batch, update step, RNG, and optimizer moments—not just weights.",
           "concepts": ["token-array-loading", "pytorch-state", "training-loop", "sampling"],
-          "labs": ["batch-windows", "resume-contract", "pytorch-debugger", "optimizer", "resources"]
+          "labs": ["batch-windows", "resume-contract", "decay-horizon", "pytorch-debugger", "optimizer", "resources"]
         },
         {
           "id": "generation-experiments",
@@ -5159,7 +5159,7 @@ window.CS336_EN = Object.freeze({
           "evidence": "Every planned Run is API-compatible, has one explicit hypothesis, adds a missing side of a minimum, and is accounted for in the total budget.",
           "failure": "First lead: If a Run merely adds more points near known strong Runs, ask whether it separates a decision or only consumes budget.",
           "concepts": ["scaling-practice", "isoflops", "resource-accounting"],
-          "labs": ["scaling"]
+          "labs": ["scaling", "decay-horizon"]
         },
         {
           "id": "fit-validate",
@@ -6177,6 +6177,51 @@ window.CS336_EN = Object.freeze({
       "misconception": "\"The table says which filter does the bulk of the work.\" It does not. Same stage, same corpus, same threshold: depending on its position in the cascade the quality classifier is either the largest or the third-largest item, and the Gopher rules swing by a factor of 3.857143. Reading the effect of a filter off a cascade table means reading the order of your script. The second false assumption concerns the opposite direction: that measuring each stage separately solves the problem. It does make the numbers order-free, but they then no longer sum to the discarded set — here they reach 150.2273 % of it — because every multiply-excluded document is counted several times. And the third: that the order does not matter because the result stays the same. The result stays the same, the computation does not — between the cheapest and the dearest order lies almost a factor of two here.",
       "transferQuestion": "You built A4's pipeline in the order of the handout — language, Gopher, classifier, dedup — and report: \"Language identification removes the largest part of the discarded documents at 45.1136 %, the classifier only 25 %.\" A fellow student used the same filters with the same thresholds and reports 44.8864 % for the classifier. Which number is wrong, and which measurement should you report instead?",
       "transferAnswer": "Neither of them is wrong, and that is precisely the finding. Both numbers appear in this lab's range table: the classifier is credited with 2,200 documents in the handout order (25 %) and with 3,950 (44.8864 %) in an order that lets it run early. Across all 24 orders it ranges from 1,800 to 4,500. Both runs produce the same corpus — 1,200 kept and 8,800 discarded documents — and differ only in which stage catches a multiply-excluded document first. What is worth reporting is therefore not the cascade attribution alone. Two measurements carry: the isolated rejection count per stage — here 3,970 for language and 4,500 for the classifier — together with the explicit note that these numbers sum to 150.2273 % of the discarded documents because 4,420 extra reasons are double-counted; and the number of documents each stage actually reaches, because the runtime hangs on that. Both come out of a single run without giving up the cascade: full signature on 1 % of the documents, cascade on the rest — a surcharge of a factor of 1.013928 over the pure cascade, against a factor of 2.392822 for the full signature on everything."
+    },
+    "decay-horizon": {
+      "title": "The decay horizon: why A1 asks for T_c = N, and what an intermediate state is worth",
+      "time": "15 min",
+      "desc": "A1 4.4 gives the cosine schedule five parameters. Four of them appear in every tutorial; the fifth, the decay horizon T_c, is usually set to the run length in silence. Compute what a different horizon costs: at t = 0 and at t = T_w every horizon returns exactly the same learning rate, while at the last step a factor of 5.644232 separates them. The same property makes a scaling sweep in Lecture 11 cost (K+1)/2 times more — 5.500000 times a single run at ten sampling points.",
+      "mental": "A cosine schedule is not one curve but a family of curves, and T_c picks one. The warm-up branch does not know T_c at all — which is why a wrong horizon is invisible at exactly the points where you first test a scheduler, and only becomes visible inside the cosine. Two quantities decide the end state of the run and pull against each other: whether the run comes down to alpha_min at all (true precisely for T_c <= N), and how much step size it had in total (strictly increasing in T_c). Together they leave exactly one horizon, and that is A1's tip. The same mechanism decides an entirely different question: because T_c is baked into every single step, an intermediate state of a long run is not a short run but a half-finished long one. Anyone fitting a scaling curve therefore cannot read off intermediate states but has to run every length separately — and that is exactly what Lecture 11 means by “from n to n²”.",
+      "formula": "t < T_w: α_t = (t/T_w)·α_max   ·   T_w ≤ t ≤ T_c: α_t = α_min + ½(1+cos(π·(t−T_w)/(T_c−T_w)))·(α_max−α_min)   ·   t > T_c: α_t = α_min   ·   K runs: N_1·K(K+1)/2   ·   WSD: (1−d)·N_K + d·N_1·K(K+1)/2   ·   cosine/WSD < 1/d",
+      "symbols": [
+        [
+          "T_c",
+          "The decay horizon: the step at which the cosine reaches alpha_min. A1 calls it “the final iteration of cosine annealing” — it is a parameter of its own and not automatically the run length."
+        ],
+        [
+          "N",
+          "The number of steps your run actually takes. T_c and N are two different numbers; setting them equal is a decision, and one A1 §5 explicitly recommends."
+        ],
+        [
+          "T_w",
+          "Warm-up length. The warm-up branch depends on T_w only, never on T_c — which is why all horizons are indistinguishable for t < T_w."
+        ],
+        [
+          "α_max, α_min",
+          "Largest and smallest learning rate. Both are parameters of the schedule; alpha_min is not automatically a fraction of alpha_max, even though it is often chosen that way."
+        ],
+        [
+          "Σ α_t",
+          "The sum of the learning rates over every step of the run — used here only as a monotone measure of how generous a horizon is, never as a measure of the model's progress."
+        ],
+        [
+          "K",
+          "The number of sampling points of a scaling sweep: how many different run lengths you need in order to fit a curve."
+        ],
+        [
+          "N_1·K(K+1)/2",
+          "What K separate runs on an evenly spaced ladder cost together. The quotient against a single run of length N_K is exactly (K+1)/2 — that is Lecture 11's “n to n²” as a number."
+        ],
+        [
+          "d",
+          "The share of a run taken up by a WSD decay phase. Lecture 11 quotes “Decay ~ 10%” for miniCPM. The WSD advantage over cosine stays below 1/d for every K."
+        ]
+      ],
+      "observe": "Stay in mode A and change only the horizon at the top. Watch the probe table alone, and read it by column rather than by row: the t = 0 column reads 0.000000e+0 in all five rows, the t = 200 column reads 1.000000e-3 in all five. The rows only separate from t = 2500 onwards, where a factor of 8.831251 lies between them. Then look at exactly two columns of the horizon table: “of which alpha_min” reads 1.000000 for T_c = 2500, 4000 and 5000 and 1.915144 and 5.644232 for 6250 and 10000; “budget against T_c = N” instead grows monotonically across all five rows from 0.589424 to 1.512128. Exactly one row reads 1.000000 in the first column and carries the largest value in the second — that is T_c = N. Then switch to mode B and set the decay phase to 5 %, 10 % and 20 % in turn. The column “cosine / one run” does not move by a single digit; it stays at 5.500000 for K = 10. The last column does move — from 4.489796 through 3.793103 to 2.894737 — and stays below 1/d in all three settings.",
+      "misconception": "The first error is to take T_c for the run length. A1 lists both separately, and a scheduler that carries T_c over from an earlier experiment keeps computing without a fault — it just computes a different curve. The second error is expecting a test to catch it: the usual probe points t = 0 and t = T_w lie in the warm-up branch, and that branch does not know T_c. The third concerns the direction of the damage. A horizon that is too long feels harmless, because the curve looks normal and the run gets more step size — but it leaves behind a model that was never annealed, here at 5.644232 times alpha_min. A horizon that is too short is the opposite: the end state is right, but 2500 of 5001 steps run at the smallest learning rate. And the fourth concerns Lecture 11: reading “WSD turns n² into n” is too generous. The decay phases carry the same quadratic term, merely multiplied by d; WSD buys a factor below 1/d, not an order.",
+      "transferQuestion": "You planned an A1 run over 5000 steps, started it with T_c = 5000, and stopped after 3000 steps because you ran out of time. A fellow student ran the same setup with T_c = 3000 over 3000 steps. Both runs computed for the same length and used the same four remaining parameters. Are the two final models comparable, and which number decides that?",
+      "transferAnswer": "Not comparable, and the decisive number is the “decay completed” column — read for your stopping step instead of for N. Your fellow student ran their decay to completion: their last step sits exactly on alpha_min. Your run sits at step 3000 in the middle of the cosine of a 5000-step horizon; of the planned half cosine wave, (3000−200)/(5000−200) = 58.3333 % has taken place, and the learning rate there is still well above the floor. Your stop therefore did not shorten the same run — it left a different run half finished, which is exactly the row mode B rests on. Both models saw the same amount of compute, but only one of them was annealed, and for the task A1 sets (the smallest possible validation loss after a fixed time) that is the decisive difference. The right move would have been to pull T_c along when shortening: A1 §5 says precisely that, and mode A computes why — among all horizons that land on alpha_min at the end, T_c = N is the one with the largest step-size budget. For comparing several run lengths out of a single run there is only one construction that allows it, and that is WSD: one trunk, one decay phase per length."
     },
     "position-signal": {
         "title": "Position information: relative, absolute, or none at all",
@@ -7302,6 +7347,109 @@ window.CS336_EN = Object.freeze({
     }
 },
   "ui": {
+    "Dieselben fünf Läufe, an fünf Schritten abgelesen": "The same five runs, read at five steps",
+    "Jede Spalte ist ein Schritt des Laufs, jede Zeile ein Decay-Horizont. Alles andere ist identisch: dieselbe Maximallernrate, dieselbe Minimallernrate, dasselbe Warmup, dieselben 5.001 Schritte.": "Each column is one step of the run, each row one decay horizon. Everything else is identical: the same maximum learning rate, the same minimum learning rate, the same warm-up, the same 5,001 steps.",
+    "Lernrate je Decay-Horizont und Schritt": "Learning rate per decay horizon and step",
+    "Decay-Horizont": "Decay horizon",
+    "Die ersten beiden Spalten stehen still.": "The first two columns stand still.",
+    "Bei t = 0 liefern alle fünf Horizonte exakt 0, bei t = T_w = 200 alle fünf exakt": "At t = 0 all five horizons return exactly 0, and at t = T_w = 200 all five return exactly",
+    ". Das ist keine Nebensache, sondern die Falle: der Warmup-Zweig kennt T_c gar nicht, also ist ein falscher Horizont an genau den Stellen unsichtbar, an denen man einen Scheduler zuerst prüft. Sichtbar wird er erst im Kosinus – bei t = 2.500 liegen zwischen dem kürzesten und dem längsten Horizont schon der Faktor": ". That is not a detail but the trap: the warm-up branch does not know T_c at all, so a wrong horizon is invisible at exactly the points where you first test a scheduler. It only becomes visible inside the cosine — at t = 2,500 the shortest and the longest horizon are already separated by a factor of",
+    "Was der gewählte Horizont zeichnet": "What the chosen horizon draws",
+    "T_c = 2.500 · der Decay endet auf halber Strecke": "T_c = 2,500 · the decay ends halfway through",
+    "Senkrecht: Lernrate α · waagerecht: Optimizer-Schritt t. Die senkrechte Marke steht bei N = 5.000, dort endet der Lauf. Die waagerechte Marke steht bei α_min.": "Vertical: learning rate α · horizontal: optimizer step t. The vertical mark sits at N = 5,000, where the run ends. The horizontal mark sits at α_min.",
+    "Was jeder Horizont am Ende des Laufs übrig lässt": "What each horizon leaves behind at the end of the run",
+    "Endzustand und Schrittweitenbudget je Decay-Horizont": "End state and step-size budget per decay horizon",
+    "beim letzten Schritt": "at the last step",
+    "davon α_min": "of which α_min",
+    "Schritte im dritten Zweig": "Steps in the third branch",
+    "Decay durchlaufen": "Decay completed",
+    "Budget gegenüber T_c = N": "Budget against T_c = N",
+    "A1s Tipp ist kein Stilhinweis, sondern ein Optimum unter einer Nebenbedingung": "A1's tip is not a matter of style but an optimum under a constraint",
+    "Lies die Tabelle in zwei Spalten. Die Spalte „davon α_min“ sagt, ob der Lauf überhaupt heruntergefahren wurde: sie steht genau dann auf 1,000000, wenn T_c ≤ N ist – der Lauf erreicht den dritten Zweig oder endet exakt auf ihm. Die Spalte „Σ α_t“ sagt, wie viel Schrittweite der Lauf insgesamt zur Verfügung hatte; sie wächst streng monoton mit T_c, ein längerer Horizont ist also immer großzügiger. Beide Spalten zusammen lassen nur einen Punkt übrig: unter allen Horizonten, die am Ende exakt auf α_min landen, ist T_c = N derjenige mit dem größten Budget. Ein Schritt weiter nach oben – T_c = 6.250 – bringt zwar 1,191190 mal so viel Budget, endet aber bei 1,915144 α_min statt auf dem Boden. Ein Schritt nach unten – T_c = 4.000 – landet auf dem Boden, verschenkt aber 16,4231 % des Budgets an 1.000 Schritte, die alle dieselbe kleinste Lernrate benutzen. Genau das meint A1 mit „terminate its decay at precisely step N“: nicht eine Konvention, sondern der einzige Horizont, der beide Bedingungen gleichzeitig erfüllt.": "Read the table as two columns. The column “of which α_min” says whether the run was annealed at all: it reads 1.000000 exactly when T_c ≤ N — the run either reaches the third branch or ends precisely on it. The column “Σ α_t” says how much step size the run had in total; it grows strictly with T_c, so a longer horizon is always more generous. Together the two columns leave only one point: among all horizons that land exactly on α_min at the end, T_c = N is the one with the largest budget. One step up — T_c = 6,250 — does buy 1.191190 times the budget, but it ends at 1.915144 α_min instead of on the floor. One step down — T_c = 4,000 — lands on the floor but gives away 16.4231 % of the budget to 1,000 steps that all use the same smallest learning rate. That is exactly what A1 means by “terminate its decay at precisely step N”: not a convention, but the only horizon that satisfies both conditions at once.",
+    "Fester Lauf": "Fixed run",
+    "Gewählter Horizont": "Chosen horizon",
+    "Zweig bei": "Branch at",
+    "Warmup · α = t/T_w · α_max": "Warm-up · α = t/T_w · α_max",
+    "Lernrate dort": "Learning rate there",
+    "Lernrate beim letzten Schritt": "Learning rate at the last step",
+    "Schrittweitenbudget": "Step-size budget",
+    "gegenüber T_c = N": "against T_c = N",
+    "Σ α_t ist die Summe der Lernraten über den Lauf, nicht der Fortschritt des Modells. Ein Schritt mit doppelter Lernrate senkt den Loss nicht um das Doppelte, und ab einer Grenze senkt er ihn gar nicht mehr – das rechnet das Lab „Die Kante der Stabilität“. Die Summe taugt hier nur als das, wofür sie hier benutzt wird: als monotones Maß dafür, wie großzügig ein Horizont ist, damit die Nebenbedingung überhaupt eine Richtung hat. Ebenso wenig sagt dieser Modus, dass ein längerer Horizont schlechter trainiert; er sagt, dass er einen anderen Endzustand hinterlässt. Und die vier festen Parameter sind A1s eigene Größenordnung, nicht die deines Laufs – exakt ist die Struktur: dass der Warmup-Zweig T_c nicht kennt, dass genau die Horizonte mit T_c ≤ N auf α_min enden, dass Σ α_t streng mit T_c wächst, und dass daraus genau ein zulässiger Horizont folgt.": "Σ α_t is the sum of the learning rates over the run, not the progress of the model. A step with twice the learning rate does not halve the loss twice as fast, and past a threshold it does not lower it at all — that is what the lab “The edge of stability” computes. The sum is good here only for what it is used for: a monotone measure of how generous a horizon is, so that the constraint has a direction at all. Nor does this mode claim that a longer horizon trains worse; it claims that it leaves a different end state. And the four fixed parameters are A1's own order of magnitude, not your run's — what is exact is the structure: that the warm-up branch does not know T_c, that precisely the horizons with T_c ≤ N end on α_min, that Σ α_t grows strictly with T_c, and that exactly one admissible horizon follows from those two facts.",
+    "Dieser Lauf endet sauber – und verbringt Schritte im dritten Zweig.": "This run ends cleanly — and spends steps in the third branch.",
+    "Die letzte Lernrate ist exakt α_min, aber der Decay war schon vorher fertig. Die Spalte „Schritte im dritten Zweig“ sagt, wie viele Schritte danach noch mit der kleinsten Lernrate liefen.": "The last learning rate is exactly α_min, but the decay had already finished before that. The column “Steps in the third branch” says how many steps afterwards still ran at the smallest learning rate.",
+    "Cosine · α = α_min + ½(1+cos(π(t−T_w)/(T_c−T_w)))(α_max−α_min)": "Cosine · α = α_min + ½(1+cos(π(t−T_w)/(T_c−T_w)))(α_max−α_min)",
+    "Post-Annealing · α = α_min": "Post-annealing · α = α_min",
+    "T_c = 4.000 · der Decay endet bei 80 % des Laufs": "T_c = 4,000 · the decay ends at 80 % of the run",
+    "T_c = 5.000 = N · was A1 §5 ausdrücklich empfiehlt": "T_c = 5,000 = N · what A1 §5 explicitly recommends",
+    "Dieser Lauf endet exakt auf α_min und verschenkt keinen Schritt.": "This run ends exactly on α_min and wastes no step.",
+    "Das ist der einzige Horizont dieser Liste, für den beides gilt. Jeder andere verletzt genau eine der beiden Bedingungen.": "It is the only horizon in this list for which both hold. Every other one violates exactly one of the two conditions.",
+    "T_c = 6.250 · der Horizont ist ein Viertel zu lang": "T_c = 6,250 · the horizon is a quarter too long",
+    "Dieser Lauf endet über α_min.": "This run ends above α_min.",
+    "Der Kosinus war beim Abbruch noch nicht am Boden. Die Spalte „Decay durchlaufen“ sagt, welcher Anteil der geplanten halben Kosinuswelle überhaupt stattgefunden hat – der Rest ist nie passiert.": "The cosine had not reached the floor when the run stopped. The column “Decay completed” says which share of the planned half cosine wave took place at all — the rest never happened.",
+    "T_c = 10.000 = 2N · der Lauf endet in der Mitte des Decays": "T_c = 10,000 = 2N · the run ends in the middle of the decay",
+    "Warum ein Zwischencheckpoint kein Punkt auf der Kurve ist": "Why an intermediate checkpoint is not a point on the curve",
+    "Diese Zeile steht schon in Modus A.": "This row is already in mode A.",
+    "Um ein Skalierungsgesetz zu fitten, braucht man denselben Lauf in mehreren Längen. Der naheliegende Weg ist, einen langen Lauf zu starten und bei jeder gewünschten Länge den Zwischenstand abzulesen. Genau das verbietet der Cosine-Schedule: bei Schritt 5.000 eines Laufs, der für 10.000 geplant ist, steht die Lernrate auf": "Fitting a scaling law needs the same run at several lengths. The obvious way is to start one long run and read off the intermediate state at every length you want. That is exactly what the cosine schedule forbids: at step 5,000 of a run planned for 10,000, the learning rate sits at",
+    "– also": "— that is",
+    "mal α_min, und erst": "times α_min, and only",
+    "des geplanten Decays haben stattgefunden. Dieser Zwischenstand ist also kein 5.000-Schritt-Lauf, sondern ein halbfertiger 10.000-Schritt-Lauf. Wer ihn als Punkt der Kurve einträgt, misst den Horizont mit, nicht die Lauflänge. L11 zieht daraus genau eine Folgerung: „This turns the cost of fitting a scaling law from n to n².“": "of the planned decay has taken place. That intermediate state is therefore not a 5,000-step run but a half-finished 10,000-step run. Entering it as a point on the curve measures the horizon along with it, not the run length. L11 draws exactly one conclusion from this: “This turns the cost of fitting a scaling law from n to n².”",
+    "Was K Stützstellen kosten": "What K sampling points cost",
+    "Eine Leiter aus K gleich weit auseinander liegenden Lauflängen N_i = i · 2.000, also bis N_K = K · 2.000. Drei Wege, dieselben K Punkte zu bekommen.": "A ladder of K evenly spaced run lengths N_i = i · 2,000, up to N_K = K · 2,000. Three ways to obtain the same K points.",
+    "Schrittkosten je Verfahren und Zahl der Stützstellen": "Step cost per method and number of sampling points",
+    "ein Lauf, abgelesen": "one run, read off",
+    "Cosine · K Läufe von vorn": "Cosine · K runs from scratch",
+    "WSD · ein Rumpf plus K Decays": "WSD · one trunk plus K decays",
+    "Cosine / ein Lauf": "Cosine / one run",
+    "WSD / ein Lauf": "WSD / one run",
+    "Cosine / WSD": "Cosine / WSD",
+    "Die vierte Spalte ist eine geschlossene Formel, und die Abschlussphase steht nicht darin": "The fourth column is a closed formula, and the decay phase does not appear in it",
+    "K Läufe von vorn kosten 2.000 · (1 + 2 + … + K) = 2.000 · K(K+1)/2 Schritte, ein einziger Lauf kostet 2.000 · K. Der Quotient ist deshalb exakt (K+1)/2 – bei K = 10 also 5,500000, bei K = 20 schon 10,500000, bei K = 100 genau 50,500000. Das ist L11s „n zu n²“ als Zahl: die Kosten wachsen quadratisch in der Zahl der Stützstellen, während ein einziger Lauf linear wächst. Und diese Spalte hängt nicht an d. Stell die Abschlussphase oben auf 5 % oder auf 20 % – die vierte Spalte bewegt sich nicht um eine Stelle. Die Länge der Decay-Phase ändert nichts daran, wie teuer Cosine ist; sie entscheidet nur darüber, wie viel WSD davon zurückholt.": "K runs from scratch cost 2,000 · (1 + 2 + … + K) = 2,000 · K(K+1)/2 steps, while one single run costs 2,000 · K. The quotient is therefore exactly (K+1)/2 — at K = 10 that is 5.500000, at K = 20 already 10.500000, at K = 100 precisely 50.500000. That is L11's “n to n²” as a number: the cost grows quadratically in the number of sampling points, while one single run grows linearly. And this column does not depend on d. Set the decay phase above to 5 % or to 20 % — the fourth column does not move by a single digit. The length of the decay phase changes nothing about how expensive cosine is; it only decides how much of that WSD recovers.",
+    "WSD entfernt den quadratischen Term nicht – es teilt ihn durch d": "WSD does not remove the quadratic term — it divides it by d",
+    "Der WSD-Weg besteht aus zwei Posten. Der gemeinsame stabile Rumpf kostet (1−d) · N_K und wächst linear in K. Die K Abschlussphasen kosten zusammen d mal genau das, was der ganze Cosine-Weg kostet – sie tragen also denselben quadratischen Term, nur mit d multipliziert. Deshalb steigt die letzte Spalte mit K und bleibt trotzdem beschränkt: sie nähert sich für große K genau 1/d an und erreicht diesen Wert nie. Bei d = ": "The WSD route has two items. The shared stable trunk costs (1−d) · N_K and grows linearly in K. The K decay phases together cost d times exactly what the whole cosine route costs — so they carry the same quadratic term, merely multiplied by d. That is why the last column rises with K and still stays bounded: for large K it approaches exactly 1/d and never reaches it. At d = ",
+    " ist die Grenze also": " the limit is therefore",
+    ", und die Tabelle bleibt bei K = 100 mit": ", and at K = 100 the table stays at",
+    "darunter. Wer L11s Satz als „WSD macht aus n² ein n“ liest, liest ihn zu großzügig: WSD kauft einen Faktor, keine Ordnung. Der Faktor ist bei der Größenordnung, die eine Chinchilla-artige Erhebung wirklich benutzt – ein bis zwei Dutzend Stützstellen –, trotzdem der Unterschied zwischen einer machbaren und einer nicht machbaren Erhebung.": "below it. Reading L11's sentence as “WSD turns n² into n” reads it too generously: WSD buys a factor, not an order. At the scale a Chinchilla-style sweep actually uses — one to two dozen sampling points — that factor is nevertheless the difference between a feasible and an infeasible sweep.",
+    "Gewählte Abschlussphase": "Chosen decay phase",
+    "Gewählte Zahl der Stützstellen": "Chosen number of sampling points",
+    "längster Lauf": "longest run",
+    "Ein Lauf, jeder Zwischenstand abgelesen": "One run, every intermediate state read off",
+    "WSD · Rumpf plus Abschlussphasen": "WSD · trunk plus decay phases",
+    "Anteil der Abschlussphasen an den WSD-Kosten": "Share of the decay phases in the WSD cost",
+    "Cosine gegenüber WSD": "Cosine against WSD",
+    "Grenze": "limit",
+    "Gezählt werden Optimizer-Schritte, nicht Stunden. Die K Abschlussphasen hängen an keiner gemeinsamen Reihenfolge und können parallel laufen; auf einem Cluster ist die Wanduhr deshalb ein anderer Vergleich als diese Tabelle. Der Rumpf braucht außerdem selbst einen Warmup, der hier nicht mitgezählt ist – bei den Größenordnungen dieser Leiter verschiebt das die Zahlen nicht, bei sehr kleinem K schon. Die Leiter selbst ist gesetzt: gleich weit auseinander liegende Lauflängen mit N_1 = 2.000. Exakt ist die Struktur, nicht der Wert – (K+1)/2 hängt weder an N_1 noch an d, und die Grenze 1/d hängt weder an N_1 noch an K. Und der wichtigste Vorbehalt ist kein Rechenvorbehalt: dass ein Stable-Checkpoint plus definierter Decay ungefähr so gut ist wie ein durchgehender Cosine-Lauf, ist eine empirische Beobachtung. L11 formuliert sie vorsichtig – „Generally seems to match performance of cosine learning rates“ – und genau deshalb bleibt ein Checkpoint vor seinem Decay auch hier kein fertiges Modell.": "What is counted here are optimizer steps, not hours. The K decay phases share no common ordering and can run in parallel; on a cluster the wall clock is therefore a different comparison from this table. The trunk also needs a warm-up of its own, which is not counted here — at the magnitudes of this ladder that does not move the numbers, at very small K it does. The ladder itself is set: evenly spaced run lengths with N_1 = 2,000. What is exact is the structure, not the value — (K+1)/2 depends on neither N_1 nor d, and the limit 1/d depends on neither N_1 nor K. And the most important caveat is not an arithmetic one: that a stable checkpoint plus a defined decay is roughly as good as a continuous cosine run is an empirical observation. L11 phrases it cautiously — “Generally seems to match performance of cosine learning rates” — and that is exactly why a checkpoint before its decay is not a finished model here either.",
+    "Der Warmup-Zweig kennt T_c nicht, deshalb liefern alle fünf Horizonte bei t = 0 und bei t = T_w exakt dieselbe Lernrate – ein falscher Horizont ist genau dort unsichtbar, wo man zuerst prüft. T_c = N ist nicht Konvention, sondern der Horizont mit dem größten Schrittweitenbudget unter allen, die am Ende exakt auf α_min landen: T_c = 6.250 bringt 1,191190 mal so viel Budget und endet bei 1,915144 α_min, T_c = 4.000 landet auf dem Boden und verschenkt 16,4231 % des Budgets. Und dieselbe Eigenschaft kostet in L11 den Faktor (K+1)/2: bei zehn Stützstellen 5,500000 mal ein einzelner Lauf, den WSD auf 1,450000 drückt – ohne den quadratischen Term zu entfernen, denn der Vorteil bleibt für jedes K unter 1/d.": "The warm-up branch does not know T_c, so all five horizons return exactly the same learning rate at t = 0 and at t = T_w — a wrong horizon is invisible precisely where you test first. T_c = N is not a convention but the horizon with the largest step-size budget among all those that land exactly on α_min at the end: T_c = 6,250 buys 1.191190 times the budget and ends at 1.915144 α_min, while T_c = 4,000 lands on the floor and gives away 16.4231 % of the budget. And in L11 the same property costs a factor of (K+1)/2: at ten sampling points, 5.500000 times a single run, which WSD pushes down to 1.450000 — without removing the quadratic term, since the advantage stays below 1/d for every K.",
+    "T_c aus A1 4.4": "T_c from A1 4.4",
+    "Ein Lauf: was der Horizont am Ende übrig lässt": "One run: what the horizon leaves behind at the end",
+    "Viele Läufe: was eine Skalierungserhebung kostet": "Many runs: what a scaling sweep costs",
+    "Decay-Horizont T_c bei festem N = 5.000": "Decay horizon T_c at a fixed N = 5,000",
+    "An welchem Schritt du ablesen willst": "Which step you want to read",
+    "t = 0 · der allererste Optimizer-Schritt": "t = 0 · the very first optimizer step",
+    "t = T_w = 200 · die Übergabe an den Kosinus": "t = T_w = 200 · the handover to the cosine",
+    "t = 2.500 · auf halber Strecke des Laufs": "t = 2,500 · halfway through the run",
+    "t = 4.000 · bei 80 % des Laufs": "t = 4,000 · at 80 % of the run",
+    "t = N = 5.000 · der letzte Schritt des Laufs": "t = N = 5,000 · the last step of the run",
+    "Länge der WSD-Abschlussphase": "Length of the WSD decay phase",
+    "d = 5 % · eine kurze Abschlussphase": "d = 5 % · a short decay phase",
+    "d = 10 % · der Wert, den L11 nennt": "d = 10 % · the value L11 quotes",
+    "d = 20 % · eine lange Abschlussphase": "d = 20 % · a long decay phase",
+    "Zahl der Stützstellen K": "Number of sampling points K",
+    "A1 4.4 zählt fünf Parameter auf – t, α_max, α_min, T_w und T_c – und A1 §5 fügt einen Satz hinzu, der leicht überlesen wird: „When using N training steps, we suggest adjusting the cosine learning rate decay schedule to terminate its decay (i.e., reach the minimum learning rate) at precisely step N.“ Sage vor jedem Wechsel des Horizonts voraus, welche Zahlen sich mitbewegen – und an welchen Schritten sich gar nichts ändert.": "A1 4.4 lists five parameters — t, α_max, α_min, T_w and T_c — and A1 §5 adds a sentence that is easily missed: “When using N training steps, we suggest adjusting the cosine learning rate decay schedule to terminate its decay (i.e., reach the minimum learning rate) at precisely step N.” Before every change of horizon, predict which numbers move along with it — and at which steps nothing changes at all.",
+    "1. Warum fällt ein falscher Decay-Horizont in einem Test bei t = 0 und t = T_w nicht auf?": "1. Why does a wrong decay horizon go unnoticed in a test at t = 0 and t = T_w?",
+    "Weil beide Schritte im Warmup-Zweig liegen und dieser Zweig nur an T_w hängt – alle fünf Horizonte liefern dort exakt dieselben Werte": "Because both steps lie in the warm-up branch, and that branch depends on T_w alone — all five horizons return exactly the same values there",
+    "Weil die Lernrate am Anfang so klein ist, dass der Unterschied unter der Anzeigegenauigkeit verschwindet": "Because the learning rate is so small at the start that the difference disappears below the display precision",
+    "Weil der Kosinus in der Nähe seines Maximums flach ist und ein anderer Nenner sich dort kaum auswirkt": "Because the cosine is flat near its maximum, so a different denominator barely matters there",
+    "2. Was macht T_c = N zur richtigen Wahl?": "2. What makes T_c = N the right choice?",
+    "Es ist der Horizont mit dem größten Schrittweitenbudget unter allen, die am Ende exakt auf α_min landen – längere enden über dem Boden, kürzere verschenken Budget an Schritte im dritten Zweig": "It is the horizon with the largest step-size budget among all those that land exactly on α_min at the end — longer ones end above the floor, shorter ones give budget away to steps in the third branch",
+    "Es ist der einzige Horizont, bei dem Warmup und Decay symmetrisch um die Mitte des Laufs liegen": "It is the only horizon for which warm-up and decay lie symmetrically around the middle of the run",
+    "Es ist eine Konvention aus dem LLaMA-Paper; rechnerisch sind alle Horizonte gleichwertig, solange α_min klein genug ist": "It is a convention from the LLaMA paper; arithmetically all horizons are equivalent as long as α_min is small enough",
+    "3. Was ändert eine längere WSD-Abschlussphase an der Rechnung in Modus B?": "3. What does a longer WSD decay phase change about the calculation in mode B?",
+    "Nur den Vorteil von WSD, nicht die Kosten von Cosine: (K+1)/2 hängt nicht an d, und der Vorteil bleibt für jedes K unter 1/d – WSD kauft einen Faktor, keine Ordnung": "Only WSD's advantage, not the cost of cosine: (K+1)/2 does not depend on d, and the advantage stays below 1/d for every K — WSD buys a factor, not an order",
+    "Sie entfernt den quadratischen Term, weil der gemeinsame Rumpf mit d wächst und die Erhebung damit linear in K wird": "It removes the quadratic term, because the shared trunk grows with d and the sweep therefore becomes linear in K",
+    "Sie senkt beide Spalten im gleichen Verhältnis, weil jede der K Läufe anteilig kürzer wird": "It lowers both columns in the same proportion, because each of the K runs becomes proportionally shorter",
+    "Interaktive Rechnung zum Decay-Horizont": "Interactive calculation for the decay horizon",
+    "Decay-Horizont T_c": "Decay horizon T_c",
+    "A1 4.4 gibt dem Schedule fünf Parameter: t, η_max, η_min, T_w und T_c. Zwei davon stehen hier fest – η_min ist auf 0,1·η_max gesetzt und wird in der Rechnung darunter ausgeschrieben. T_c ist der Schritt, an dem der Kosinus η_min erreicht; danach gilt der dritte Zweig, und die Kurve läuft flach weiter. Zieh T_c unter 100, um ihn zu sehen. Welcher Horizont der richtige ist, rechnet das Lab „Der Decay-Horizont“; welche Implementierung A1s Tests besteht, das Lab „Schrittzähler t“.": "A1 4.4 gives the schedule five parameters: t, η_max, η_min, T_w and T_c. Two of them are fixed here — η_min is set to 0.1·η_max and is spelled out in the calculation below. T_c is the step at which the cosine reaches η_min; after that the third branch applies and the curve runs on flat. Drag T_c below 100 to see it. Which horizon is the right one is computed by the lab “The decay horizon”; which implementation passes A1's tests, by the lab “The step counter t”.",
     "Ein Lernratensweep an derselben Zielfunktion": "A learning-rate sweep on the same objective",
     "Kontraktionsfaktoren je Lernrate": "Contraction factors per learning rate",
     "η als Vielfaches von η_div": "η as a multiple of η_div",

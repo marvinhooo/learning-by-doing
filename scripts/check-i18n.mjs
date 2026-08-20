@@ -5241,3 +5241,368 @@ for (const problem of ["learning_rate", "batch_size_experiment"]) {
 }
 
 console.log(`stability-edge OK: ${seValues} values, the folk wisdom from A1 (b) resolved into kappa/(kappa+1) -- ${seRatioText.iso} at kappa = 1 against ${seRatioText.extreme} at kappa = 1000 -- a run 1 % past the threshold staying invisible for ${seGrowRef[1.01]} steps against ${seGrowRef[2]} at twice the threshold, and L9's critical batch size of ${seBCritRef} costing exactly twice both minima while one doubling moves from ${(100 * seLow.s).toFixed(0)} %/${(100 * seLow.e).toFixed(0)} % steps-per-examples at 64 to ${(100 * seHigh.s).toFixed(0)} %/${(100 * seHigh.e).toFixed(0)} % at 1024, and a learning rate tuned once at B = ${seApi.SE_TUNE_REF} sitting ${seMismatch(1).toFixed(4)}x too high at B = 1`);
+
+// ---- decay-horizon -----------------------------------------------------------
+// A1 4.4 gives the cosine schedule five parameters and three branches; A1 §5 adds
+// "When using N training steps, we suggest adjusting the cosine learning rate decay
+// schedule to terminate its decay (i.e., reach the minimum learning rate) at precisely
+// step N." Lecture 11 turns the same property into a cost: "This turns the cost of
+// fitting a scaling law from n to n^2.. Can we avoid this? (partial) solution in
+// miniCPM - WSD learning rate", with "Decay ~ 10%". Before this lab the app named T_c
+// 52 times but never varied it: "Lauflaenge" had one hit, "n^2", "from scratch",
+// "Neustart", "Stuetzstelle" and "Skalierungskurve" had none. These guards hold the two
+// structural claims -- that T_c = N is a constrained optimum, and that cosine costs
+// (K+1)/2 while WSD's advantage is capped at exactly 1/d -- against a reference typed
+// from those definitions rather than reused from the app.
+const dhNames = ["DH_A_MAX", "DH_A_MIN", "DH_T_W", "DH_N", "DH_HORIZONS", "DH_PROBES",
+  "DH_DECAY_SHARES", "DH_LADDER_STEP", "DH_LADDERS", "dhLr", "dhBranch", "dhBudget",
+  "dhFloorSteps", "dhExecuted", "dhEndsAtFloor", "dhLadderCost"];
+const dhRenderNames = ["dhNum", "dhInt", "dhExp", "dhPct", "renderDecayHorizonRun",
+  "renderDecayHorizonSweep", "decayHorizonSuccessMarkup"];
+const dhStubs = `
+  const esc = value => String(value ?? "").replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+  const localeCode = () => "en-US";
+  const localizedUi = value => String(value);
+`;
+const dhAll = [...dhNames, ...dhRenderNames];
+const dhApi = runInNewContext(`${dhStubs}${dhAll.map(name => sliceDeclaration(source, name)).join("\n")}; ({${dhAll.join(",")}})`, {});
+let dhValues = 0;
+
+// --- reference, typed from A1 4.4 and not from the app ----------------------------
+const DH_REF_MAX = 1e-3, DH_REF_MIN = 1e-4, DH_REF_TW = 200, DH_REF_N = 5000;
+function dhRefLr(t, tc) {
+  if (t < DH_REF_TW) return (t / DH_REF_TW) * DH_REF_MAX;
+  if (t > tc) return DH_REF_MIN;
+  return DH_REF_MIN + 0.5 * (1 + Math.cos(Math.PI * (t - DH_REF_TW) / (tc - DH_REF_TW))) * (DH_REF_MAX - DH_REF_MIN);
+}
+function dhRefBudget(tc) { let sum = 0; for (let t = 0; t <= DH_REF_N; t++) sum += dhRefLr(t, tc); return sum; }
+
+if (dhApi.DH_A_MAX !== DH_REF_MAX || dhApi.DH_A_MIN !== DH_REF_MIN || dhApi.DH_T_W !== DH_REF_TW)
+  throw new Error("decay-horizon: the fixed run must use the same alpha_max, alpha_min and T_w as the resume-contract lab");
+// A1 §5 computes its own suggested run as "32 x 5000 x 256"; N is quoted, not invented.
+if (dhApi.DH_N !== 5000) throw new Error(`decay-horizon: A1's own step count is 5000, found ${dhApi.DH_N}`);
+// The schedule the lab draws must be the same one the resume-contract lab validates.
+const dhRc = readConstant("RC_SCHEDULE");
+if (dhRc.aMax !== dhApi.DH_A_MAX || dhRc.aMin !== dhApi.DH_A_MIN || dhRc.tWarm !== dhApi.DH_T_W || dhRc.tCosine !== dhApi.DH_N)
+  throw new Error("decay-horizon: the two schedule labs must describe the same run, otherwise their numbers cannot be compared");
+
+// All three branches of A1 4.4, including the one the optimizer lab used to be missing.
+for (const horizon of dhApi.DH_HORIZONS) {
+  for (const t of [0, 1, 99, 199, 200, 201, 1000, 2500, 4000, 5000, 6000, 12000]) {
+    const got = dhApi.dhLr(t, horizon.tc), want = dhRefLr(t, horizon.tc);
+    if (Math.abs(got - want) > 1e-18) throw new Error(`decay-horizon: alpha(${t}) at T_c=${horizon.tc} disagrees with A1 4.4`);
+    dhValues++;
+  }
+  // the branch boundaries have to agree from both sides, or the schedule jumps
+  if (Math.abs(dhApi.dhLr(dhApi.DH_T_W, horizon.tc) - dhApi.DH_A_MAX) > 1e-18)
+    throw new Error(`decay-horizon: at t = T_w both branches must give alpha_max (T_c=${horizon.tc})`);
+  if (Math.abs(dhApi.dhLr(horizon.tc, horizon.tc) - dhApi.DH_A_MIN) > 1e-18)
+    throw new Error(`decay-horizon: at t = T_c the cosine must land exactly on alpha_min (T_c=${horizon.tc})`);
+  if (dhApi.dhLr(horizon.tc + 1, horizon.tc) !== dhApi.DH_A_MIN)
+    throw new Error(`decay-horizon: past T_c the third branch must hold alpha_min (T_c=${horizon.tc})`);
+  if (dhApi.dhBranch(horizon.tc + 1, horizon.tc) !== "post" || dhApi.dhBranch(0, horizon.tc) !== "warmup" || dhApi.dhBranch(horizon.tc, horizon.tc) !== "cosine")
+    throw new Error(`decay-horizon: the branch labels must follow A1's three cases (T_c=${horizon.tc})`);
+}
+
+// The claim the first callout makes: the warm-up branch does not know T_c, so no horizon
+// is distinguishable up to and including t = T_w. This is the whole trap.
+for (let t = 0; t <= dhApi.DH_T_W; t++) {
+  const values = new Set(dhApi.DH_HORIZONS.map(horizon => dhApi.dhLr(t, horizon.tc)));
+  if (values.size !== 1) throw new Error(`decay-horizon: the horizons must be indistinguishable at t = ${t}`);
+  dhValues++;
+}
+// The callout names t = 0 and t = T_w as the two blind points and t = N as the last step,
+// so those three have to be columns of the probe table rather than nearby steps.
+for (const [key, t] of [["first", 0], ["handover", dhApi.DH_T_W], ["last", dhApi.DH_N]]) {
+  const probe = dhApi.DH_PROBES.find(item => item.key === key);
+  if (!probe || probe.t !== t) throw new Error(`decay-horizon: the probe "${key}" must sit exactly at t = ${t}`);
+}
+if (new Set(dhApi.DH_HORIZONS.map(horizon => dhApi.dhLr(dhApi.DH_T_W + 1, horizon.tc))).size !== dhApi.DH_HORIZONS.length)
+  throw new Error("decay-horizon: one step past T_w every horizon must already differ, otherwise the trap has no exit");
+const dhSpread = dhApi.dhLr(2500, 10000) / dhApi.dhLr(2500, 2500);
+if (dhNumber(dhSpread) !== "8.831251")
+  throw new Error(`decay-horizon: at t = 2500 the horizons must spread by 8.831251, found ${dhNumber(dhSpread)}`);
+function dhNumber(value, digits) { return Number(value).toFixed(digits === undefined ? 6 : digits); }
+
+// --- the constrained optimum ------------------------------------------------------
+// Two facts decide it, and the lab claims both: the budget grows strictly with T_c, and
+// exactly the horizons with T_c <= N end on the floor. Brute-forced, not asserted.
+const dhGrid = [];
+for (let tc = dhApi.DH_T_W + 1; tc <= 3 * dhApi.DH_N; tc += 7) dhGrid.push(tc);
+if (!dhGrid.includes(dhApi.DH_N)) dhGrid.push(dhApi.DH_N);
+dhGrid.sort((a, b) => a - b);
+let dhPrev = -Infinity;
+for (const tc of dhGrid) {
+  const budget = dhApi.dhBudget(tc);
+  if (Math.abs(budget - dhRefBudget(tc)) > 1e-12) throw new Error(`decay-horizon: the budget at T_c=${tc} disagrees with the reference`);
+  if (budget <= dhPrev) throw new Error(`decay-horizon: the step-size budget must grow strictly with T_c, it does not at ${tc}`);
+  dhPrev = budget;
+  if (dhApi.dhEndsAtFloor(tc) !== (tc <= dhApi.DH_N))
+    throw new Error(`decay-horizon: a run ends exactly on alpha_min precisely when T_c <= N, which fails at ${tc}`);
+  dhValues++;
+}
+const dhAdmissible = dhGrid.filter(tc => dhApi.dhEndsAtFloor(tc));
+const dhBest = dhAdmissible.reduce((best, tc) => (dhApi.dhBudget(tc) > dhApi.dhBudget(best) ? tc : best), dhAdmissible[0]);
+if (dhBest !== dhApi.DH_N)
+  throw new Error(`decay-horizon: A1's tip must come out as the argmax of the budget under the floor constraint, found ${dhBest}`);
+if (dhApi.dhFloorSteps(dhApi.DH_N) !== 0 || dhApi.dhFloorSteps(2500) !== 2500 || dhApi.dhFloorSteps(10000) !== 0)
+  throw new Error("decay-horizon: the third-branch step count must be max(0, N - T_c)");
+
+// The five rows of the horizon table, each value against the reference.
+const dhExpected = {
+  half:   { tc: 2500,  aN: DH_REF_MIN, floor: 2500, executed: 1,          ratio: "0.589424" },
+  early:  { tc: 4000,  aN: DH_REF_MIN, floor: 1000, executed: 1,          ratio: "0.835769" },
+  tip:    { tc: 5000,  aN: DH_REF_MIN, floor: 0,    executed: 1,          ratio: "1.000000" },
+  late:   { tc: 6250,  aN: null,       floor: 0,    executed: 4800/6050,  ratio: "1.191190" },
+  double: { tc: 10000, aN: null,       floor: 0,    executed: 4800/9800,  ratio: "1.512128" }
+};
+const dhTipBudget = dhApi.dhBudget(dhApi.DH_N);
+for (const horizon of dhApi.DH_HORIZONS) {
+  const want = dhExpected[horizon.key];
+  if (!want) throw new Error(`decay-horizon: unexpected horizon ${horizon.key}`);
+  if (horizon.tc !== want.tc) throw new Error(`decay-horizon: horizon ${horizon.key} must be T_c = ${want.tc}`);
+  if (want.aN !== null && Math.abs(dhApi.dhLr(dhApi.DH_N, horizon.tc) - want.aN) > 1e-18)
+    throw new Error(`decay-horizon: horizon ${horizon.key} must end exactly on alpha_min`);
+  if (dhApi.dhFloorSteps(horizon.tc) !== want.floor)
+    throw new Error(`decay-horizon: horizon ${horizon.key} must spend ${want.floor} steps in the third branch`);
+  if (Math.abs(dhApi.dhExecuted(horizon.tc) - want.executed) > 1e-12)
+    throw new Error(`decay-horizon: horizon ${horizon.key} must execute ${want.executed} of its planned decay`);
+  if (dhNumber(dhApi.dhBudget(horizon.tc) / dhTipBudget) !== want.ratio)
+    throw new Error(`decay-horizon: horizon ${horizon.key} must carry budget ratio ${want.ratio}, found ${dhNumber(dhApi.dhBudget(horizon.tc) / dhTipBudget)}`);
+  dhValues += 4;
+}
+// The two numbers the "constrained optimum" paragraph names, and the third it derives.
+if (dhNumber(dhApi.dhLr(dhApi.DH_N, 6250) / DH_REF_MIN) !== "1.915144")
+  throw new Error("decay-horizon: T_c = 6250 must end at 1.915144 x alpha_min");
+if (dhNumber(dhApi.dhLr(dhApi.DH_N, 10000) / DH_REF_MIN) !== "5.644232")
+  throw new Error("decay-horizon: T_c = 10000 must end at 5.644232 x alpha_min");
+if (dhNumber(100 * (1 - dhApi.dhBudget(4000) / dhTipBudget), 4) !== "16.4231")
+  throw new Error("decay-horizon: T_c = 4000 must give away 16.4231 % of the budget");
+
+// --- mode B: the closed form and the ceiling --------------------------------------
+if (dhApi.DH_LADDER_STEP !== 2000) throw new Error("decay-horizon: the ladder step is 2000");
+// The K column and the three decay shares are named in the prose and in the observe text,
+// so neither may drift: K = 100 is the row that shows the advantage still short of 1/d.
+if (JSON.stringify(dhApi.DH_LADDERS) !== JSON.stringify([2, 5, 10, 20, 100]))
+  throw new Error(`decay-horizon: the ladder is 2, 5, 10, 20, 100, found ${dhApi.DH_LADDERS}`);
+if (JSON.stringify(dhApi.DH_DECAY_SHARES.map(share => share.d)) !== JSON.stringify([0.05, 0.1, 0.2]))
+  throw new Error("decay-horizon: the three decay shares are 5 %, 10 % (L11's own) and 20 %");
+// The three numbers the observe text tells the reader to watch while d moves.
+for (const [d, want] of [[0.05, "4.489796"], [0.1, "3.793103"], [0.2, "2.894737"]]) {
+  const cost = dhApi.dhLadderCost(10, d);
+  if (dhNumber(cost.cosine / cost.wsd) !== want)
+    throw new Error(`decay-horizon: at K = 10 and d = ${d} the advantage is ${want}, found ${dhNumber(cost.cosine / cost.wsd)}`);
+  dhValues++;
+}
+// L11 quotes "Decay ~ 10%"; the two neighbours exist so that the 1/d ceiling can move.
+if (!dhApi.DH_DECAY_SHARES.some(share => share.d === 0.1))
+  throw new Error("decay-horizon: L11's own decay share of 10 % must be one of the settings");
+for (const share of dhApi.DH_DECAY_SHARES) {
+  let previousRatio = 0;
+  for (let K = 1; K <= 400; K++) {
+    const cost = dhApi.dhLadderCost(K, share.d);
+    const ideal = dhApi.DH_LADDER_STEP * K;
+    const cosine = dhApi.DH_LADDER_STEP * K * (K + 1) / 2;
+    if (cost.ideal !== ideal || cost.cosine !== cosine)
+      throw new Error(`decay-horizon: K = ${K} must cost ${ideal} as one run and ${cosine} as ${K} runs`);
+    // the identity the "fourth column" paragraph claims, exactly and independently of d
+    if (Math.abs(cost.cosine / cost.ideal - (K + 1) / 2) > 1e-12)
+      throw new Error(`decay-horizon: cosine against one run must be exactly (K+1)/2 at K = ${K}`);
+    if (Math.abs(cost.wsd - ((1 - share.d) * ideal + share.d * cosine)) > 1e-9)
+      throw new Error(`decay-horizon: the WSD cost must be one trunk plus K decays at K = ${K}`);
+    // the ceiling: the advantage rises with K and never reaches 1/d
+    const ratio = cost.cosine / cost.wsd;
+    if (K > 1 && ratio <= previousRatio) throw new Error(`decay-horizon: the WSD advantage must rise with K, it does not at ${K}`);
+    if (ratio >= 1 / share.d) throw new Error(`decay-horizon: the WSD advantage must stay under 1/d = ${1 / share.d} at K = ${K}`);
+    previousRatio = ratio;
+    dhValues += 3;
+  }
+  // and it does approach the ceiling rather than some smaller number
+  if (dhApi.dhLadderCost(200000, share.d).cosine / dhApi.dhLadderCost(200000, share.d).wsd < 0.999 / share.d)
+    throw new Error(`decay-horizon: the WSD advantage must approach 1/d for large K (d = ${share.d})`);
+}
+// (K+1)/2 must not move when d moves -- without this the "does not depend on d" claim is prose.
+for (const K of dhApi.DH_LADDERS) {
+  const ratios = new Set(dhApi.DH_DECAY_SHARES.map(share => dhNumber(dhApi.dhLadderCost(K, share.d).cosine / dhApi.dhLadderCost(K, share.d).ideal)));
+  if (ratios.size !== 1) throw new Error(`decay-horizon: cosine against one run must not depend on d (K = ${K})`);
+  dhValues++;
+}
+const dhTen = dhApi.dhLadderCost(10, 0.1);
+if (dhNumber(dhTen.cosine / dhTen.ideal) !== "5.500000" || dhNumber(dhTen.wsd / dhTen.ideal) !== "1.450000" || dhNumber(dhTen.cosine / dhTen.wsd) !== "3.793103")
+  throw new Error("decay-horizon: at K = 10 and d = 10 % the three ratios are 5.500000, 1.450000 and 3.793103");
+if (dhTen.cosine !== 110000 || dhTen.ideal !== 20000 || dhTen.wsd !== 29000)
+  throw new Error("decay-horizon: at K = 10 the three routes cost 20000, 110000 and 29000 steps");
+
+// --- what the two modes actually print --------------------------------------------
+// Read back from the rendered markup rather than recomputing, so that a change in the
+// renderer alone cannot pass unnoticed.
+function dhCell(html, attribute, key) {
+  const match = html.match(new RegExp(`data-${attribute}="${key}"[^>]*>([^<]*)<`));
+  if (!match) throw new Error(`decay-horizon: the render carries no ${attribute}="${key}" cell`);
+  return match[1].trim();
+}
+function dhRows(html, heading) {
+  const table = html.slice(html.indexOf(heading));
+  // Split on "<tr" and not "<tr>": a row carrying class="is-active" is still a row.
+  return table.slice(0, table.indexOf("</table>")).split("<tr").slice(1);
+}
+for (const horizon of dhApi.DH_HORIZONS) {
+  for (const probe of dhApi.DH_PROBES) {
+    const html = dhApi.renderDecayHorizonRun(horizon.key, probe.key);
+    if (/undefined|NaN/.test(html)) throw new Error(`decay-horizon: run:${horizon.key}:${probe.key} renders undefined or NaN`);
+    // the probe table: every horizon at every step, straight off the reference
+    for (const row of dhApi.DH_HORIZONS) for (const column of dhApi.DH_PROBES) {
+      const printed = dhCell(html, "dhprobe", `${row.key}-${column.key}`);
+      if (printed !== Number(dhRefLr(column.t, row.tc)).toExponential(6))
+        throw new Error(`decay-horizon: printed alpha for ${row.key} at ${column.key} is ${printed}`);
+      dhValues++;
+    }
+    // the horizon table
+    for (const row of dhApi.DH_HORIZONS) {
+      const want = dhExpected[row.key];
+      if (dhCell(html, "dhfloor", row.key) !== Number(want.floor).toLocaleString("en-US"))
+        throw new Error(`decay-horizon: printed third-branch steps for ${row.key} disagree`);
+      if (dhCell(html, "dhbudgetratio", row.key) !== want.ratio)
+        throw new Error(`decay-horizon: printed budget ratio for ${row.key} disagrees`);
+      if (dhCell(html, "dhendratio", row.key) !== `${dhNumber(dhRefLr(dhApi.DH_N, row.tc) / DH_REF_MIN)} ×`)
+        throw new Error(`decay-horizon: printed end ratio for ${row.key} disagrees`);
+      if (dhCell(html, "dhexec", row.key) !== `${dhNumber(100 * Math.min(1, (dhApi.DH_N - DH_REF_TW) / (row.tc - DH_REF_TW)))} %`)
+        throw new Error(`decay-horizon: printed executed share for ${row.key} disagrees`);
+      dhValues += 4;
+    }
+    // the selected row must be the one the controls picked, in both tables
+    const probeRows = dhRows(html, "Dieselben fünf Läufe").filter(row => row.startsWith(" class=\"is-active\""));
+    if (probeRows.length !== 1 || !probeRows[0].includes(`data-dhprobe="${horizon.key}-`))
+      throw new Error(`decay-horizon: the probe table must mark exactly the chosen horizon (${horizon.key})`);
+    // the ledger follows the probe, not only the horizon
+    if (dhCell(html, "dhpicklr", "1") !== Number(dhRefLr(probe.t, horizon.tc)).toExponential(6))
+      throw new Error(`decay-horizon: the ledger learning rate must follow the chosen step (${horizon.key}/${probe.key})`);
+    if (dhCell(html, "dhpickfloor", "1").split(" ")[0] !== Number(dhExpected[horizon.key].floor).toLocaleString("en-US"))
+      throw new Error(`decay-horizon: the ledger third-branch count must follow the chosen horizon (${horizon.key})`);
+    const branchWord = { warmup: "Warmup", cosine: "Cosine", post: "Post-Annealing" }[dhApi.dhBranch(probe.t, horizon.tc)];
+    if (!dhCell(html, "dhpickbranch", "1").startsWith(branchWord))
+      throw new Error(`decay-horizon: the ledger must name the branch A1 4.4 applies at t = ${probe.t}`);
+    // the closing callout has to agree with the two conditions rather than with the label
+    const endsClean = dhApi.dhEndsAtFloor(horizon.tc) && dhApi.dhFloorSteps(horizon.tc) === 0;
+    if (html.includes("callout accent") !== endsClean)
+      throw new Error(`decay-horizon: only the horizon that satisfies both conditions may close on the accent callout (${horizon.key})`);
+    dhValues += 4;
+  }
+}
+// The prose numbers of mode A. Each needle carries the words around it, because the same
+// digits also appear in the tables above and a bare number would let a mutation hide there.
+// The prose is German source text, so its decimals are commas; the guard therefore renders
+// the lab under the German locale and checks that the table prints the very same string.
+const dhDeApi = runInNewContext(`${dhStubs.replace('"en-US"', '"de-DE"')}${dhAll.map(name => sliceDeclaration(source, name)).join("\n")}; ({${dhAll.join(",")}})`, {});
+const dhRunHtml = dhDeApi.renderDecayHorizonRun("tip", "last");
+for (const [needle, why] of [
+  ["schon der Faktor <strong data-dhspread=\"1\">8,831251</strong>", "the spread at t = 2500 must be printed next to its own sentence"],
+  ["T_c = 6.250 – bringt zwar 1,191190 mal so viel Budget", "the budget a longer horizon buys must be named in the optimum paragraph"],
+  ["endet aber bei 1,915144 α_min statt auf dem Boden", "the price a longer horizon pays must be named in the optimum paragraph"],
+  ["verschenkt aber 16,4231 % des Budgets an 1.000 Schritte", "the budget a shorter horizon gives away must be named in the optimum paragraph"],
+  ["unter allen Horizonten, die am Ende exakt auf α_min landen, ist T_c = N derjenige mit dem größten Budget", "the optimum paragraph must state the constraint, not only the numbers"]
+]) {
+  if (!dhRunHtml.includes(needle)) throw new Error(`decay-horizon: ${why}`);
+  dhValues++;
+}
+// The point of the localised formatter: under the German locale the number in the prose and
+// the number in the table have to be the same string, or the reader is sent to look for
+// "1,191190" in a column that prints "1.191190".
+for (const [attribute, key, prose] of [["dhbudgetratio", "late", "1,191190"], ["dhendratio", "late", "1,915144 ×"]]) {
+  if (dhCell(dhRunHtml, attribute, key) !== prose)
+    throw new Error(`decay-horizon: under the German locale the table must print ${prose}, found ${dhCell(dhRunHtml, attribute, key)}`);
+  dhValues++;
+}
+if (dhCell(dhApi.renderDecayHorizonRun("tip", "last"), "dhbudgetratio", "late") !== "1.191190")
+  throw new Error("decay-horizon: under the English locale the same cell must print a decimal point");
+
+// --- what mode B prints ------------------------------------------------------------
+for (const share of dhApi.DH_DECAY_SHARES) {
+  for (const K of dhApi.DH_LADDERS) {
+    const html = dhApi.renderDecayHorizonSweep(share.key, String(K));
+    if (/undefined|NaN/.test(html)) throw new Error(`decay-horizon: sweep:${share.key}:${K} renders undefined or NaN`);
+    for (const row of dhApi.DH_LADDERS) {
+      const cost = dhApi.dhLadderCost(row, share.d);
+      if (dhCell(html, "dhideal", row) !== Number(cost.ideal).toLocaleString("en-US")) throw new Error(`decay-horizon: printed one-run cost at K = ${row} disagrees`);
+      if (dhCell(html, "dhcosine", row) !== Number(cost.cosine).toLocaleString("en-US")) throw new Error(`decay-horizon: printed cosine cost at K = ${row} disagrees`);
+      if (dhCell(html, "dhwsd", row) !== Number(cost.wsd).toLocaleString("en-US")) throw new Error(`decay-horizon: printed WSD cost at K = ${row} disagrees`);
+      if (dhCell(html, "dhcosideal", row) !== dhNumber((row + 1) / 2)) throw new Error(`decay-horizon: the printed cosine ratio at K = ${row} must be (K+1)/2`);
+      if (dhCell(html, "dhcoswsd", row) !== dhNumber(cost.cosine / cost.wsd)) throw new Error(`decay-horizon: the printed WSD advantage at K = ${row} disagrees`);
+      // the printed advantage must obey the ceiling the paragraph claims
+      if (Number(dhCell(html, "dhcoswsd", row)) >= 1 / share.d) throw new Error(`decay-horizon: the printed advantage at K = ${row} breaks the 1/d ceiling`);
+      dhValues += 6;
+    }
+    if (dhCell(html, "dhlimit", "1") !== dhNumber(1 / share.d)) throw new Error(`decay-horizon: the printed ceiling must be 1/d for ${share.key}`);
+    if (dhCell(html, "dhpickratio", "1") !== `${dhNumber(dhApi.dhLadderCost(K, share.d).cosine / dhApi.dhLadderCost(K, share.d).wsd)} × · Grenze 1/d = ${dhNumber(1 / share.d)}`)
+      throw new Error(`decay-horizon: the ledger advantage must follow both controls (${share.key}/${K})`);
+    const active = dhRows(html, "Was K Stützstellen kosten").filter(row => row.startsWith(" class=\"is-active\""));
+    if (active.length !== 1 || !active[0].includes(`data-dhideal="${K}"`))
+      throw new Error(`decay-horizon: the ladder table must mark exactly the chosen K (${K})`);
+    // the bridge back to mode A quotes the same row mode A computes
+    if (dhCell(html, "dhbridgeratio", "1") !== dhNumber(dhRefLr(dhApi.DH_N, 10000) / DH_REF_MIN))
+      throw new Error("decay-horizon: the bridge must quote the T_c = 2N row of mode A");
+    dhValues += 3;
+  }
+}
+const dhSweepHtml = dhDeApi.renderDecayHorizonSweep("d10", "10");
+for (const [needle, why] of [
+  ["Der Quotient ist deshalb exakt (K+1)/2 – bei K = 10 also 5,500000", "the closed form must be printed with its value at K = 10"],
+  ["bei K = 20 schon 10,500000, bei K = 100 genau 50,500000", "the closed form must be printed at K = 20 and K = 100 as well"],
+  ["die vierte Spalte bewegt sich nicht um eine Stelle", "the d-independence claim must stand in the prose"],
+  ["sie nähert sich für große K genau 1/d an und erreicht diesen Wert nie", "the ceiling claim must stand in the prose"],
+  ["WSD kauft einen Faktor, keine Ordnung", "the lab must say what L11's sentence does not promise"],
+  ["trotzdem der Unterschied zwischen einer machbaren und einer nicht machbaren Erhebung", "and must still say that the capped factor is worth having at the K a real sweep uses"]
+]) {
+  if (!dhSweepHtml.includes(needle)) throw new Error(`decay-horizon: ${why}`);
+  dhValues++;
+}
+// Same agreement test as in mode A: the number the prose names and the number the column
+// prints must be the same string under the German locale.
+if (dhCell(dhSweepHtml, "dhcosideal", 10) !== "5,500000")
+  throw new Error(`decay-horizon: the German column must print 5,500000, found ${dhCell(dhSweepHtml, "dhcosideal", 10)}`);
+// The success note repeats numbers; every one of them has to be a number the lab computes.
+const dhSuccess = dhDeApi.decayHorizonSuccessMarkup();
+for (const value of ["1,191190", "1,915144", "16,4231", "5,500000", "1,450000"]) {
+  if (!dhSuccess.includes(value)) throw new Error(`decay-horizon: the success note names ${value}, which must come from the tables`);
+  dhValues++;
+}
+
+// --- the optimizer lab draws the same three branches --------------------------------
+// Until this version its schedule() had two branches and pinned T_c to the width of the
+// chart, so the third branch of A1 4.4 could not be drawn at all while the app's own
+// resume-contract quiz asked about it.
+const optSchedule = runInNewContext(`${sliceDeclaration(source, "schedule")}; schedule`, {});
+if (optSchedule.length !== 5) throw new Error("optimizer: A1 4.4's schedule takes t, T_w, alpha_max, T_c and alpha_min");
+for (const [tc, min] of [[100, 1e-4], [60, 2e-4], [40, 1e-3]]) {
+  for (const t of [0, 5, 9, 10, 11, 30, tc - 1, tc, tc + 1, 100]) {
+    const got = optSchedule(t, 10, 1e-2, tc, min);
+    const want = t < 10 ? (t / 10) * 1e-2 : (t > tc ? min : min + 0.5 * (1e-2 - min) * (1 + Math.cos(Math.PI * (t - 10) / (tc - 10))));
+    if (Math.abs(got - want) > 1e-15) throw new Error(`optimizer: schedule(${t}) at T_c=${tc} does not follow A1 4.4`);
+    dhValues++;
+  }
+  if (optSchedule(tc + 1, 10, 1e-2, tc, min) !== min) throw new Error(`optimizer: past T_c the schedule must hold alpha_min (T_c=${tc})`);
+  if (Math.abs(optSchedule(tc, 10, 1e-2, tc, min) - min) > 1e-18) throw new Error(`optimizer: at T_c the cosine must land on alpha_min (T_c=${tc})`);
+}
+if (!source.includes('<input id="optCosine" type="range"')) throw new Error("optimizer: T_c must be a control and not a constant");
+// alpha_min is a tenth of alpha_max, so at the small end of the slider a four-decimal
+// rendering would print it as 0.0000 -- the number the printed formula depends on.
+// The panel tells the reader alpha_min is a tenth of alpha_max; the code must agree.
+if (!source.includes("lrMin=.1*max")) throw new Error("optimizer: alpha_min is a tenth of alpha_max, as the panel says");
+if (!source.includes("η_min ist auf 0,1·η_max gesetzt")) throw new Error("optimizer: the panel must say which value alpha_min is fixed to");
+if (source.includes("${lrMin.toFixed(4)}"))
+  throw new Error("optimizer: alpha_min must not be printed with four decimals, it rounds to zero on the small half of the slider");
+if ((source.match(/\$\{lrMin\.toExponential\(2\)\}/g) || []).length !== 2)
+  throw new Error("optimizer: both branches of the printed formula must spell alpha_min out");
+// Repairing schedule() is not enough: both call sites have to hand it the chosen horizon,
+// otherwise the lab keeps drawing the pinned curve while the function is correct.
+const optUpdate = sliceDeclaration(source, "updateOptimizer");
+const optCalls = optUpdate.match(/schedule\([^)]*\)/g) || [];
+if (optCalls.length !== 2) throw new Error(`optimizer: the lab calls schedule() twice, for the dot and for the curve, found ${optCalls.length}`);
+for (const call of optCalls) {
+  if (!call.includes("cosineEnd") || !call.includes("lrMin"))
+    throw new Error(`optimizer: every schedule() call must pass the chosen T_c and alpha_min, found ${call}`);
+}
+if (!source.includes('warm=Math.min(+document.getElementById("optWarmup").value,cosineEnd-1)'))
+  throw new Error("optimizer: the warm-up must be clamped against T_c and not against the width of the chart");
+
+console.log(`decay-horizon OK: ${dhValues} values, A1 §5's tip resolved into a constrained optimum -- all five horizons identical up to t = T_w and spread by 8.831251 at t = 2500, T_c = N the argmax of the step-size budget among the horizons that end on alpha_min (6250 buys 1.191190x and ends at 1.915144 alpha_min, 4000 gives away 16.4231 %), and L11's "n to n^2" as (K+1)/2 = 5.500000 at K = 10 against a WSD advantage of 3.793103 that is capped at exactly 1/d`);
