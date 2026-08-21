@@ -7611,11 +7611,14 @@
     // jeden gleichlautenden Textknoten der App mitübersetzen.
     function batchOneIn(value){return value>0?`${localizedUi("1 zu")} ${batchNumber(Math.round(1/value))}`:localizedUi("nie getroffen")}
     function batchSliceLabel(from,to){return `x[${batchNumber(from)}:${batchNumber(to)}]`}
-    function batchStageMarkup(){
+    // Alle Regler dieses Labs an einer Stelle lesen. Ohne Argument kommen die Werte wie bisher
+    // aus dem DOM; mit einer uebergebenen Belegung ist der Renderer ohne Browser aufrufbar.
+    function batchRead(values){return id=>values?values[id]:document.getElementById(id).value}
+    function batchStageMarkup(values){const read=batchRead(values);
       const tr=value=>esc(localizedUi(value));
-      const setupKey=document.getElementById("batchSetup").value;
-      const startKey=document.getElementById("batchStart").value;
-      const targetKey=document.getElementById("batchTarget").value;
+      const setupKey=read("batchSetup");
+      const startKey=read("batchStart");
+      const targetKey=read("batchTarget");
       const report=batchReport(setupKey,startKey,targetKey);
       const setup=report.setup,rule=report.rule,target=report.target;
       const coverage=batchCoverage(setup,report.top),dtype=batchDtype(setup);
@@ -7819,10 +7822,13 @@
       const percent=value*100;
       return `${percent>=0.01?fixedNum(percent,4):percent.toExponential(2)} %`;
     }
-    function precAccumulationStage(){
+    // Alle Regler dieses Labs an einer Stelle lesen. Ohne Argument kommen die Werte wie bisher
+    // aus dem DOM; mit einer uebergebenen Belegung ist der Renderer ohne Browser aufrufbar.
+    function precRead(values){return id=>values?values[id]:document.getElementById(id).value}
+    function precAccumulationStage(values){const read=precRead(values);
       const tr=value=>esc(localizedUi(value));
-      const caseKey=document.getElementById("precCase").value;
-      const schemeKey=document.getElementById("precScheme").value;
+      const caseKey=read("precCase");
+      const schemeKey=read("precScheme");
       const report=precAccumulate(caseKey,schemeKey);
       const item=report.item,scheme=report.scheme;
       const all=precAllSchemes(caseKey);
@@ -7852,10 +7858,10 @@
       const dtypeRows=PREC_DTYPES.map(entry=>`<div class="calculation-row"><span>${entry.label} · ${tr("Bytes · Mantissenbits")}</span><strong>${entry.bytes} · ${entry.mantissa} · ${tr("Abstand bei 1:")} ${precNumber(entry.eps)} · ${tr("größter Wert:")} ${precNumber(entry.maxFinite)} · ${tr("kleinster Wert > 0:")} ${precNumber(entry.minSubnormal)}</strong></div>`).join("");
       return `<h2>${tr(scheme.label)}</h2><p class="small muted">${esc(scheme.code)}</p><p class="lab-note">${tr(item.hint)}</p><div class="callout ${scheme.ok?"accent":"warning"}"><strong>${tr(scheme.ok?"Was diese Zeile tut:":"Was diese Zeile wirklich tut:")}</strong> ${tr(scheme.verdict)}</div><h3>${tr("Diese Zeile, Schritt für Schritt")}</h3><div class="calculation-ledger">${detail}</div><h3>${tr("Der Verlauf der Summe")}</h3><div class="calculation-ledger">${trace}</div>${alarm}<h3>${tr("Alle fünf Zeilen auf demselben Fall")}</h3><p class="lab-note">${tr("Dieselbe Rechnung, nur das Format wechselt. Sage vor jedem Fallwechsel voraus, welche Zeilen sich bewegen – und prüfe danach, welche mit der Referenz bitgleich geblieben sind.")}</p><div class="calculation-ledger">${comparison}</div><h3>${tr("Die drei Formate im Vergleich")}</h3><div class="calculation-ledger">${dtypeRows}</div><div class="shape-change"><strong>${tr("Zwei Eigenschaften, zwei verschiedene Fehler")}</strong><span>${tr("BF16 und FP16 belegen beide zwei Byte, und trotzdem verhalten sie sich gegensätzlich. FP16 gibt drei Bits an den Exponenten weniger und dem Bruchteil mehr: feiner aufgelöst, aber mit einem Wertebereich, der bei 65504 endet und schon bei 6·10⁻⁸ auf null fällt. BF16 hat exakt den Exponentenbereich von FP32 und dafür nur sieben Mantissenbits. Deshalb kehrt sich das Urteil zwischen zwei Fällen dieses Labs um: beim Handout-Experiment und bei der runden Zahl ist FP16 klar besser, bei 10⁻⁸ liefert FP16 exakt null und BF16 als einziges Zweibyte-Format noch eine Zahl. Es gibt kein „genaueres“ der beiden Formate – es gibt nur die Frage, ob dein Fehler ein Auflösungsfehler oder ein Bereichsfehler ist. Und weil die Antwort pro Operation verschieden ausfällt, castet man nicht das Modell, sondern lässt autocast pro Operation entscheiden.")}</span></div>`;
     }
-    function precAutocastStage(){
+    function precAutocastStage(values){const read=precRead(values);
       const tr=value=>esc(localizedUi(value));
-      const castKey=document.getElementById("precCast").value;
-      const scaleKey=document.getElementById("precScale").value;
+      const castKey=read("precCast");
+      const scaleKey=read("precScale");
       const scaleEntry=PREC_SCALES.find(entry=>entry.key===scaleKey);
       const low=precLayerNorm(scaleEntry.scale,castKey);
       const full=precLayerNorm(scaleEntry.scale,"fp32");
@@ -7878,7 +7884,7 @@
       else lnAlarm=`<div class="callout accent"><strong>${tr("In diesem Format hält die Normalisierung.")}</strong> ${tr("BF16 hat denselben Exponentenbereich wie FP32; weder das Quadrieren nach oben noch das Unterlaufen nach unten kann hier zuschlagen. Was bleibt, ist die gröbere Auflösung – sichtbar an den letzten Stellen der Ausgabe, nicht an ihrer Größenordnung. Deshalb lautet die Antwort auf Teil (b): der Bereichsgrund für die Ausnahme entfällt bei BF16, der Genauigkeitsgrund nicht, und PyTorch hält layer_norm auch unter BF16 in FP32.")}</div>`;
       return `<h2>${tr("autocast mit")} ${castLabel} · ${tr(scaleEntry.label)}</h2><p class="small muted">with torch.autocast(device_type="cuda", dtype=torch.${castKey==="fp16"?"float16":"bfloat16"}): y = model(x)</p><p class="lab-note">${tr("Die sechs Zeilen sind genau die sechs Angaben, die Teil (a) von benchmarking_mixed_precision verlangt – für ToyModel mit fc1, ln, fc2 und ReLU. Die Regel dahinter ist keine Liste zum Auswendiglernen, sondern folgt aus der Rechnung darunter.")}</p><h3>${tr("Die sechs Datentypen")}</h3><div class="calculation-ledger">${ledger}</div><h3>${tr("Warum jeweils dieser")}</h3><div class="calculation-ledger">${reasons}</div><h3>${tr("Die Ausnahme nachgerechnet: LayerNorm über zehn Features")}</h3><p class="lab-note">${tr(scaleEntry.hint)}</p><div class="calculation-ledger">${lnRows}</div>${lnAlarm}<div class="shape-change"><strong>${tr("Warum autocast pro Operation entscheidet und nicht pro Modell")}</strong><span>${tr("Ein Modell in halber Genauigkeit zu casten wäre einfacher, und genau deshalb ist es falsch. Die Matmuls sind der Grund für die niedrige Genauigkeit – sie liefern den Durchsatz der Tensor Cores und tragen den Löwenanteil der FLOPs. Die Reduktionen sind der Grund dagegen: Summen von Quadraten, logsumexp, Mittelwerte. Sie kosten fast nichts an Rechenzeit und brauchen den vollen Dynamikumfang. autocast trennt genau entlang dieser Linie, und die Parameter bleiben unangetastet in FP32, weil der Optimizer sonst Updates verlöre, die kleiner sind als das letzte Bit des Gewichts. Daraus folgt auch, was autocast nicht ist: keine Speichersparmaßnahme für Parameter, sondern eine Durchsatzmaßnahme für Aktivierungen. Wer im Profil von benchmarking_mixed_precision keine Ersparnis beim Parameterspeicher findet, hat nichts falsch gemacht – dort war nie welche zu erwarten.")}</span></div>`;
     }
-    function precStageMarkup(){return document.getElementById("precMode").value==="autocast"?precAutocastStage():precAccumulationStage()}
+    function precStageMarkup(values){const read=precRead(values);return read("precMode")==="autocast"?precAutocastStage(values):precAccumulationStage(values)}
     function updateMixedPrecision(){
       const mode=document.getElementById("precMode").value;
       document.getElementById("precAccumulationFields").hidden=mode!=="accumulate";
@@ -7918,9 +7924,12 @@
         label:"Lehrbuchannahme · ein Grenztensor kostet so viel wie ein ganzer Block",
         hint:"Die stillschweigende Voraussetzung hinter der Merkregel „Segmentgröße √N“. Nur unter ihr ist die Merkregel richtig – und hier siehst du, dass sie dann tatsächlich richtig ist."}
     ];
-    function ckptSetup(){
-      const depth=CKPT_DEPTHS.find(entry=>entry.key===document.getElementById("ckptBlocks").value)||CKPT_DEPTHS[2];
-      const ratio=CKPT_RATIOS.find(entry=>entry.key===document.getElementById("ckptRatio").value)||CKPT_RATIOS[0];
+    // Alle Regler dieses Labs an einer Stelle lesen. Ohne Argument kommen die Werte wie bisher
+    // aus dem DOM; mit einer uebergebenen Belegung ist der Renderer ohne Browser aufrufbar.
+    function ckptRead(values){return id=>values?values[id]:document.getElementById(id).value}
+    function ckptSetup(values){const read=ckptRead(values);
+      const depth=CKPT_DEPTHS.find(entry=>entry.key===read("ckptBlocks"))||CKPT_DEPTHS[2];
+      const ratio=CKPT_RATIOS.find(entry=>entry.key===read("ckptRatio"))||CKPT_RATIOS[0];
       return {blocks:depth.blocks,depth,ratio,boundary:ratio.boundary,residual:CKPT_BLOCK_RESIDUAL};
     }
     // Ein Level: alle ceil(N/k) Grenztensoren leben gleichzeitig, dazu wird genau ein Segment
@@ -7953,11 +7962,11 @@
     }
     function ckptNumber(value){return fixedNum(value,2)}
     function ckptFactor(value){return fixedNum(value,2)}
-    function ckptSegmentsStage(){
+    function ckptSegmentsStage(values){const read=ckptRead(values);
       const tr=value=>esc(localizedUi(value));
-      const setup=ckptSetup();
+      const setup=ckptSetup(values);
       const blocks=setup.blocks,boundary=setup.boundary,residual=setup.residual;
-      const segment=Math.min(Math.max(parseInt(document.getElementById("ckptSegment").value,10)||1,1),blocks);
+      const segment=Math.min(Math.max(parseInt(read("ckptSegment"),10)||1,1),blocks);
       const rows=ckptFlatTable(blocks,boundary,residual);
       const current=rows[segment-1];
       const best=ckptBestSegments(rows);
@@ -8002,9 +8011,9 @@
       ].join("");
       return `<h2>${tr("Ein Level, Segmentgröße k")} · ${tr(setup.depth.label)}</h2><p class="small muted">x = checkpoint(segment_of_${segment}_blocks, x, use_reentrant=False)  # ${current.segments}×</p><p class="lab-note">${tr(setup.ratio.hint)}</p><h3>${tr("Die geprüfte Segmentgröße, Posten für Posten")}</h3><div class="calculation-ledger">${detail}</div><h3>${tr("Die Nachbarprobe, die das Handout verlangt")}</h3><p class="lab-note">${tr("Teil (b) verlangt wörtlich, die nächstkleinere und die nächstgrößere Blockgröße zu vergleichen. Der Grund steht in der Formel: Peak(k) fällt links vom Minimum und steigt rechts davon, deshalb bestätigt ein einzelner Nachbar immer nur die Richtung, in die man ohnehin schon unterwegs war.")}</p><div class="calculation-ledger">${neighbours}</div>${alarm}<h3>${tr("Alle Segmentgrößen")}</h3><div class="calculation-ledger">${table}</div><h3>${tr("Woher die Lage des Minimums kommt")}</h3><div class="calculation-ledger">${law}</div><div class="shape-change"><strong>${tr("Ein Verhältnis, nicht eine Zahl")}</strong><span>${tr("Der Peak besteht aus zwei Posten, die gegenläufig auf dieselbe Stellschraube reagieren: ⌈N/k⌉ Grenztensoren fallen mit k, das eine rekonstruierte Segment wächst mit k. Deshalb hat Peak(k) = ⌈N/k⌉·c + k·r genau ein Minimum, und Ableiten liefert k* = √(N·c/r). Die verbreitete Antwort „Segmentgröße √N“ ist dieselbe Formel für den Sonderfall c = r – sie ist keine falsche Rechnung, sondern eine richtige Rechnung ohne ihre Voraussetzung. Bei der Konfiguration dieser Aufgabe ist ein Grenztensor 46-mal billiger als die Residuals eines Blocks, k* fällt unter eins, und die Antwort ist der Rand: jeden Block einzeln umschließen. Wer stattdessen die Merkregel meldet, meldet einen Peak, der das 3,60-fache beträgt. Die Rechenzeit ändert sich dabei übrigens nicht: bei einem Level wird jeder Block genau einmal neu berechnet, egal wie groß die Segmente sind. k verschiebt ausschließlich Speicher.")}</span></div>`;
     }
-    function ckptNestingStage(){
+    function ckptNestingStage(values){
       const tr=value=>esc(localizedUi(value));
-      const setup=ckptSetup();
+      const setup=ckptSetup(values);
       const blocks=setup.blocks,boundary=setup.boundary,residual=setup.residual;
       const rows=ckptFlatTable(blocks,boundary,residual);
       const best=ckptBestSegments(rows);
@@ -8032,7 +8041,7 @@
       const alarm=nested/bestPeak>0.5?`<div class="callout warning"><strong>${tr("Asymptotisch besser, praktisch kaum – bei dieser Blockzahl.")}</strong> ${tr("Die Verschachtelung senkt den Peak hier nur um den Rest, den ein Level noch offenlässt, und verlangt dafür ein Vielfaches an Rekomputation. Der Grund ist die untere Schranke: irgendwann muss ein Block materialisiert werden, damit sein Gradient gebildet werden kann, und dieser eine Block kostet bereits mehr als alle Grenztensoren zusammen. O(log N) statt O(√N) ist eine Aussage über wachsendes N, keine über diese Konfiguration. Stelle die Blockzahl höher und sieh zu, wie der Abstand wächst.")}</div>`:`<div class="callout accent"><strong>${tr("Hier trägt die Verschachtelung sichtbar.")}</strong> ${tr("Je mehr Blöcke gestapelt werden, desto deutlicher trennt sich ⌈log₂N⌉ von der Zahl der Grenztensoren, die ein einzelnes Level halten muss. Genau das ist die asymptotische Aussage aus Teil (a) – und der Preis dafür steht in der Spalte daneben.")}</div>`;
       return `<h2>${tr("Verschachtelte checkpoint-Aufrufe")} · ${tr(setup.depth.label)}</h2><p class="small muted">def half(x): return checkpoint(half_of_the_half, x, use_reentrant=False)  # ${tr("Tiefe")} ${depth}</p><p class="lab-note">${tr("Teil (a) erlaubt ausdrücklich, checkpoint-Aufrufe ineinander zu schachteln, und fragt nach der Strategie mit dem kleinsten Peak, ohne Rücksicht auf die Rechenzeit. Teil (b) verbietet die Verschachtelung und fragt nach der besten Strategie mit einem einzigen Rekomputationsschritt. Die Tabelle stellt beide nebeneinander.")}</p><h3>${tr("Die drei Strategien")}</h3><div class="calculation-ledger">${strategies}</div><h3>${tr("Was die Verschachtelung wirklich einbringt")}</h3><div class="calculation-ledger">${detail}</div>${alarm}<div class="shape-change"><strong>${tr("Warum es eine untere Schranke gibt")}</strong><span>${tr("Der Backward Pass durch einen Block braucht die Zwischenwerte genau dieses Blocks. Egal wie fein man schachtelt, irgendwann steht ein einzelner Block da und muss materialisiert werden – seine Residuals sind der Boden, unter den keine Strategie kommt. Deshalb zerfällt die Antwort auf Teil (a) in zwei Teile, die man nicht verwechseln darf: asymptotisch ist rekursive Halbierung mit O(log N) Peak bei O(N log N) Rechenzeit die beste Strategie, und das ist die verlangte Antwort. Praktisch liegt der Boden bei dieser Konfiguration schon so hoch, dass ein einziges Level fast alles davon holt. Beides ist wahr, und die Aufgabe fragt in (a) nach dem ersten und in (b) nach dem zweiten – deswegen steht die Einschränkung „you may not nest checkpoint calls“ ausdrücklich in Teil (b).")}</span></div>`;
     }
-    function ckptStageMarkup(){return document.getElementById("ckptMode").value==="nesting"?ckptNestingStage():ckptSegmentsStage()}
+    function ckptStageMarkup(values){const read=ckptRead(values);return read("ckptMode")==="nesting"?ckptNestingStage(values):ckptSegmentsStage(values)}
     function updateCheckpointSegments(){
       const mode=document.getElementById("ckptMode").value;
       const blocks=(CKPT_DEPTHS.find(entry=>entry.key===document.getElementById("ckptBlocks").value)||CKPT_DEPTHS[2]).blocks;
@@ -8311,16 +8320,19 @@
     }
     function offNumber(value,digits){return fixedNum(value,digits===undefined?6:digits)}
     function offFind(list,value,fallback){return list.find(entry=>entry.key===value)||list[fallback]}
-    function offSelection(){
+    // Alle Regler dieses Labs an einer Stelle lesen. Ohne Argument kommen die Werte wie bisher
+    // aus dem DOM; mit einer uebergebenen Belegung ist der Renderer ohne Browser aufrufbar.
+    function offRead(values){return id=>values?values[id]:document.getElementById(id).value}
+    function offSelection(values){const read=offRead(values);
       return {
-        drift:offFind(OFF_DRIFTS,document.getElementById("offDrift").value,1),
-        seq:offFind(OFF_SEQS,document.getElementById("offSeq").value,1),
-        epsilon:offFind(OFF_EPSILONS,document.getElementById("offEps").value,1)
+        drift:offFind(OFF_DRIFTS,read("offDrift"),1),
+        seq:offFind(OFF_SEQS,read("offSeq"),1),
+        epsilon:offFind(OFF_EPSILONS,read("offEps"),1)
       };
     }
-    function offClipStage(){
+    function offClipStage(values){
       const tr=value=>esc(localizedUi(value));
-      const {drift,epsilon}=offSelection();
+      const {drift,epsilon}=offSelection(values);
       const eps=epsilon.eps;
       const correct=offObjective(drift,eps,"clip");
       const advRow=correct.rows.map((row,index)=>`<div class="calculation-row"><span>${tr("Antwort")} ${index+1} · r = ${row.reward} · A = ${offNumber(row.adv)}</span><strong>${row.toks.map(t=>`w = ${offNumber(t.w,4)}${t.masked?" ✂":""}`).join(" · ")}</strong></div>`).join("");
@@ -8332,9 +8344,9 @@
       const hiddenCount=OFF_VARIANTS.filter(v=>!v.ok&&offNumber(offObjective(drift,eps,v.key).loss)===offNumber(correct.loss)).length;
       return `<h2>${tr("Token-Level-Clipping")} · ${tr(drift.label)} · ${tr(epsilon.label)}</h2><p class="muted">${tr(drift.hint)}</p><h3>${tr("Die Gruppe und ihre Ratios")}</h3><div class="calculation-ledger"><div class="calculation-row"><span>${tr("Rewards")} [${OFF_REWARDS.join(", ")}] → μ = ${offNumber(offAdvantages().mu,4)} · σ = ${offNumber(offAdvantages().sd,6)}</span><strong>${tr("Band")} [${offNumber(1-eps,2)}, ${offNumber(1+eps,2)}]</strong></div>${advRow}</div><p class="small muted">${tr("✂ markiert ein Token, dessen Gradient nach Gleichung (60) auf null maskiert wird.")}</p><h3>${tr("Was die vier Rechenwege liefern")}</h3><div class="calculation-ledger">${table}</div><div class="shape-change"><strong>${tr("Wie viele Token tragen noch Gradienten?")}</strong><span>${tr("Maskiert nach Gleichung (60)")}: ${correct.masked} ${tr("von")} ${correct.tokens} ${tr("Token")} (${offNumber(100*correct.maskedFrac,1)} %). ${tr("Das ist die Größe, die im Training zu loggen ist: sie sagt, wie viele weitere innere Schritte dieser Rollout-Batch überhaupt noch trägt.")}</span></div><div class="callout ${hiddenCount?"warning":"accent"}" style="margin-top:.7rem"><strong>${hiddenCount?`${hiddenCount===1?tr("Hier versteckt sich genau eine falsche Fassung."):`${tr("Hier verstecken sich")} ${hiddenCount} ${tr("falsche Fassungen.")}`}`:tr("Hier trennt sich jede Fassung von der korrekten.")}</strong><br>${tr(hiddenCount?"Ein Test, der nur diesen Zustand prüft, kann die betroffenen Fassungen nicht von der korrekten unterscheiden – sie liefern dieselbe Zahl.":"In diesem Zustand liefert jede falsche Fassung eine andere Zahl als die korrekte.")}</div>`;
     }
-    function offGspoStage(){
+    function offGspoStage(values){
       const tr=value=>esc(localizedUi(value));
-      const {seq,epsilon}=offSelection();
+      const {seq,epsilon}=offSelection(values);
       const eps=epsilon.eps;
       const adv=offAdvantages().adv[0];
       const correct=offSeqWeight(seq.deltas,"gspo").weight;
@@ -8347,7 +8359,7 @@
       const hiddenCount=OFF_SEQ_VARIANTS.filter(v=>!v.ok&&offNumber(offSeqWeight(seq.deltas,v.key).weight)===offNumber(correct)).length;
       return `<h2>${tr("GSPO · Sequenz-Importance-Weight")} · ${tr(seq.label)} · ${tr(epsilon.label)}</h2><p class="muted">${tr(seq.hint)}</p><div class="calculation-ledger"><div class="calculation-row"><span>${tr("Σ delta")} · L = ${seq.deltas.length}</span><strong>${offNumber(seq.deltas.reduce((a,b)=>a+b,0),4)} / ${seq.deltas.length} = ${offNumber(seq.deltas.reduce((a,b)=>a+b,0)/seq.deltas.length,6)}</strong></div><div class="calculation-row"><span>${tr("Clipping-Band für s")}</span><strong>[${offNumber(1-eps,2)}, ${offNumber(1+eps,2)}]</strong></div><div class="calculation-row"><span>${tr("Zwischenprodukt ∏ exp(delta) in float32")}</span><strong>${productRun.product===0?"0":productRun.product.toExponential(4)}${productRun.product!==0&&productRun.product<1e-38?` · ${tr("im Denormalbereich")}`:""}</strong></div></div><h3>${tr("Was die vier Rechenwege liefern")}</h3><div class="calculation-ledger">${table}</div><div class="callout ${hiddenCount?"warning":"accent"}" style="margin-top:.7rem"><strong>${hiddenCount?`${hiddenCount===1?tr("Hier versteckt sich genau eine falsche Fassung."):`${tr("Hier verstecken sich")} ${hiddenCount} ${tr("falsche Fassungen.")}`}`:tr("Hier trennt sich jede Fassung von der korrekten.")}</strong><br>${tr("Vergleiche die Zahlen auf der Länge L = 512 mit denen auf L = 1 und L = 8: die Fassungen, die ein kurzer Test nicht trennen kann, sind genau die, die im echten Training den Unterschied machen.")}</div>`;
     }
-    function offStageMarkup(){return document.getElementById("offMode").value==="gspo"?offGspoStage():offClipStage()}
+    function offStageMarkup(values){const read=offRead(values);return read("offMode")==="gspo"?offGspoStage(values):offClipStage(values)}
     function updateOffPolicyClip(){
       const gspo=document.getElementById("offMode").value==="gspo";
       document.getElementById("offDriftFields").hidden=gspo;
@@ -8448,22 +8460,25 @@
     }
     function advNumber(value,digits){return Number.isNaN(value)?"NaN":fixedNum(value,digits===undefined?6:digits)}
     function advFind(list,value,fallback){return list.find(entry=>entry.key===value)||list[fallback]}
-    function advSelection(){
+    // Alle Regler dieses Labs an einer Stelle lesen. Ohne Argument kommen die Werte wie bisher
+    // aus dem DOM; mit einer uebergebenen Belegung ist der Renderer ohne Browser aufrufbar.
+    function advRead(values){return id=>values?values[id]:document.getElementById(id).value}
+    function advSelection(values){const read=advRead(values);
       return {
-        group:advFind(ADV_GROUPS,document.getElementById("advGroup").value,2),
-        lossNorm:advFind(ADV_LOSS_NORMS,document.getElementById("advLossNorm").value,0),
-        epsMode:advFind(ADV_EPS_MODES,document.getElementById("advEps").value,0),
-        reference:advFind(ADV_LADDER.map(eta=>({key:String(eta),eta})),document.getElementById("advRef").value,2),
-        convention:advFind(ADV_CONVENTIONS,document.getElementById("advConvention").value,0)
+        group:advFind(ADV_GROUPS,read("advGroup"),2),
+        lossNorm:advFind(ADV_LOSS_NORMS,read("advLossNorm"),0),
+        epsMode:advFind(ADV_EPS_MODES,read("advEps"),0),
+        reference:advFind(ADV_LADDER.map(eta=>({key:String(eta),eta})),read("advRef"),2),
+        convention:advFind(ADV_CONVENTIONS,read("advConvention"),0)
       };
     }
-    function advVariantStage(){
+    function advVariantStage(values){
       const tr=value=>esc(localizedUi(value));
-      const {group,lossNorm,epsMode}=advSelection();
+      const {group,lossNorm,epsMode}=advSelection(values);
       const reports=ADV_VARIANTS.map(variant=>{
         const run=advAdvantages(group.rewards,variant.key,epsMode.eps);
         const weights=advSeqWeights(run.adv,lossNorm.key);
-        return {variant,run,weights,pruned:advPrunedShare(run.adv)};
+        return {variant,run,weights,pruned:advPrunedShare(run.adv),nan:run.adv.some(Number.isNaN)};
       });
       const signature=report=>report.run.adv.map(value=>advNumber(value)).join("|");
       const distinct=new Set(reports.map(signature)).size;
@@ -8471,16 +8486,16 @@
       const minorityIndex=group.rewards.filter(r=>r===1).length<=group.rewards.length/2?group.rewards.indexOf(1):group.rewards.indexOf(0);
       const table=reports.map(report=>{
         const advRow=report.run.adv.map(value=>advNumber(value,4)).join(" · ");
-        return `<div class="calculation-row"><span><strong>${tr(report.variant.label)}</strong><br><span class="small muted">${tr(report.variant.rule)}</span><br><span class="small muted">b = ${advNumber(report.run.baseline,4)} · c = ${advNumber(report.run.normalizer,6)}</span><br><span class="small muted">${tr(report.variant.verdict)}</span></span><strong><span class="small">A = ${advRow}</span><br><span class="small muted">${tr("ohne Gradient")}: ${advNumber(100*report.pruned,1)} % · ${tr("Gesamtgewicht kurz/lang")}: ${advNumber(report.weights[0],8)} / ${advNumber(report.weights[1],8)}</span></strong></div>`;
+        return `<div class="calculation-row"><span><strong>${tr(report.variant.label)}</strong><br><span class="small muted">${tr(report.variant.rule)}</span><br><span class="small muted">b = ${advNumber(report.run.baseline,4)} · c = ${advNumber(report.run.normalizer,6)}</span><br><span class="small muted">${tr(report.variant.verdict)}</span></span><strong><span class="small">A = ${advRow}</span><br><span class="small muted">${report.nan?tr("Gradient undefiniert · 0/0"):`${tr("ohne Gradient")}: ${advNumber(100*report.pruned,1)} %`} · ${tr("Gesamtgewicht kurz/lang")}: ${advNumber(report.weights[0],8)} / ${advNumber(report.weights[1],8)}</span></strong></div>`;
       }).join("");
       const nanCount=reports.filter(report=>report.run.adv.some(Number.isNaN)).length;
       const lengthRatio=reports.find(report=>report.variant.key==="drgrpo");
       const lengthPair=advEqualAdvantagePair(lengthRatio.run.adv);
       return `<h2>${tr("Vier Varianten auf denselben acht Rollouts")} · ${tr(group.label)}</h2><p class="muted">${tr(group.hint)}</p><h3>${tr("Die Gruppe")}</h3><div class="calculation-ledger"><div class="calculation-row"><span>${tr("Rewards")} [${group.rewards.join(", ")}]</span><strong>μ = ${advNumber(grpoRun.mu,4)} · std = ${advNumber(grpoRun.std,6)}</strong></div><div class="calculation-row"><span>${tr("Antwortlängen in Token")} [${ADV_LENGTHS.join(", ")}]</span><strong>${tr(lossNorm.label)}</strong></div><div class="calculation-row"><span>${tr("Schutzterm im Nenner")}</span><strong>${tr(epsMode.label)}</strong></div></div><h3>${tr("Was die vier Einstellungen liefern")}</h3><div class="calculation-ledger">${table}</div><div class="shape-change"><strong>${tr("Was der Loss-Nenner mit der Länge macht")}</strong><span>${lengthPair?`${tr("Antwort")} ${lengthPair.short+1} (${ADV_LENGTHS[lengthPair.short]} ${tr("Token")}) ${tr("und Antwort")} ${lengthPair.long+1} (${ADV_LENGTHS[lengthPair.long]} ${tr("Token")}) ${tr("tragen bei Dr. GRPO in dieser Gruppe denselben Advantage")} ${advNumber(lengthRatio.run.adv[lengthPair.short],4)}. ${tr("Verhältnis der Gesamtgewichte lang zu kurz")}: ${advNumber(lengthRatio.weights[lengthPair.long]/lengthRatio.weights[lengthPair.short],4)}.`:tr("In dieser Gruppe hat unter Dr. GRPO keine zwei verschieden langen Antworten denselben Advantage ungleich null – der Längeneffekt ist hier nicht isolierbar. Wechsle auf eine gemischte Gruppe.")} ${tr("Mit dem festen Z bleibt die Tokenzahl im Gesamtgewicht stehen, mit dem Sequenzmittel kürzt sie sich exakt weg. Das ist der ganze Inhalt von think_about_length_normalization.")}</span></div>${minorityIndex>=0?`<div class="shape-change"><strong>${tr("GRPO an der Minderheitsantwort")}</strong><span>${tr("Position")} ${minorityIndex+1}: A = ${advNumber(grpoRun.adv[minorityIndex])}. ${tr("Notiere den Betrag und wechsle zwischen η = 1/8 und η = 7/8: Er ändert sich nicht. Die Std ist symmetrisch in η und 1−η – deshalb behandelt GRPO eine fast unlösbare und eine fast gelöste Aufgabe gleich.")}</span></div>`:""}<div class="callout ${distinct===1?"warning":"accent"}" style="margin-top:.7rem"><strong>${distinct===1?tr("Alle vier Varianten liefern hier exakt dieselben Zahlen."):`${tr("Unterscheidbar in dieser Gruppe")}: ${distinct} ${tr("von 4 Varianten.")}`}</strong><br>${tr(distinct===1?"Ein Test auf dieser Gruppe prüft nur, dass deine Funktion nicht abstürzt. Er kann keine der drei Einstellungen von advantage_normalizer von einer anderen unterscheiden, weil der Zähler R_j − μ überall exakt null ist.":distinct<ADV_VARIANTS.length?"Mindestens zwei Varianten fallen hier zusammen. Ein Test auf dieser Gruppe lässt genau diese Einstellungen offen.":"In dieser Gruppe liefert jede der vier Einstellungen eine eigene Zahlenreihe – nur hier prüft ein Test wirklich alle drei Normalisierer.")}${nanCount?`<br><strong>${tr("Ohne Schutzterm steht in")} ${nanCount} ${tr("Zeilen NaN.")}</strong> ${tr("Der Nenner ist exakt null, und 0/0 ist NaN. Ein einziges NaN wandert durch die Summe in den Gradienten und macht den gesamten Batch unbrauchbar – genau dafür verlangt das Handout advantage_eps.")}`:""}</div>`;
     }
-    function advWeightStage(){
+    function advWeightStage(values){
       const tr=value=>esc(localizedUi(value));
-      const {reference,convention}=advSelection();
+      const {reference,convention}=advSelection(values);
       const size=convention.size;
       const columns=[{key:"none",label:"Dr. GRPO · c = 1"},{key:"std",label:"GRPO · c = std"},{key:"mean",label:"MaxRL · c = μ"}];
       const refWeights=columns.map(column=>advPromptWeight(reference.eta,column.key,size));
@@ -8496,7 +8511,7 @@
       const factor=Math.sqrt(8/7);
       return `<h2>${tr("Welches Gewicht jeder Normalisierer einem Prompt gibt")} · ${tr(convention.label)}</h2><p class="muted">${tr("Die Gleichungen (41) bis (43) fragen bei Z = G und G → ∞ nach der Umgewichtung w, unter der derselbe Schätzer den einfachen Expected Reward optimiert. Das Ergebnis ist jedes Mal der Kehrwert des Normalisierers, ausgedrückt in der Trefferquote η des Prompts.")}</p><h3>${tr("w(η) je Normalisierer, in Klammern relativ zum Bezugspunkt")}</h3><div class="calculation-ledger"><div class="calculation-row"><span>${tr("Spalten")}</span><strong><span class="small">${columns.map(column=>tr(column.label)).join(" · ")}</span></strong></div>${rows}</div><div class="shape-change"><strong>${tr("Die Std ist symmetrisch, das Gruppenmittel nicht")}</strong><span>${tr("GRPO gibt η = 0,125 das Gewicht")} ${advNumber(symmetricLow)} ${tr("und η = 0,875 das Gewicht")} ${advNumber(symmetricHigh)} – ${tr("dieselbe Zahl, weil η(1−η) unter der Spiegelung unverändert bleibt. MaxRL vergibt an denselben beiden Stellen")} ${advNumber(maxLow,4)} ${tr("gegen")} ${advNumber(maxHigh,4)}, ${tr("also genau das Siebenfache. Nur die Division durch μ gewichtet monoton nach Schwierigkeit; die Division durch die Std bevorzugt beide Ränder gleichermaßen und benachteiligt ausgerechnet die Prompts mit dem meisten Signal.")}</span></div><div class="shape-change"><strong>${tr("Warum die Konvention die Antwort nicht ändert")}</strong><span>${tr("Die Stichproben-Std ist die Populations-Std mal √(G/(G−1)), bei G = 8 also mal")} ${advNumber(factor)}. ${tr("Dieser Faktor hängt nicht von η ab, steht in jeder Zeile derselben Spalte und kürzt sich deshalb in der Klammer vollständig weg. Die relative Gewichtung – und nur nach ihr fragt derive_difficulty_reweightings – ist in beiden Konventionen identisch.")}</span></div><div class="callout accent" style="margin-top:.7rem"><strong>${tr("Der Zusammenhang zum Variantenmodus")}</strong><br>${tr("Diese Gewichte gelten im Grenzfall G → ∞. Bei endlichem G und binärem Reward verschwindet an den beiden Rändern zusätzlich der Zähler: Eine Gruppe aus lauter Nullen oder lauter Einsen hat für jede Baseline μ einen Advantage von exakt null und trägt gar nichts bei – unabhängig davon, wie groß 1/c dort rechnerisch würde.")}</div>`;
     }
-    function advStageMarkup(){return document.getElementById("advMode").value==="weight"?advWeightStage():advVariantStage()}
+    function advStageMarkup(values){const read=advRead(values);return read("advMode")==="weight"?advWeightStage(values):advVariantStage(values)}
     function updateAdvantageNormalizers(){
       const weight=document.getElementById("advMode").value==="weight";
       document.getElementById("advVariantFields").hidden=weight;
@@ -8610,15 +8625,18 @@
     }
     function mbdNumber(value,digits){return fixedNum(value,digits===undefined?6:digits)}
     function mbdFind(list,value,fallback){return list.find(entry=>entry.key===value)||list[fallback]}
-    function mbdSelection(){
+    // Alle Regler dieses Labs an einer Stelle lesen. Ohne Argument kommen die Werte wie bisher
+    // aus dem DOM; mit einer uebergebenen Belegung ist der Renderer ohne Browser aufrufbar.
+    function mbdRead(values){return id=>values?values[id]:document.getElementById(id).value}
+    function mbdSelection(values){const read=mbdRead(values);
       return {
-        norm:mbdFind(MBD_NORMS,document.getElementById("mbdNorm").value,0),
-        split:mbdFind(MBD_SPLITS,document.getElementById("mbdSplit").value,0),
-        rule:mbdFind(MBD_RULES,document.getElementById("mbdRule").value,0)
+        norm:mbdFind(MBD_NORMS,read("mbdNorm"),0),
+        split:mbdFind(MBD_SPLITS,read("mbdSplit"),0),
+        rule:mbdFind(MBD_RULES,read("mbdRule"),0)
       };
     }
-    function mbdReport(){
-      const {norm,split,rule}=mbdSelection();
+    function mbdReport(values){
+      const {norm,split,rule}=mbdSelection(values);
       const weights=mbdWeights(norm.key,rule.key,split.groups);
       const accumulated=mbdAccumulated(norm.key,rule.key,split.groups);
       const reference=mbdWholeBatch(norm.key);
@@ -8627,9 +8645,9 @@
         factor:mbdUniformFactor(weights),
         drifts:mbdGroupDrift(weights)};
     }
-    function mbdLedgerStage(){
+    function mbdLedgerStage(values){
       const tr=value=>esc(localizedUi(value));
-      const report=mbdReport(), {norm,split,rule,weights}=report;
+      const report=mbdReport(values), {norm,split,rule,weights}=report;
       const k=split.groups.length;
       const rows=split.groups.map((indices,index)=>{
         const c=mbdScale(rule.key,indices.length,k), aggregate=mbdAggregate(indices,norm.key);
@@ -8653,9 +8671,9 @@
         <h3>${tr("Gewicht jeder einzelnen Antwort")}</h3><p class="small muted">${tr("Eins bedeutet: genau das Gewicht, das diese Antwort im Gradienten über den ganzen Batch hätte.")}</p><div class="calculation-ledger">${weightRows}</div>
         <div class="shape-change"><strong>${equal?tr("Identisch zum Batchgradienten"):report.factor!==null?tr("Nur skaliert"):tr("Anderes Ziel")}</strong><span>${tr(verdict)}</span></div>`;
     }
-    function mbdBaselineStage(){
+    function mbdBaselineStage(values){
       const tr=value=>esc(localizedUi(value));
-      const report=mbdReport(), {split,rule,norm,weights,drifts}=report;
+      const report=mbdReport(values), {split,rule,norm,weights,drifts}=report;
       const rows=drifts.map(entry=>{
         const members=MBD_SEQ.map((seq,j)=>({seq,j})).filter(item=>item.seq.prompt===entry.prompt);
         const terms=members.map(item=>`${mbdNumber(weights[item.j],6)}·${mbdNumber(item.seq.A,2)}`).join(" + ");
@@ -8675,7 +8693,7 @@
         </div>
         <div class="shape-change"><strong>${broken.length===0?tr("Baseline intakt"):tr("Baseline zerstört")}</strong><span>${tr(verdict)}</span></div>`;
     }
-    function mbdStageMarkup(){return document.getElementById("mbdMode").value==="baseline"?mbdBaselineStage():mbdLedgerStage()}
+    function mbdStageMarkup(values){const read=mbdRead(values);return read("mbdMode")==="baseline"?mbdBaselineStage(values):mbdLedgerStage(values)}
     function updateMicrobatchDenominator(){
       document.getElementById("mbdStage").innerHTML=mbdStageMarkup();
     }
@@ -10953,11 +10971,14 @@ p99 went from 12.4ms to 8.1ms but RSS is back to ~78MB, so it is a real tradeoff
     function winrateNumber(value,digits){return value.toLocaleString(localeCode(),{minimumFractionDigits:digits,maximumFractionDigits:digits})}
     function winratePercent(value){return (value*100).toLocaleString(localeCode(),{minimumFractionDigits:1,maximumFractionDigits:1})+" %"}
     function winrateSigned(value,digits){return (value>0?"+":value<0?"−":"")+Math.abs(value).toLocaleString(localeCode(),{minimumFractionDigits:digits,maximumFractionDigits:digits})}
-    function winrateStageMarkup(){
+    // Alle Regler dieses Labs an einer Stelle lesen. Ohne Argument kommen die Werte wie bisher
+    // aus dem DOM; mit einer uebergebenen Belegung ist der Renderer ohne Browser aufrufbar.
+    function winrateRead(values){return id=>values?values[id]:document.getElementById(id).value}
+    function winrateStageMarkup(values){const read=winrateRead(values);
       const tr=value=>esc(localizedUi(value));
-      const profileKey=document.getElementById("winrateProfile").value;
-      const boundKey=document.getElementById("winrateBound").value;
-      const variantKey=document.getElementById("winrateVariant").value;
+      const profileKey=read("winrateProfile");
+      const boundKey=read("winrateBound");
+      const variantKey=read("winrateVariant");
       const profile=WINRATE_PROFILES.find(entry=>entry.key===profileKey);
       const bound=WINRATE_BOUNDS.find(entry=>entry.key===boundKey);
       const variant=WINRATE_VARIANTS.find(entry=>entry.key===variantKey);

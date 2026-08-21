@@ -2405,7 +2405,7 @@ for (const required of ["<strong>Σ w·A = ${mbdNumber(entry.drift,6)}</strong>"
   if (!mbdBaselineRenderer.includes(required)) throw new Error(`microbatch-denominator baseline renderer: must stay data-driven and show ${required}`);
 // Both stages must be reachable, and every label the data carries has to reach the screen.
 const mbdStageSwitch = sliceDeclaration(source, "mbdStageMarkup");
-if (!/mbdMode.*baseline.*mbdBaselineStage\(\).*mbdLedgerStage\(\)/su.test(mbdStageSwitch))
+if (!/mbdMode.*baseline.*mbdBaselineStage\(values\).*mbdLedgerStage\(values\)/su.test(mbdStageSwitch))
   throw new Error("microbatch-denominator: the mode selector must reach both stages");
 const mbdPanel = source.slice(source.indexOf('if(id==="microbatch-denominator") return'), source.indexOf('if(id==="advantage-normalizers") return'));
 for (const required of ["MBD_NORMS.map", "MBD_SPLITS.map", "MBD_RULES.map", "id=\"mbdMode\"", "id=\"mbdStage\"", "id=\"mbdCheck\""])
@@ -5659,3 +5659,340 @@ if (!source.includes('warm=Math.min(+document.getElementById("optWarmup").value,
   throw new Error("optimizer: the warm-up must be clamped against T_c and not against the width of the chart");
 
 console.log(`decay-horizon OK: ${dhValues} values, A1 §5's tip resolved into a constrained optimum -- all five horizons identical up to t = T_w and spread by 8.831251 at t = 2500, T_c = N the argmax of the step-size budget among the horizons that end on alpha_min (6250 buys 1.191190x and ends at 1.915144 alpha_min, 4000 gives away 16.4231 %), and L11's "n to n^2" as (K+1)/2 = 5.500000 at K = 10 against a WSD advantage of 3.793103 that is capped at exactly 1/d`);
+
+
+// ---- every string a renderer translates has to have an English entry ----------------
+// The i18n guard above holds the declarative content: concepts, formulas, labs, missions.
+// It never looked at the strings the renderers hand to tr(), and those are most of the
+// text a lab actually prints. A missing entry there is silent -- translateUiValue falls
+// back to the German source -- so an English reader got a German paragraph and nothing
+// said so. Three of them were the "Noch nicht." hint of a short check in stability-edge,
+// pipeline-yield and decay-horizon: the text a reader sees at the moment they are stuck.
+const sameInBothLanguages = ["in FP32", "Position", "Gain", "Connected Components"];
+const renderedStrings = new Set();
+for (const match of source.matchAll(/\btr\("((?:[^"\\]|\\.)*)"\)/g)) renderedStrings.add(JSON.parse(`"${match[1]}"`));
+for (const match of source.matchAll(/\blocalizedUi\("((?:[^"\\]|\\.)*)"\)/g)) renderedStrings.add(JSON.parse(`"${match[1]}"`));
+for (const value of renderedStrings) {
+  if (pack.ui[value] !== undefined || sameInBothLanguages.includes(value)) continue;
+  throw new Error(`renderer i18n: "${value.slice(0, 70)}" reaches the screen through tr() with no English entry -- an English reader would read it in German`);
+}
+// the exception list stays honest in both directions
+for (const value of sameInBothLanguages) {
+  if (!renderedStrings.has(value))
+    throw new Error(`renderer i18n: "${value}" is listed as identical in both languages, but no renderer prints it any more`);
+  if (pack.ui[value] !== undefined)
+    throw new Error(`renderer i18n: "${value}" has an English entry now, take it off the identical-in-both-languages list`);
+}
+console.log(`renderer i18n OK: ${renderedStrings.size} strings pass through tr(), every one translated except ${sameInBothLanguages.length} that are the same word in English`);
+
+
+// ---- render coverage: the seven labs that read their sliders from the DOM ------------
+// Ten of the eighteen lab guards render their markup and read the numbers back out of it.
+// Seven could not. Their stage functions reached for document.getElementById themselves,
+// so nothing short of a browser could call them, and the guards under them proved only
+// what the lab computes -- never that the computed number reaches the screen.
+//
+// Every stage function now takes an optional slider binding, read through one helper per
+// lab; called without an argument the helper still reads the DOM, which is why not one
+// value in this file moved when the seven were converted. Four properties follow, and
+// each catches a class of fault the compute guards are blind to:
+//
+//   1. Every state renders -- and the sandbox holds no `document` at all, so a function
+//      that forgot to thread the binding through throws here instead of quietly reading
+//      a slider the guard never set.
+//   2. The render is a function of the mode and of that mode's own controls, no more and
+//      no less. A stage reading the wrong slider id shows up as a control leaking into a
+//      mode whose panel hides it; a stage ignoring its own control shows up as a dead
+//      one. This is the link between panel and renderer, and neither side can drift alone.
+//   3. NaN reaches the screen exactly where the lab's own arithmetic produces one, and
+//      nowhere else. advantage-normalizers needs NaN on the screen -- it is the reason
+//      the handout requires advantage_eps -- while for the other six a NaN is a bug.
+//   4. The number each lab's claim rests on is really on the screen, read back out of the
+//      markup at the state that produces it -- the same numbers these guards print.
+
+// Declarations enter the sandbox in source order: only functions hoist, so a const that
+// another const reads has to be initialised before it is read.
+function declarationStart(name) {
+  const constIndex = source.indexOf(`const ${name} =`);
+  const functionIndex = source.indexOf(`function ${name}(`);
+  const found = [constIndex, functionIndex].filter(index => index >= 0);
+  if (!found.length) throw new Error(`render coverage: no declaration for ${name}`);
+  return Math.min(...found);
+}
+// `prose: false` drops every translated string and leaves only what the lab computed --
+// the two labs whose prose talks *about* NaN then stop colliding with a NaN that is a value.
+function renderApi(names, globals, prose = true) {
+  const ordered = [...names].sort((a, b) => declarationStart(a) - declarationStart(b));
+  const stubs = `
+    const esc = value => String(value ?? "").replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+    const localeCode = () => "en-US";
+    const localizedUi = value => ${prose ? "String(value)" : '""'};
+${sliceDeclaration(source, "fixedNum")}
+`;
+  return runInNewContext(`${stubs}${ordered.map(name => sliceDeclaration(source, name)).join("\n")}; ({${ordered.join(",")}})`, globals);
+}
+// The controls inside one collapsible panel group, by balancing <div> from the element
+// that carries the group id. DOM ids are unique -- a separate guard holds that.
+function panelGroupControls(group) {
+  const marker = source.indexOf(`id="${group}"`);
+  if (marker < 0) throw new Error(`render coverage: the panel has no group ${group}`);
+  const start = source.lastIndexOf("<div", marker);
+  const tags = /<\/?div\b/g;
+  tags.lastIndex = start;
+  let depth = 0, end = source.length, match;
+  while ((match = tags.exec(source))) {
+    depth += match[0] === "<div" ? 1 : -1;
+    if (!depth) { end = match.index; break; }
+  }
+  return [...source.slice(start, end).matchAll(/id="(\w+)"/g)].map(hit => hit[1]).filter(id => id !== group);
+}
+
+const renderLabs = [
+  {
+    id: "offpolicy-clip", entry: "offStageMarkup", mode: "offMode", update: "updateOffPolicyClip",
+    names: ["OFF_REWARDS", "OFF_STD_EPS", "offAdvantages", "OFF_DRIFTS", "OFF_EPSILONS", "OFF_VARIANTS",
+      "offTokenTerm", "offObjective", "OFF_SEQS", "OFF_SEQ_VARIANTS", "offSeqWeight", "offGspoRow",
+      "offNumber", "offFind", "offRead", "offSelection", "offClipStage", "offGspoStage", "offStageMarkup"],
+    options: { offMode: ["clip", "gspo"], offDrift: "OFF_DRIFTS", offSeq: "OFF_SEQS", offEps: "OFF_EPSILONS" },
+    // token-level clipping reads the drift, GSPO reads the sequence; eps binds in both
+    controls: { offDrift: ["clip"], offSeq: ["gspo"], offEps: ["clip", "gspo"] },
+    anchors: [
+      [{ offMode: "gspo", offDrift: "mixed", offSeq: "long", offEps: "e20" }, "0.778801",
+        "the log-space geometric mean is the answer the GSPO row has to print"],
+      [{ offMode: "gspo", offDrift: "mixed", offSeq: "long", offEps: "e20" }, "0.818434",
+        "the float32 product's wrong answer has to stand next to it, or the lesson has no evidence"],
+      [{ offMode: "gspo", offDrift: "mixed", offSeq: "long", offEps: "e20" }, "2.8026e-45",
+        "the stalled intermediate product is the reason for that wrong answer and must be shown, not only computed"],
+      [{ offMode: "clip", offDrift: "mixed", offSeq: "long", offEps: "e20" }, "33.3 %",
+        "the share of masked tokens is the quantity the lab tells you to log"]
+    ]
+  },
+  {
+    id: "advantage-normalizers", entry: "advStageMarkup", mode: "advMode", update: "updateAdvantageNormalizers",
+    names: ["ADV_EPS", "ADV_LENGTHS", "ADV_MAX_LEN", "ADV_Z", "ADV_GROUPS", "ADV_VARIANTS", "ADV_LOSS_NORMS",
+      "ADV_EPS_MODES", "advMean", "advSampleStd", "advAdvantages", "advSeqWeights", "advPrunedShare",
+      "ADV_LADDER", "ADV_CONVENTIONS", "advPromptWeight", "advEqualAdvantagePair", "advNumber", "advFind",
+      "advRead", "advSelection", "advVariantStage", "advWeightStage", "advStageMarkup"],
+    options: {
+      advMode: ["variant", "weight"], advConvention: "ADV_CONVENTIONS", advEps: "ADV_EPS_MODES",
+      advGroup: "ADV_GROUPS", advLossNorm: "ADV_LOSS_NORMS", advRef: "ADV_LADDER"
+    },
+    controls: {
+      advGroup: ["variant"], advLossNorm: ["variant"], advEps: ["variant"],
+      advConvention: ["weight"], advRef: ["weight"]
+    },
+    // Turning the guard term off on a zero-variance group is 0/0. The lab is built to show
+    // that, so here the screen must carry NaN precisely when the arithmetic does.
+    nan: (state, api) => state.advMode === "variant" && api.ADV_VARIANTS.some(variant =>
+      api.advAdvantages(api.ADV_GROUPS.find(group => group.key === state.advGroup).rewards, variant.key,
+        api.ADV_EPS_MODES.find(mode => mode.key === state.advEps).eps).adv.some(Number.isNaN)),
+    anchors: [
+      [{ advMode: "weight", advConvention: "sample", advEps: "guard", advGroup: "mixed", advLossNorm: "constant", advRef: "0.125" }, "1.1429",
+        "MaxRL's split between the two equal-advantage responses has to be printed, it is the whole comparison"],
+      [{ advMode: "weight", advConvention: "population", advEps: "guard", advGroup: "mixed", advLossNorm: "constant", advRef: "0.125" }, "3.023716",
+        "the weight GRPO gives both members of the equal-advantage pair has to be printed"],
+      // A row whose advantages are NaN used to print "no gradient: 0.0 %" -- the reading a
+      // healthy group gives -- in the one state built to show why advantage_eps exists. The
+      // same group with the guard term on prints 100.0 %, so the number flipped the lesson.
+      [{ advMode: "variant", advConvention: "sample", advEps: "none", advGroup: "allWrong", advLossNorm: "constant", advRef: "0.125" }, "Gradient undefiniert · 0/0",
+        "a row of NaN advantages must say the gradient is undefined, not report a share of pruned rollouts"],
+      [{ advMode: "variant", advConvention: "sample", advEps: "guard", advGroup: "allWrong", advLossNorm: "constant", advRef: "0.125" }, "ohne Gradient: 100.0 %",
+        "with the guard term the same group prunes completely, and that is the number the row must print"]
+    ],
+    // and the misleading pair must not come back
+    forbid: [
+      [{ advMode: "variant", advConvention: "sample", advEps: "none", advGroup: "allWrong", advLossNorm: "constant", advRef: "0.125" }, "ohne Gradient: 0.0 %",
+        "a NaN advantage is not a rollout that still carries a gradient"]
+    ]
+  },
+  {
+    id: "microbatch-denominator", entry: "mbdStageMarkup", mode: "mbdMode", update: "updateMicrobatchDenominator",
+    names: ["MBD_BATCH", "MBD_GROUP_SIZE", "MBD_MAX_LEN", "MBD_Z", "MBD_SEQ", "MBD_SPLITS", "MBD_RULES",
+      "MBD_NORMS", "mbdTokenSum", "mbdSeqMean", "mbdAggregate", "mbdScale", "mbdWholeBatch", "mbdWeights",
+      "mbdAccumulated", "mbdUniformFactor", "mbdGroupDrift", "mbdNumber", "mbdFind", "mbdRead",
+      "mbdSelection", "mbdReport", "mbdLedgerStage", "mbdBaselineStage", "mbdStageMarkup"],
+    options: { mbdMode: ["ledger", "baseline"], mbdNorm: "MBD_NORMS", mbdRule: "MBD_RULES", mbdSplit: "MBD_SPLITS" },
+    controls: { mbdNorm: ["ledger", "baseline"], mbdRule: ["ledger", "baseline"], mbdSplit: ["ledger", "baseline"] },
+    anchors: [
+      [{ mbdMode: "ledger", mbdNorm: "sequence", mbdRule: "share", mbdSplit: "k1" }, "0.0234375000",
+        "at k = 1 every rule has to print the same number, that is the state the unit test runs in"],
+      [{ mbdMode: "ledger", mbdNorm: "sequence", mbdRule: "steps", mbdSplit: "k3" }, "0.888889",
+        "the uneven split has to print the weight it gives the short microbatch"],
+      [{ mbdMode: "ledger", mbdNorm: "sequence", mbdRule: "steps", mbdSplit: "k3" }, "1.333333",
+        "and the weight it gives the long one -- the pair is the whole point of the uneven split"]
+    ]
+  },
+  {
+    id: "checkpoint-segments", entry: "ckptStageMarkup", mode: "ckptMode", update: "updateCheckpointSegments",
+    names: ["CKPT_BLOCK_RESIDUAL", "CKPT_BOUNDARY", "CKPT_DEPTHS", "CKPT_RATIOS", "ckptRead", "ckptSetup",
+      "ckptFlatPeak", "ckptFlatRow", "ckptFlatTable", "ckptBestSegments", "ckptNestedPeak",
+      "ckptNestedRecompute", "ckptNumber", "ckptFactor", "ckptSegmentsStage", "ckptNestingStage", "ckptStageMarkup"],
+    options: {
+      ckptMode: ["segments", "nesting"], ckptBlocks: "CKPT_DEPTHS", ckptRatio: "CKPT_RATIOS",
+      // the segment select is rebuilt to 1..N whenever the block count changes
+      ckptSegment: (state, api) => Array.from(
+        { length: api.CKPT_DEPTHS.find(entry => entry.key === state.ckptBlocks).blocks },
+        (value, index) => String(index + 1))
+    },
+    controls: { ckptBlocks: ["segments", "nesting"], ckptRatio: ["segments", "nesting"], ckptSegment: ["segments"] },
+    anchors: [
+      [{ ckptMode: "segments", ckptBlocks: "xl", ckptRatio: "measured", ckptSegment: "6" }, "3.60×",
+        "the factor by which the sqrt(N) rule of thumb misses the real minimum has to be printed"]
+    ]
+  },
+  {
+    id: "mixed-precision", entry: "precStageMarkup", mode: "precMode", update: "updateMixedPrecision",
+    names: ["PREC_LN_EPS", "PREC_LN_BASE", "precF32Buffer", "precU32Buffer", "precBf16", "precRound",
+      "PREC_DTYPES", "PREC_CASES", "PREC_SCHEMES", "precAccumulate", "precAllSchemes", "precLayerNorm",
+      "PREC_SCALES", "PREC_AUTOCAST_ROWS", "precNumber", "precPercent", "precRead",
+      "precAccumulationStage", "precAutocastStage", "precStageMarkup"],
+    options: {
+      precMode: ["autocast", "accumulate"], precCast: ["fp16", "bf16"], precScale: "PREC_SCALES",
+      precCase: "PREC_CASES", precScheme: "PREC_SCHEMES"
+    },
+    controls: { precCast: ["autocast"], precScale: ["autocast"], precCase: ["accumulate"], precScheme: ["accumulate"] },
+    anchors: [
+      [{ precMode: "accumulate", precCast: "fp16", precScale: "unit", precCase: "handout", precScheme: "allF32" }, "10.00213623046875",
+        "the handout's own accumulation result has to appear, it is what the lab is checked against"]
+    ]
+  },
+  {
+    id: "winrate-lc", entry: "winrateStageMarkup", mode: null, update: "updateWinrateLc",
+    names: ["WINRATE_REFERENCE_N", "WINRATE_ITEMS", "WINRATE_PROFILES", "WINRATE_BOUNDS", "WINRATE_BUCKET_LABELS",
+      "WINRATE_VARIANTS", "winrateScore", "winrateBucket", "winratePooledMix", "winrateRows", "winrateReport",
+      "winratePaired", "winrateNumber", "winratePercent", "winrateSigned", "winrateRead", "winrateStageMarkup"],
+    options: { winrateBound: "WINRATE_BOUNDS", winrateProfile: "WINRATE_PROFILES", winrateVariant: "WINRATE_VARIANTS" },
+    controls: { winrateBound: [null], winrateProfile: [null], winrateVariant: [null] },
+    anchors: [
+      [{ winrateBound: "b200", winrateProfile: "base", winrateVariant: "correct" }, "48.1",
+        "the length-controlled rate at the 200-token bound has to be printed"],
+      [{ winrateBound: "b200", winrateProfile: "base", winrateVariant: "correct" }, "33.3",
+        "and the raw rate beside it, or there is nothing to compare it against"]
+    ]
+  },
+  {
+    id: "batch-windows", entry: "batchStageMarkup", mode: null, update: "updateBatchWindows",
+    names: ["BATCH_SEED", "BATCH_LEDGER_LIMIT", "BATCH_UINT16_MAX", "BATCH_SETUPS", "BATCH_START_RULES",
+      "BATCH_TARGET_RULES", "batchRandom", "batchStarts", "batchWindow", "batchTokens", "batchReport",
+      "batchCoverage", "batchDtype", "batchNumber", "batchDecimal", "batchPercent", "batchOneIn",
+      "batchSliceLabel", "batchRead", "batchStageMarkup"],
+    options: { batchSetup: "BATCH_SETUPS", batchStart: "BATCH_START_RULES", batchTarget: "BATCH_TARGET_RULES" },
+    controls: { batchSetup: [null], batchStart: [null], batchTarget: [null] },
+    anchors: [
+      [{ batchSetup: "real", batchStart: "inclusive", batchTarget: "shift" }, "312,493",
+        "how rarely the off-by-one start rule is caught at A1 scale is the number the lab exists for"]
+    ]
+  }
+];
+
+let renderStates = 0, renderChecks = 0, renderNaN = 0;
+for (const lab of renderLabs) {
+  const api = renderApi(lab.names, {});
+  const valuesOnly = renderApi(lab.names, {}, false);
+  const optionsFor = (id, state) => {
+    const spec = lab.options[id];
+    if (Array.isArray(spec)) return spec;
+    if (typeof spec === "function") return spec(state, api);
+    return api[spec].map(entry => (entry && typeof entry === "object" ? entry.key : String(entry)));
+  };
+  const ids = Object.keys(lab.options);
+  let states = [{}];
+  for (const id of ids) {
+    const next = [];
+    for (const state of states) for (const value of optionsFor(id, state)) next.push({ ...state, [id]: value });
+    states = next;
+  }
+
+  // 1. every state renders, in a sandbox that has no document to fall back on
+  // 3. and NaN appears exactly where the lab's own arithmetic produces one
+  const rendered = new Map();
+  for (const state of states) {
+    const html = api[lab.entry](state);
+    if (typeof html !== "string" || !html.length)
+      throw new Error(`${lab.id}: ${JSON.stringify(state)} renders nothing`);
+    if (/undefined|\[object Object\]/.test(html))
+      throw new Error(`${lab.id}: ${JSON.stringify(state)} renders undefined or [object Object]`);
+    const wantsNaN = lab.nan ? lab.nan(state, api) : false;
+    if (valuesOnly[lab.entry](state).includes("NaN") !== wantsNaN)
+      throw new Error(wantsNaN
+        ? `${lab.id}: ${JSON.stringify(state)} divides by zero but shows no NaN`
+        : `${lab.id}: ${JSON.stringify(state)} renders NaN where the arithmetic is finite`);
+    if (wantsNaN) renderNaN++;
+    rendered.set(JSON.stringify(state), html);
+    renderStates++;
+  }
+
+  // 2. the render depends on the mode and on that mode's own controls -- no more, no less
+  for (const mode of (lab.mode ? optionsFor(lab.mode, {}) : [null])) {
+    const inMode = lab.mode ? states.filter(state => state[lab.mode] === mode) : states;
+    const live = ids.filter(id => id !== lab.mode && lab.controls[id].includes(mode));
+    const byLiveValues = new Map();
+    for (const state of inMode) {
+      const key = live.map(id => state[id]).join("|");
+      const html = rendered.get(JSON.stringify(state));
+      const seen = byLiveValues.get(key);
+      if (!seen) byLiveValues.set(key, { state, html });
+      else if (seen.html !== html) {
+        const culprit = ids.find(id => state[id] !== seen.state[id]);
+        throw new Error(`${lab.id}${lab.mode ? `/${mode}` : ""}: the render moves with ${culprit}, a control this mode does not show`);
+      }
+      renderChecks++;
+    }
+    for (const id of live) {
+      const moves = inMode.some(state =>
+        new Set(optionsFor(id, state).map(value => api[lab.entry]({ ...state, [id]: value }))).size > 1);
+      if (!moves) throw new Error(`${lab.id}${lab.mode ? `/${mode}` : ""}: the control ${id} is offered but changes nothing`);
+      renderChecks++;
+    }
+  }
+
+  // a control that goes inert in some mode has to be one the panel hides there, and the
+  // update function has to be what hides it -- otherwise the reader turns a dead knob
+  if (lab.mode) {
+    const modes = optionsFor(lab.mode, {});
+    const inert = ids.filter(id => id !== lab.mode && lab.controls[id].length < modes.length);
+    const update = sliceDeclaration(source, lab.update);
+    const hidden = new Set();
+    for (const group of [...update.matchAll(/getElementById\("(\w+)"\)\.hidden/g)].map(match => match[1]))
+      for (const id of panelGroupControls(group)) hidden.add(id);
+    for (const id of inert)
+      if (!hidden.has(id)) throw new Error(`${lab.id}: ${id} does nothing in at least one mode, but no panel group hides it there`);
+    for (const id of hidden)
+      if (!inert.includes(id)) throw new Error(`${lab.id}: the panel hides ${id} in one mode, but the render never depended on it`);
+    renderChecks += inert.length;
+  }
+
+  // 4. the numbers the lab's own claim rests on, read back out of the markup
+  const at = state => {
+    const html = rendered.get(JSON.stringify(state));
+    if (!html) throw new Error(`${lab.id}: the state ${JSON.stringify(state)} is not one the panel can produce`);
+    return html;
+  };
+  for (const [state, needle, why] of lab.anchors) {
+    if (!at(state).includes(needle))
+      throw new Error(`${lab.id}: ${why} -- "${needle}" is missing from the render at ${JSON.stringify(state)}`);
+    renderChecks++;
+  }
+  for (const [state, needle, why] of lab.forbid || []) {
+    if (at(state).includes(needle))
+      throw new Error(`${lab.id}: ${why} -- "${needle}" is back in the render at ${JSON.stringify(state)}`);
+    renderChecks++;
+  }
+
+  // the app itself still calls these without an argument. Same states, read through a
+  // document stub instead of the binding: both paths have to print the same markup.
+  for (const [state] of lab.anchors) {
+    const domApi = renderApi(lab.names, {
+      document: {
+        getElementById(id) {
+          if (!(id in state)) throw new Error(`${lab.id}: the renderer reads ${id}, which is not a control of this lab`);
+          return { value: state[id] };
+        }
+      }
+    });
+    if (domApi[lab.entry]() !== at(state))
+      throw new Error(`${lab.id}: reading the DOM and reading the binding disagree at ${JSON.stringify(state)}`);
+    renderChecks++;
+  }
+}
+console.log(`render coverage OK: ${renderStates} states across ${renderLabs.length} labs render without a DOM, ${renderChecks} checks -- every mode's own controls move it, every hidden one leaves it alone, and NaN reaches the screen in exactly the ${renderNaN} states whose denominator is zero`);
