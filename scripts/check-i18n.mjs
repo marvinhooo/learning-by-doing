@@ -40,8 +40,12 @@ function readConstant(name) {
 // Returns the raw text of a top-level `const NAME = ...;` or `function NAME(...) {...}` declaration,
 // so a guard can rerun the app's own code instead of a copy that may silently drift away from it.
 function sliceDeclaration(text, name) {
-  const constIndex = text.indexOf(`const ${name} =`);
-  if (constIndex >= 0) {
+  // `const NAME =` and `const NAME={` are the same declaration; matching only the spaced
+  // form made a constant written without one look absent, with a "not found" error
+  // instead of a hit. CORE_UI_TRANSLATIONS is written that way.
+  const spaced = text.indexOf(`const ${name} =`), tight = text.indexOf(`const ${name}=`);
+  const constIndex = Math.min(...[spaced, tight].filter(index => index >= 0), Infinity);
+  if (Number.isFinite(constIndex)) {
     let index = constIndex, stack = [], quote = "", escaped = false, started = false;
     for (; index < text.length; index++) {
       const char = text[index];
@@ -5661,6 +5665,223 @@ if (!source.includes('warm=Math.min(+document.getElementById("optWarmup").value,
 console.log(`decay-horizon OK: ${dhValues} values, A1 §5's tip resolved into a constrained optimum -- all five horizons identical up to t = T_w and spread by 8.831251 at t = 2500, T_c = N the argmax of the step-size budget among the horizons that end on alpha_min (6250 buys 1.191190x and ends at 1.915144 alpha_min, 4000 gives away 16.4231 %), and L11's "n to n^2" as (K+1)/2 = 5.500000 at K = 10 against a WSD advantage of 3.793103 that is capped at exactly 1/d`);
 
 
+// ---- run-budget-ledger ---------------------------------------------------------------
+// A3 is the one assignment whose handout contract the app never stated. Before this lab
+// "max_runtime_seconds", "total_train_tokens", "hidden_size", "n_evals", "43200",
+// "12 B200" and "12 n_layer" had zero hits in index.html, while the A3 mission
+// "Budgetledger & Run-Design" asks the reader to build exactly that table and points at
+// two labs that model something else. A1, A2 and A5 all carry a handout-exact contract;
+// A3 carried none.
+//
+// The reference below is typed from A3 §3.1-§3.3, not read back out of the app:
+//   §3.1 "Queued and running experiments reserve their full max_runtime_seconds against
+//        your 12-hour scaling-law budget. When an experiment completes or fails, the API
+//        recomputes your budget using the actual reported runtime for that experiment,
+//        clipped to be at least 1 second and at most max_runtime_seconds. ... If a run
+//        times out, it is charged as max_runtime_seconds."
+//   §3.2 "The API fixes seq_len to 512"; "hidden_size must equal num_attention_heads *
+//        head_dim, num_attention_heads must be divisible by num_key_value_heads, and
+//        total_train_tokens must be divisible by 512 * train_batch_size"; the reservation
+//        "must be between 1 second and 12 hours"; total_budget_seconds 43200.
+//   §3.3 "To estimate the number of non-embedding parameters for a given model
+//        hyperparameter configuration, use 12 n_layer d_model^2."
+const rbNames = ["RB_BUDGET_SECONDS", "RB_TARGET_HOURS", "RB_SEQ_LEN", "RB_BATCH", "RB_VOCAB",
+  "RB_TOKENS_PER_STEP", "RB_MAX_RESERVE", "RB_ARCHS", "RB_TOKEN_CHOICES", "RB_COUNTS",
+  "RB_RESERVES", "RB_CAMPAIGN", "RB_SPREADS", "rbArch", "rbTokenChoice", "rbReserve",
+  "rbSpread", "rbHandoutParams", "rbBlockParams", "rbTotalParams", "rbParams", "rbFlops",
+  "rbConstraints", "rbCharge", "rbInFlight", "rbCampaign"];
+const rbApi = runInNewContext(`${numberPrelude}${rbNames.map(name => sliceDeclaration(source, name)).join("\n")}; ({${rbNames.join(",")}})`, {});
+let rbValues = 0;
+function fixedNumber(value, digits) {
+  return Number(value).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits, useGrouping: false });
+}
+
+// --- the constants, straight from the handout -----------------------------------------
+if (rbApi.RB_BUDGET_SECONDS !== 12 * 3600)
+  throw new Error(`run-budget-ledger: A3's scaling-law budget is 12 B200-hours = 43200 s, found ${rbApi.RB_BUDGET_SECONDS}`);
+if (rbApi.RB_TARGET_HOURS !== 48)
+  throw new Error("run-budget-ledger: the run being predicted is 48 B200-hours, and 12 is a quarter of it");
+if (rbApi.RB_BUDGET_SECONDS / 3600 / rbApi.RB_TARGET_HOURS !== 0.25)
+  throw new Error("run-budget-ledger: A3 calls the fitting budget 25 % of the big run, the two numbers must keep that ratio");
+if (rbApi.RB_SEQ_LEN !== 512) throw new Error("run-budget-ledger: the API fixes seq_len to 512");
+if (rbApi.RB_MAX_RESERVE !== 12 * 3600)
+  throw new Error("run-budget-ledger: max_runtime_seconds tops out at 12 hours");
+if (rbApi.RB_TOKENS_PER_STEP !== rbApi.RB_SEQ_LEN * rbApi.RB_BATCH)
+  throw new Error("run-budget-ledger: one optimizer step consumes 512 * train_batch_size tokens");
+
+// --- A3 §3.2's own example request has to pass its own rules --------------------------
+const rbExample = rbApi.RB_ARCHS.find(entry => entry.key === "example");
+const rbHandoutExample = { d: 448, heads: 7, headDim: 64, kv: 7, layers: 9, ffn: 1280 };
+for (const [field, want] of Object.entries(rbHandoutExample)) {
+  if (rbExample[field] !== want)
+    throw new Error(`run-budget-ledger: the example config is printed in A3 §3.2 with ${field} = ${want}, found ${rbExample[field]}`);
+}
+if (rbApi.RB_VOCAB !== 32000) throw new Error("run-budget-ledger: the API models use a 32K vocabulary");
+const rbExampleTokens = rbApi.RB_TOKEN_CHOICES.find(entry => entry.key === "t1");
+if (rbExampleTokens.tokens !== 1048576)
+  throw new Error("run-budget-ledger: the example request trains on 1_048_576 tokens");
+for (const check of rbApi.rbConstraints(rbExample, rbExampleTokens.tokens, 30)) {
+  if (!check.ok) throw new Error(`run-budget-ledger: A3's own example request fails the rule ${check.key}, so the rule is wrong`);
+  rbValues++;
+}
+
+// --- each broken config has to break exactly one rule, or it teaches two things at once
+const rbBreaks = { mismatch: "hidden", kv: "kv" };
+for (const arch of rbApi.RB_ARCHS) {
+  const failed = rbApi.rbConstraints(arch, rbExampleTokens.tokens, 900).filter(check => !check.ok).map(check => check.key);
+  const want = rbBreaks[arch.key] ? [rbBreaks[arch.key]] : [];
+  if (JSON.stringify(failed) !== JSON.stringify(want))
+    throw new Error(`run-budget-ledger: ${arch.key} must break exactly ${want.join(",") || "no rule"}, it breaks ${failed.join(",") || "none"}`);
+  rbValues++;
+}
+// the round token count is rejected by the divisibility rule and by nothing else
+const rbRound = rbApi.RB_TOKEN_CHOICES.find(entry => entry.key === "round");
+if (rbRound.tokens % rbApi.RB_TOKENS_PER_STEP === 0)
+  throw new Error("run-budget-ledger: the round token count exists to be indivisible by 512 * train_batch_size");
+if (rbRound.tokens % rbApi.RB_TOKENS_PER_STEP !== 57600)
+  throw new Error(`run-budget-ledger: 100000000 mod 65536 is 57600, found ${rbRound.tokens % rbApi.RB_TOKENS_PER_STEP}`);
+for (const choice of rbApi.RB_TOKEN_CHOICES) {
+  const failed = rbApi.rbConstraints(rbExample, choice.tokens, 900).filter(check => !check.ok).map(check => check.key);
+  const want = choice.key === "round" ? ["tokens"] : [];
+  if (JSON.stringify(failed) !== JSON.stringify(want))
+    throw new Error(`run-budget-ledger: token choice ${choice.key} must break exactly ${want.join(",") || "no rule"}`);
+  rbValues++;
+}
+// the reservation bound is a rule too, and it has to bite on both sides
+if (rbApi.rbConstraints(rbExample, rbExampleTokens.tokens, 0).find(check => check.key === "runtime").ok)
+  throw new Error("run-budget-ledger: a reservation under 1 second must be rejected");
+if (rbApi.rbConstraints(rbExample, rbExampleTokens.tokens, rbApi.RB_MAX_RESERVE + 1).find(check => check.key === "runtime").ok)
+  throw new Error("run-budget-ledger: a reservation over 12 hours must be rejected");
+
+// --- 12 n_layer d_model^2 is a derivation, not a convention ---------------------------
+// At d_ff = 8/3 d_model the four attention matrices (4d^2) plus the SwiGLU network
+// (3 d d_ff = 8d^2) come to exactly 12d^2 per block. The formula additionally drops the
+// 2d RMSNorm gains per block -- so it is the matrix share, not the block count.
+for (const arch of rbApi.RB_ARCHS) {
+  if (rbApi.rbHandoutParams(arch) !== 12 * arch.layers * arch.d ** 2)
+    throw new Error(`run-budget-ledger: ${arch.key} must use A3 §3.3's own formula`);
+  const balanced = { ...arch, ffn: (8 * arch.d) / 3 };
+  const matrices = balanced.layers * (4 * balanced.d ** 2 + 3 * balanced.d * balanced.ffn);
+  if (Math.abs(rbApi.rbHandoutParams(arch) - matrices) > 1e-6)
+    throw new Error(`run-budget-ledger: at d_ff = 8/3 d_model the handout formula must be the exact matrix count for ${arch.key}`);
+  // and the exact block count is that plus the norm gains the formula leaves out
+  if (rbApi.rbBlockParams(balanced) !== matrices + 2 * balanced.layers * balanced.d)
+    throw new Error(`run-budget-ledger: the exact block count must exceed the matrix count by the 2 L d norm gains (${arch.key})`);
+  if (rbApi.rbTotalParams(arch) !== rbApi.rbBlockParams(arch) + 2 * rbApi.RB_VOCAB * arch.d + arch.d)
+    throw new Error(`run-budget-ledger: the total must add both embedding matrices and the final norm (${arch.key})`);
+  rbValues += 3;
+}
+// the four ratios the prose names, each read off the same functions the screen uses
+const rbRatios = { example: ["1.047991", "2.370763"], wide: ["1.000244", "1.325770"] };
+for (const [key, [exact, total]] of Object.entries(rbRatios)) {
+  const arch = rbApi.RB_ARCHS.find(entry => entry.key === key), handout = rbApi.rbHandoutParams(arch);
+  if (fixedNumber(rbApi.rbBlockParams(arch) / handout, 6) !== exact)
+    throw new Error(`run-budget-ledger: ${key} must sit at ${exact} against A3's estimate, found ${fixedNumber(rbApi.rbBlockParams(arch) / handout, 6)}`);
+  if (fixedNumber(rbApi.rbTotalParams(arch) / handout, 6) !== total)
+    throw new Error(`run-budget-ledger: counting embeddings on ${key} must change N by ${total}, found ${fixedNumber(rbApi.rbTotalParams(arch) / handout, 6)}`);
+  rbValues += 2;
+}
+// the embedding distortion has to shrink as the model grows -- that is why A3 drops it
+const rbByWidth = [...rbApi.RB_ARCHS].filter(arch => arch.key !== "mismatch" && arch.key !== "kv")
+  .sort((left, right) => left.d - right.d);
+for (let index = 1; index < rbByWidth.length; index++) {
+  const before = rbApi.rbTotalParams(rbByWidth[index - 1]) / rbApi.rbHandoutParams(rbByWidth[index - 1]);
+  const after = rbApi.rbTotalParams(rbByWidth[index]) / rbApi.rbHandoutParams(rbByWidth[index]);
+  if (after >= before)
+    throw new Error("run-budget-ledger: the embedding share must fall with model width, otherwise dropping it would not protect the exponent");
+  rbValues++;
+}
+// C = 6ND, and the counting convention moves it by exactly the same factor
+if (rbApi.rbFlops(rbApi.rbHandoutParams(rbExample), rbExampleTokens.tokens) !== 6 * 21676032 * 1048576)
+  throw new Error("run-budget-ledger: C must be 6ND on A3's own example request");
+
+// --- the charging rule, brute-forced against the reference -----------------------------
+const rbRefCharge = (need, reserve) => (need > reserve ? reserve : Math.min(Math.max(need, 1), reserve));
+for (let reserve = 1; reserve <= 4000; reserve += 7) {
+  for (const need of [0, 1, 2, reserve - 1, reserve, reserve + 1, 2 * reserve, 12 * 3600]) {
+    if (need < 0) continue;
+    const got = rbApi.rbCharge(need, reserve);
+    if (got.charged !== rbRefCharge(need, reserve))
+      throw new Error(`run-budget-ledger: charge(${need}, ${reserve}) disagrees with A3 §3.1`);
+    if (got.timedOut !== need > reserve)
+      throw new Error(`run-budget-ledger: a run times out exactly when it needs more than it reserved (${need}, ${reserve})`);
+    // A3's two halves: never more than the reservation, and a timeout costs all of it
+    if (got.charged > reserve) throw new Error("run-budget-ledger: a run can never be charged more than it reserved");
+    if (got.timedOut && got.charged !== reserve)
+      throw new Error("run-budget-ledger: a timeout is charged the full max_runtime_seconds");
+    if (!got.timedOut && got.charged !== Math.max(need, 1))
+      throw new Error("run-budget-ledger: a completed run is charged its runtime, clipped up to 1 second");
+    rbValues++;
+  }
+}
+// the asymmetry the lab is built on: reserving above the need never costs more, and
+// reserving below it costs the reservation and returns nothing
+for (const need of [2, 60, 900, 3000, 7200]) {
+  const generous = rbApi.rbCharge(need, 12 * 3600);
+  if (generous.charged !== Math.max(need, 1) || generous.timedOut)
+    throw new Error(`run-budget-ledger: a reservation far above the need must still charge only the runtime (need ${need})`);
+  const tight = rbApi.rbCharge(need, Math.max(1, need - 1));
+  if (!tight.timedOut || tight.charged !== Math.max(1, need - 1))
+    throw new Error(`run-budget-ledger: a reservation one second below the need must time out and be charged in full (need ${need})`);
+  rbValues += 2;
+}
+
+// --- the campaign, and the row where paying less buys nothing --------------------------
+if (rbApi.RB_CAMPAIGN !== 12) throw new Error("run-budget-ledger: the campaign is twelve runs");
+for (const spread of rbApi.RB_SPREADS) {
+  if (spread.needs.length !== rbApi.RB_CAMPAIGN)
+    throw new Error(`run-budget-ledger: the spread ${spread.key} must describe all twelve runs`);
+}
+const rbExpected = {
+  "flat|r600": { charged: 7200, completed: 0, reserved: 7200, inFlight: 72 },
+  "flat|r900": { charged: 10800, completed: 12, reserved: 10800, inFlight: 48 },
+  "flat|r3600": { charged: 10800, completed: 12, reserved: 43200, inFlight: 12 },
+  "flat|r10800": { charged: 10800, completed: 12, reserved: 129600, inFlight: 4 },
+  "ladder|r900": { charged: 9000, completed: 6, reserved: 10800, inFlight: 48 },
+  "tail|r3600": { charged: 14400, completed: 12, reserved: 43200, inFlight: 12 }
+};
+for (const [key, want] of Object.entries(rbExpected)) {
+  const [spread, reserve] = key.split("|");
+  const plan = rbApi.rbCampaign(reserve, spread);
+  for (const [field, value] of Object.entries(want)) {
+    if (plan[field] !== value)
+      throw new Error(`run-budget-ledger: ${key} must have ${field} = ${value}, found ${plan[field]}`);
+    rbValues++;
+  }
+}
+// The whole point of mode B: at 600 s the uniform campaign is cheaper and worthless, and
+// at 3600 s and 10800 s the charge is identical while the concurrency limit is not.
+const rbCheap = rbApi.rbCampaign("r600", "flat"), rbRight = rbApi.rbCampaign("r900", "flat");
+if (!(rbCheap.charged < rbRight.charged && rbCheap.completed === 0 && rbRight.completed === rbApi.RB_CAMPAIGN))
+  throw new Error("run-budget-ledger: the cheaper reservation has to be the one that returns nothing, or the lab has no lesson");
+const rbHour = rbApi.rbCampaign("r3600", "flat"), rbThree = rbApi.rbCampaign("r10800", "flat");
+if (rbHour.charged !== rbThree.charged)
+  throw new Error("run-budget-ledger: reserving three times as long must charge the same, the price is paid in concurrency");
+if (!(rbThree.inFlight < rbHour.inFlight && rbThree.reserved > rbApi.RB_BUDGET_SECONDS))
+  throw new Error("run-budget-ledger: three-hour reservations must bind more than the whole budget and cut the concurrency limit");
+for (const reserve of rbApi.RB_RESERVES) {
+  if (rbApi.rbInFlight(reserve.seconds) !== Math.floor(rbApi.RB_BUDGET_SECONDS / reserve.seconds))
+    throw new Error(`run-budget-ledger: the concurrency limit is floor(43200 / max_runtime_seconds), wrong at ${reserve.seconds}`);
+  rbValues++;
+}
+// the transferAnswer names two of these limits, and they have to be the ones that hold
+if (rbApi.rbInFlight(7200) !== 6 || rbApi.rbInFlight(1800) !== 24)
+  throw new Error("run-budget-ledger: the transfer answer quotes 6 concurrent runs at 7200 s and 24 at 1800 s");
+// Every reservation the panel offers divides 43200 exactly, so on those five values
+// rounding up and rounding down agree and the check above cannot tell them apart. A
+// reservation that does not divide the budget is what makes the direction observable:
+// a partial reservation is one the budget cannot hold, so the limit rounds down.
+for (const reserve of [5000, 7000, 11000, 43199]) {
+  const want = Math.floor(rbApi.RB_BUDGET_SECONDS / reserve);
+  if (rbApi.rbInFlight(reserve) !== want)
+    throw new Error(`run-budget-ledger: ${reserve} s does not divide the budget, so the limit must round down to ${want}, found ${rbApi.rbInFlight(reserve)}`);
+  if (rbApi.rbInFlight(reserve) * reserve > rbApi.RB_BUDGET_SECONDS)
+    throw new Error(`run-budget-ledger: ${rbApi.rbInFlight(reserve)} reservations of ${reserve} s would exceed the budget, which is the 400 the API returns`);
+  rbValues += 2;
+}
+
+console.log(`run-budget-ledger OK: ${rbValues} values, A3's handout contract made checkable -- its own §3.2 example request passes all four consistency rules while each broken config breaks exactly one, a timeout is charged its full reservation while a generous one costs nothing (the 600 s campaign is cheaper at 7200 s and returns 0 of 12 completed runs), 3600 s and 10800 s charge the same 10800 s at 12 against 4 concurrent reservations, and 12 n_layer d_model^2 comes out as the exact matrix share at d_ff = 8/3 d_model with the embeddings dropped because their share falls with width (2.370763x at d_model 448 against 1.325770x at 1024)`);
+
 // ---- every string a renderer translates has to have an English entry ----------------
 // The i18n guard above holds the declarative content: concepts, formulas, labs, missions.
 // It never looked at the strings the renderers hand to tr(), and those are most of the
@@ -5748,6 +5969,57 @@ function panelGroupControls(group) {
 }
 
 const renderLabs = [
+  {
+    id: "run-budget-ledger", entry: "rbStageMarkup", mode: "rbMode", update: "updateRunBudgetLedger",
+    names: ["RB_BUDGET_SECONDS", "RB_TARGET_HOURS", "RB_SEQ_LEN", "RB_BATCH", "RB_VOCAB",
+      "RB_TOKENS_PER_STEP", "RB_MAX_RESERVE", "RB_ARCHS", "RB_TOKEN_CHOICES", "RB_COUNTS",
+      "RB_RESERVES", "RB_CAMPAIGN", "RB_SPREADS", "rbArch", "rbTokenChoice", "rbReserve",
+      "rbSpread", "rbHandoutParams", "rbBlockParams", "rbTotalParams", "rbParams", "rbFlops",
+      "rbConstraints", "rbCharge", "rbInFlight", "rbCampaign", "rbInt", "rbSci", "rbHours",
+      "rbRead", "renderRunBudgetConfig", "renderRunBudgetCampaign", "rbStageMarkup"],
+    options: {
+      rbMode: ["config", "campaign"], rbArch: "RB_ARCHS", rbTokens: "RB_TOKEN_CHOICES",
+      rbCount: "RB_COUNTS", rbReserve: "RB_RESERVES", rbSpread: "RB_SPREADS"
+    },
+    // mode A is the request the API validates, mode B is the budget it charges; neither
+    // control may leak into the other, and the panel groups have to agree
+    controls: {
+      rbArch: ["config"], rbTokens: ["config"], rbCount: ["config"],
+      rbReserve: ["campaign"], rbSpread: ["campaign"]
+    },
+    anchors: [
+      [{ rbMode: "config", rbArch: "example", rbTokens: "t1", rbCount: "handout", rbReserve: "r900", rbSpread: "flat" }, "21,676,032",
+        "A3 §3.3's own estimate for the handout's own example config is the anchor the whole counting table hangs on"],
+      [{ rbMode: "config", rbArch: "example", rbTokens: "t1", rbCount: "handout", rbReserve: "r900", rbSpread: "flat" }, "2.370763",
+        "counting the embeddings changes C by this factor, which is why A3 says non-embedding"],
+      // The counting table highlights the chosen row, so rbCount moves the render even
+      // when the ledger below ignores it. These two read the ledger itself back: the N
+      // the reader would carry into the fit, and the C that follows from it.
+      [{ rbMode: "config", rbArch: "example", rbTokens: "t1", rbCount: "total", rbReserve: "r900", rbSpread: "flat" },
+        '<strong data-rbparams="1">51,388,736</strong>',
+        "the ledger's N has to follow the chosen counting convention, not just highlight a row"],
+      [{ rbMode: "config", rbArch: "example", rbTokens: "t1", rbCount: "total", rbReserve: "r900", rbSpread: "flat" },
+        "6 · 51,388,736 · 1,048,576",
+        "and C = 6ND has to be computed from that same N, or the two rows contradict each other"],
+      [{ rbMode: "config", rbArch: "example", rbTokens: "t1", rbCount: "exact", rbReserve: "r900", rbSpread: "flat" },
+        '<strong data-rbparams="1">22,716,288</strong>',
+        "A1's exact block count is the third convention and must reach the ledger too"],
+      [{ rbMode: "config", rbArch: "wide", rbTokens: "t1", rbCount: "handout", rbReserve: "r900", rbSpread: "flat" }, "1.000244",
+        "at d_ff = 8/3 d_model the handout's estimate is the exact block count, and that number has to be on the screen"],
+      [{ rbMode: "config", rbArch: "example", rbTokens: "round", rbCount: "handout", rbReserve: "r900", rbSpread: "flat" }, "100000000 mod 65536 = 57600",
+        "the divisibility rule has to be shown with its remainder, or the reader cannot see why a round token count is rejected"],
+      [{ rbMode: "config", rbArch: "mismatch", rbTokens: "t1", rbCount: "handout", rbReserve: "r900", rbSpread: "flat" }, "512 gegen 7 · 64 = 448",
+        "the hidden_size rule has to print both sides, it is the one an edited config breaks first"],
+      [{ rbMode: "campaign", rbArch: "example", rbTokens: "t1", rbCount: "handout", rbReserve: "r600", rbSpread: "flat" }, "kein abgeschlossener Lauf · 0 von 12",
+        "twelve runs that all time out must say so instead of printing a cost per completed run"],
+      [{ rbMode: "campaign", rbArch: "example", rbTokens: "t1", rbCount: "handout", rbReserve: "r10800", rbSpread: "flat" }, "129,600 s",
+        "three-hour reservations bind three times the budget, and that bound total is the point of mode B"]
+    ],
+    forbid: [
+      [{ rbMode: "campaign", rbArch: "example", rbTokens: "t1", rbCount: "handout", rbReserve: "r600", rbSpread: "flat" }, "Infinity",
+        "a campaign with no completed run must not divide by zero on the screen"]
+    ]
+  },
   {
     id: "offpolicy-clip", entry: "offStageMarkup", mode: "offMode", update: "updateOffPolicyClip",
     names: ["OFF_REWARDS", "OFF_STD_EPS", "offAdvantages", "OFF_DRIFTS", "OFF_EPSILONS", "OFF_VARIANTS",
@@ -5996,3 +6268,93 @@ for (const lab of renderLabs) {
   }
 }
 console.log(`render coverage OK: ${renderStates} states across ${renderLabs.length} labs render without a DOM, ${renderChecks} checks -- every mode's own controls move it, every hidden one leaves it alone, and NaN reaches the screen in exactly the ${renderNaN} states whose denominator is zero`);
+
+// ---- panel i18n: the German a lab panel prints straight into the DOM -----------------
+// The renderer guard above holds every string a lab hands to tr(). A lab panel is the
+// other half, and it never goes through tr(): its markup is a template literal whose
+// text nodes reach the DOM as written, and only the language walker translates them
+// afterwards -- by exact lookup in the same ui pack, or by one of its patterns. A text
+// node with no entry therefore stays German on an English screen, exactly the way the
+// three "Noch nicht." hints did before v80, and nothing said so.
+//
+// This guard reads what the panel really prints. It rebuilds each panel's static text,
+// runs it through the app's own translateUiValue with the language pinned to English,
+// and requires that no German is left. Reusing the app's translator rather than the ui
+// map alone is the point: a pattern that only half-translates a sentence has to fail
+// here too, and an exact entry that exists under a slightly different string does not
+// rescue it.
+const panelTranslator = (() => {
+  const stubs = `
+    let currentLanguage = "en", exactUiTranslations = {}, compiledUiPatterns = [];
+${sliceDeclaration(source, "CORE_UI_TRANSLATIONS")}
+${sliceDeclaration(source, "patternSpec")}
+${sliceDeclaration(source, "compileUiPatterns")}
+${sliceDeclaration(source, "translateExact")}
+${sliceDeclaration(source, "translateUiValue")}
+    function __install(ui, patterns) {
+      exactUiTranslations = { ...CORE_UI_TRANSLATIONS, ...Object.fromEntries(Object.entries(ui)
+        .filter(([from, to]) => typeof from === "string" && typeof to === "string")) };
+      compiledUiPatterns = compileUiPatterns(patterns);
+    }
+  `;
+  const api = runInNewContext(`${stubs}; ({ __install, translateUiValue })`, {});
+  api.__install(pack.ui, pack.ui.__patterns);
+  return api.translateUiValue;
+})();
+// The translator has to be live before it is trusted: a string the app is known to
+// translate must come back changed, and one it cannot must come back untouched.
+if (panelTranslator("Noch nicht.") === "Noch nicht.")
+  throw new Error("panel i18n: the translator is not wired -- a string with a known entry came back unchanged");
+if (panelTranslator(" zzz-not-a-string-any-panel-prints") !== " zzz-not-a-string-any-panel-prints")
+  throw new Error("panel i18n: the translator changed a string that has no entry, so a pass proves nothing");
+
+// A text node counts as German prose when it carries a word only the German side uses.
+// Identifiers, shapes, units and API field names are the same in both languages and are
+// deliberately not required to have an entry.
+// Words that exist only on the German side. Deliberately conservative: "die", "was",
+// "war", "hat", "man" and "all" are English words too, and a list that contains them
+// reports every translated sentence as untranslated. An umlaut or an eszett is the
+// second, independent signal.
+const GERMAN_WORDS = /[äöüÄÖÜß]|(^|[^\p{L}])(der|das|den|dem|des|ein|eine|einen|einem|einer|und|oder|nicht|ist|sind|wird|werden|haben|warum|welche|welcher|welches|mit|von|aus|auf|nach|unter|zwischen|durch|ohne|schon|nur|auch|aber|dann|wenn|weil|dass|sich|kann|muss|soll|darf|jede|jeder|jedes|wie|wo|beim|zum|zur|im|vom|eines|dieser|diese|dieses|jetzt|immer|wieder|kein|keine|keinen)($|[^\p{L}])/iu;
+const decodeEntities = value => value
+  .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"')
+  .replace(/&#39;/g, "'").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&");
+
+// The static text of one panel template: everything outside a ${...} interpolation.
+function panelStaticText(start) {
+  let index = start, depth = 0, body = "";
+  while (index < source.length) {
+    const char = source[index];
+    if (char === "\\") { body += source[index] + source[index + 1]; index += 2; continue; }
+    if (char === "$" && source[index + 1] === "{") { depth++; index += 2; body += " "; continue; }
+    if (depth) {
+      if (char === "{") depth++;
+      else if (char === "}") depth--;
+      index++; continue;
+    }
+    if (char === "`") break;
+    body += char; index++;
+  }
+  if (index >= source.length) throw new Error("panel i18n: a panel template never closes");
+  return body;
+}
+
+const panelHits = [...source.matchAll(/if\(id==="([a-z0-9-]+)"\) return `/gu)];
+if (panelHits.length < 40)
+  throw new Error(`panel i18n: only ${panelHits.length} lab panels found, the markup builder must have changed shape`);
+let panelNodes = 0, panelGerman = 0;
+const panelLabs = new Set();
+for (const hit of panelHits) {
+  const body = panelStaticText(hit.index + hit[0].length);
+  for (const node of body.matchAll(/>([^<>]+)</gu)) {
+    const text = decodeEntities(node[1].replace(/\s+/gu, " ").trim());
+    if (text.length < 3 || !GERMAN_WORDS.test(text)) continue;
+    panelGerman++;
+    panelLabs.add(hit[1]);
+    const english = panelTranslator(text);
+    if (GERMAN_WORDS.test(english))
+      throw new Error(`panel i18n: the ${hit[1]} panel prints "${text.slice(0, 80)}" and an English reader still reads German there`);
+    panelNodes++;
+  }
+}
+console.log(`panel i18n OK: ${panelGerman} German text nodes across ${panelLabs.size} lab panels reach the DOM without tr(), every one of them translated`);
