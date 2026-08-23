@@ -5889,12 +5889,58 @@ console.log(`run-budget-ledger OK: ${rbValues} values, A3's handout contract mad
 // back to the German source -- so an English reader got a German paragraph and nothing
 // said so. Three of them were the "Noch nicht." hint of a short check in stability-edge,
 // pipeline-yield and decay-horizon: the text a reader sees at the moment they are stuck.
-const sameInBothLanguages = ["in FP32", "Position", "Gain", "Connected Components"];
+const sameInBothLanguages = ["in FP32", "Position", "Gain", "Connected Components",
+  "Forward Pass", "Backward Pass", "12 · n_layer · d_model²", "L · (4d² + 3d·d_ff + 2d)"];
+// One call picks its literal by the language it is announcing, so each branch is already
+// in the language that will read it and neither can have a ui entry. Both branches are
+// listed, so removing one of them still fails here.
+const languageConditionalStrings = ["Language changed to English.", "Sprache auf Deutsch geändert."];
 const renderedStrings = new Set();
-for (const match of source.matchAll(/\btr\("((?:[^"\\]|\\.)*)"\)/g)) renderedStrings.add(JSON.parse(`"${match[1]}"`));
-for (const match of source.matchAll(/\blocalizedUi\("((?:[^"\\]|\\.)*)"\)/g)) renderedStrings.add(JSON.parse(`"${match[1]}"`));
+// Not every translated string is the whole argument. `tr(over ? "..." : "...")` hands one
+// of two literals to the same call, and matching only `tr("...")` walked straight past
+// both -- target-config printed two fully German paragraphs of its budget verdict that
+// way, and every guard here stayed green. So the argument list is scanned as a whole:
+// take everything up to the matching close paren and collect every double-quoted literal
+// inside it. A `tr(entry.note)` carries no literal and is still out of reach; the
+// headless render of a lab in English is what covers that.
+// A call whose argument builds a template literal is out of scope: its `${...}` holes carry
+// their own parens and quotes, and following them needs a parser, not a scanner. Those
+// calls keep the old exact-literal treatment. Every conditional of plain literals -- the
+// shape that hid the untranslated text -- is backtick-free and is read in full.
+function translatedArgument(start) {
+  let index = start, depth = 1, quote = "", escaped = false, body = "";
+  while (index < source.length && depth) {
+    const char = source[index];
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === quote) quote = "";
+    } else if (char === "`") return "";
+    else if (char === '"' || char === "'") quote = char;
+    else if (char === "(") depth++;
+    else if (char === ")") { depth--; if (!depth) break; }
+    body += char; index++;
+  }
+  if (depth) throw new Error("renderer i18n: a tr() call never closes");
+  return body;
+}
+for (const opener of source.matchAll(/\b(?:tr|localizedUi)\(/g)) {
+  // A literal on the right of a comparison is what the condition tests, not what the call
+  // prints -- `tr(mode === "en" ? ... : ...)` must not enter the list. Drop those first.
+  const body = translatedArgument(opener.index + opener[0].length)
+    .replace(/[=!]==?\s*"(?:[^"\\]|\\.)*"/g, "")
+    .replace(/"(?:[^"\\]|\\.)*"\s*[=!]==?/g, "");
+  for (const literal of body.matchAll(/"((?:[^"\\]|\\.)*)"/g)) {
+    // Only a literal the call could actually hand on counts: the whole argument, or a
+    // branch of a conditional. A literal sitting in a nested call -- `tr(x.split(" . ")[0])`
+    // -- is that call's argument, not translated text.
+    const before = body.slice(0, literal.index).replace(/[\s(]+$/u, "");
+    if (before && !before.endsWith("?") && !before.endsWith(":")) continue;
+    renderedStrings.add(JSON.parse(`"${literal[1]}"`));
+  }
+}
 for (const value of renderedStrings) {
-  if (pack.ui[value] !== undefined || sameInBothLanguages.includes(value)) continue;
+  if (pack.ui[value] !== undefined || sameInBothLanguages.includes(value) || languageConditionalStrings.includes(value)) continue;
   throw new Error(`renderer i18n: "${value.slice(0, 70)}" reaches the screen through tr() with no English entry -- an English reader would read it in German`);
 }
 // the exception list stays honest in both directions
@@ -5904,7 +5950,205 @@ for (const value of sameInBothLanguages) {
   if (pack.ui[value] !== undefined)
     throw new Error(`renderer i18n: "${value}" has an English entry now, take it off the identical-in-both-languages list`);
 }
-console.log(`renderer i18n OK: ${renderedStrings.size} strings pass through tr(), every one translated except ${sameInBothLanguages.length} that are the same word in English`);
+for (const value of languageConditionalStrings) {
+  if (!renderedStrings.has(value))
+    throw new Error(`renderer i18n: "${value}" is listed as a language-conditional branch, but no renderer prints it any more`);
+  if (pack.ui[value] !== undefined)
+    throw new Error(`renderer i18n: "${value}" has an English entry now, so it is not a language-conditional branch any more`);
+}
+console.log(`renderer i18n OK: ${renderedStrings.size} strings pass through tr() including both branches of every conditional, every one translated except ${sameInBothLanguages.length} that are the same word in English and ${languageConditionalStrings.length} that pick their own language`);
+
+
+// ---- target-config -------------------------------------------------------------------
+// A3 §3.3 ends on a question the app answered nowhere: "If you were to train a model with
+// your predicted optimal number of parameters, what hyperparameters would you use? To
+// estimate the number of non-embedding parameters for a given model hyperparameter
+// configuration, use 12 n_layer d_model^2." `scaling-fit` fits N_opt against C,
+// `run-budget-ledger` validates a finished request -- between them sat the step that
+// decides A3's 50-point problem: turning one continuous number into a discrete, sendable
+// configuration. Before this lab "aspect ratio", "d_model / n_layer" and any inverse of
+// the parameter formula had zero hits in index.html.
+//
+// Two properties carry the lab and both are exact arithmetic, not modelling:
+//   A. N = 12 L d^2 is one equation in two unknowns, so a shape has to be chosen; both
+//      unknowns are then discrete (L integer, d a multiple of head_dim), and the grid of
+//      reachable N is percent-wide because N grows with d^2.
+//   B. C = 6ND has to be recomputed with the N actually submitted. Left at its predicted
+//      value, D carries the N deviation one-for-one into wall-clock time -- and A3's
+//      budget is wall-clock, so the run is truncated rather than billed.
+const tcNames = ["TC_TARGET_SECONDS", "TC_HANDOUT_N", "TC_SEQ_LEN", "TC_BATCH",
+  "TC_TOKENS_PER_STEP", "TC_CHINCHILLA_RATIO", "TC_TARGETS", "TC_RHOS", "TC_HEAD_DIMS",
+  "tcTarget", "tcRho", "tcHeadDim", "tcContinuousShape", "tcCandidates", "tcHeadDivisors",
+  "TC_THROUGHPUTS", "TC_PICK_TARGET", "TC_PICKS", "TC_RULES", "tcThroughput", "tcPick",
+  "tcRule", "tcSnapTokens", "tcPlan"];
+const tcApi = runInNewContext(`${numberPrelude}${tcNames.map(name => sliceDeclaration(source, name)).join("\n")}; ({${tcNames.join(",")}})`, {});
+let tcValues = 0;
+
+// --- the constants, straight from the handout -----------------------------------------
+if (tcApi.TC_TARGET_SECONDS !== 48 * 3600)
+  throw new Error(`target-config: A3's target run is 48 B200-hours = 172800 s, found ${tcApi.TC_TARGET_SECONDS}`);
+if (tcApi.TC_TARGET_SECONDS !== rbApi.RB_TARGET_HOURS * 3600)
+  throw new Error("target-config: the target run has to be the same 48 hours run-budget-ledger names");
+if (tcApi.TC_SEQ_LEN !== rbApi.RB_SEQ_LEN || tcApi.TC_BATCH !== rbApi.RB_BATCH)
+  throw new Error("target-config: seq_len and train_batch_size have to agree with run-budget-ledger, or two labs print different token grids for the same API");
+if (tcApi.TC_TOKENS_PER_STEP !== 512 * tcApi.TC_BATCH)
+  throw new Error("target-config: one optimizer step consumes 512 * train_batch_size tokens");
+// A3 §3.3 prescribes the count; it must be the identical function run-budget-ledger uses.
+for (const [layers, width] of [[9, 448], [16, 1024], [17, 2048], [12, 1600]])
+  if (tcApi.TC_HANDOUT_N(layers, width) !== rbApi.rbHandoutParams({ layers, d: width }))
+    throw new Error(`target-config: 12 n_layer d_model^2 disagrees with run-budget-ledger at L=${layers}, d=${width}`);
+
+// --- A. the inversion and the grid it lands on ----------------------------------------
+// The continuous solution has to satisfy the equation it inverts, exactly.
+for (const target of tcApi.TC_TARGETS) for (const rho of tcApi.TC_RHOS) {
+  const shape = tcApi.tcContinuousShape(target.n, rho.rho);
+  const back = 12 * shape.layers * shape.width * shape.width;
+  if (Math.abs(back / target.n - 1) > 1e-12)
+    throw new Error(`target-config: the inverse of N = 12 L d^2 does not reproduce N at ${target.key}/${rho.key}`);
+  if (Math.abs(shape.width / shape.layers - rho.rho) > 1e-9)
+    throw new Error(`target-config: the continuous solution does not hold the chosen shape at ${target.key}/${rho.key}`);
+  tcValues += 2;
+}
+
+let tcNearestMin = Infinity, tcNearestMax = 0, tcWorst = 0, tcMixedNearest = 0, tcCombinations = 0;
+let tcPrimeHeads = 0, tcThinned = 0;
+for (const target of tcApi.TC_TARGETS) for (const rho of tcApi.TC_RHOS) {
+  const reach = {};
+  for (const head of tcApi.TC_HEAD_DIMS) {
+    const plan = tcApi.tcCandidates(target.n, rho.rho, head.headDim);
+    if (plan.rows.length !== 4)
+      throw new Error(`target-config: rounding two knobs has to produce four corners, found ${plan.rows.length} at ${target.key}/${rho.key}/${head.key}`);
+    for (const row of plan.rows) {
+      // Every corner has to be a configuration the API's own rule accepts.
+      if (!Number.isInteger(row.layers) || row.layers < 1)
+        throw new Error("target-config: n_layer has to be a positive integer");
+      if (!Number.isInteger(row.heads) || row.width !== row.heads * head.headDim)
+        throw new Error(`target-config: hidden_size must equal num_attention_heads * head_dim, ${row.width} != ${row.heads} * ${head.headDim}`);
+      if (row.params !== tcApi.TC_HANDOUT_N(row.layers, row.width))
+        throw new Error("target-config: a corner's N has to be A3's own count of that corner");
+      // The direction of the two roundings fixes the side N lands on -- and nothing else does.
+      if (!row.widthUp && !row.layersUp && row.ratio >= 1)
+        throw new Error(`target-config: rounding both knobs down has to land below N_pred, found ${row.ratio} at ${target.key}/${rho.key}/${head.key}`);
+      if (row.widthUp && row.layersUp && row.ratio <= 1)
+        throw new Error(`target-config: rounding both knobs up has to land above N_pred, found ${row.ratio} at ${target.key}/${rho.key}/${head.key}`);
+      tcWorst = Math.max(tcWorst, Math.abs(row.ratio - 1));
+      tcValues++;
+    }
+    const best = plan.rows[0];
+    // The nearest corner is the nearest one -- the sort is the lab's whole claim about it.
+    for (const row of plan.rows)
+      if (Math.abs(row.ratio - 1) < Math.abs(best.ratio - 1) - 1e-15)
+        throw new Error(`target-config: the highlighted corner is not the nearest at ${target.key}/${rho.key}/${head.key}`);
+    if (best.ratio === 1)
+      throw new Error("target-config: a corner hitting N_pred exactly would remove the lab's subject");
+    tcNearestMin = Math.min(tcNearestMin, Math.abs(best.ratio - 1));
+    tcNearestMax = Math.max(tcNearestMax, Math.abs(best.ratio - 1));
+    if ((best.widthUp ? 1 : 0) + (best.layersUp ? 1 : 0) === 1) tcMixedNearest++;
+    tcCombinations++;
+    // The divisor list is the set of legal num_key_value_heads, no more and no less.
+    const divisors = tcApi.tcHeadDivisors(best.heads);
+    for (const value of divisors)
+      if (best.heads % value !== 0) throw new Error(`target-config: ${value} does not divide ${best.heads}`);
+    for (let value = 1; value <= best.heads; value++)
+      if (best.heads % value === 0 && !divisors.includes(value))
+        throw new Error(`target-config: the divisor list of ${best.heads} is missing ${value}`);
+    if (divisors.length === 2) tcPrimeHeads++;
+    reach[head.key] = new Set(plan.rows.map(row => row.params));
+    tcValues += divisors.length;
+  }
+  // head_dim does not appear in 12 L d^2, and still decides which N are reachable.
+  const wide = reach.h128, narrow = reach.h64;
+  if ([...wide].every(value => narrow.has(value)) && [...narrow].every(value => wide.has(value)))
+    throw new Error(`target-config: head_dim 64 and 128 reach the identical set of N at ${target.key}/${rho.key}, so the lab's third claim is empty there`);
+  if ([...wide].some(value => !narrow.has(value))) tcThinned++;
+}
+if (tcCombinations !== 18)
+  throw new Error(`target-config: the shape grid is 3 targets x 3 shapes x 2 head dims = 18, found ${tcCombinations}`);
+// The three numbers the prose names, measured rather than asserted.
+if (fixedNumber(tcNearestMin * 100, 2) !== "0.16" || fixedNumber(tcNearestMax * 100, 2) !== "2.93")
+  throw new Error(`target-config: the prose says the nearest corner sits between 0.16 % and 2.93 % away, measured ${fixedNumber(tcNearestMin * 100, 4)} % to ${fixedNumber(tcNearestMax * 100, 4)} %`);
+if (fixedNumber(tcWorst * 100, 2) !== "24.90")
+  throw new Error(`target-config: the prose says the worst corner is 24.90 % off, measured ${fixedNumber(tcWorst * 100, 4)} %`);
+if (tcMixedNearest !== 11)
+  throw new Error(`target-config: the prose says 11 of 18 nearest corners are mixed, counted ${tcMixedNearest}`);
+if (!tcPrimeHeads)
+  throw new Error("target-config: no shape lands on a prime head count, so the grouped-query row never shows what it exists to show");
+
+// --- B. what the rounding costs in the 48-hour budget ---------------------------------
+// The three offered picks have to be corners of the shape mode, not free-standing numbers.
+const tcReachable = tcApi.tcCandidates(tcApi.TC_PICK_TARGET, 128, 64).rows;
+for (const pick of tcApi.TC_PICKS) {
+  if (!tcReachable.some(row => row.width === pick.width && row.layers === pick.layers))
+    throw new Error(`target-config: pick ${pick.key} is not one of the corners mode A computes for N_pred = ${tcApi.TC_PICK_TARGET}`);
+  if (pick.width % pick.headDim !== 0)
+    throw new Error(`target-config: pick ${pick.key} violates hidden_size = num_attention_heads * head_dim`);
+}
+// The deviations the pick notes state in words.
+const tcDeviation = key => tcApi.TC_HANDOUT_N(tcApi.tcPick(key).layers, tcApi.tcPick(key).width) / tcApi.TC_PICK_TARGET - 1;
+for (const [key, want] of [["near", "0.66"], ["low", "-5.26"], ["high", "7.05"]])
+  if (fixedNumber(tcDeviation(key) * 100, 2) !== want)
+    throw new Error(`target-config: pick ${key} is described as ${want} % from N_pred, measured ${fixedNumber(tcDeviation(key) * 100, 4)} %`);
+
+let tcKeepShare = new Map(), tcTokenLoss = 0, tcWorstN = 0;
+for (const throughput of tcApi.TC_THROUGHPUTS) for (const pick of tcApi.TC_PICKS) for (const rule of tcApi.TC_RULES) {
+  const plan = tcApi.tcPlan(pick.key, rule.key, throughput.key);
+  // Whatever else moves, the submitted token count is always one the API accepts.
+  if (plan.tokens % tcApi.TC_TOKENS_PER_STEP !== 0)
+    throw new Error(`target-config: total_train_tokens ${plan.tokens} is not divisible by 512 * train_batch_size`);
+  if (!Number.isInteger(plan.steps) || plan.steps < 1)
+    throw new Error("target-config: the optimizer-step count has to be a positive integer");
+  // Rounding down is what keeps the run inside the budget; rounding up would leave it.
+  if (plan.tokens > plan.rawTokens || plan.rawTokens - plan.tokens >= tcApi.TC_TOKENS_PER_STEP)
+    throw new Error("target-config: the token count has to be the largest valid one at or below D");
+  tcTokenLoss = Math.max(tcTokenLoss, (plan.rawTokens - plan.tokens) / plan.rawTokens);
+
+  if (rule.key === "rederive") {
+    // The whole point of mode B: a recomputed D lands on the budget whatever N was chosen
+    // and whatever the throughput was -- short only by the last partial optimizer step.
+    if (plan.share > 1)
+      throw new Error(`target-config: a recomputed D must never exceed the budget, found ${plan.share} at ${pick.key}/${throughput.key}`);
+    if (1 - plan.share > tcApi.TC_TOKENS_PER_STEP / plan.rawTokens)
+      throw new Error(`target-config: a recomputed D has to land on the budget up to the token grid, found ${plan.share} at ${pick.key}/${throughput.key}`);
+  } else {
+    // And a D left at its predicted value carries the N deviation, exactly.
+    const ratio = plan.params / tcApi.TC_PICK_TARGET;
+    if (Math.abs(plan.share / ratio - 1) > tcApi.TC_TOKENS_PER_STEP / plan.rawTokens)
+      throw new Error(`target-config: a left-over D has to shift the budget by exactly the N ratio, ${plan.share} against ${ratio}`);
+    const seen = tcKeepShare.get(pick.key);
+    // ...and that is a statement about N alone, so the throughput must not move it.
+    if (seen !== undefined && fixedNumber(plan.hours, 3) !== fixedNumber(seen, 3))
+      throw new Error(`target-config: the left-over-D overrun must not depend on throughput, ${plan.hours} against ${seen} at ${pick.key}`);
+    tcKeepShare.set(pick.key, plan.hours);
+    if (ratio > 1 && plan.share <= 1)
+      throw new Error(`target-config: an oversized N with a left-over D has to exceed the budget at ${pick.key}`);
+    if (ratio < 1 && plan.share >= 1)
+      throw new Error(`target-config: an undersized N with a left-over D has to leave budget unused at ${pick.key}`);
+    tcWorstN = Math.max(tcWorstN, Math.abs(ratio - 1));
+  }
+  // D/N is the cross-check the lab offers against Hoffmann's own fit.
+  if (!(plan.tokensPerParam > 0) || !Number.isFinite(plan.tokensPerParam))
+    throw new Error("target-config: tokens per parameter has to be a finite positive number");
+  tcValues += 6;
+}
+// The asymmetry the lab is built on: the checked rounding is the harmless one.
+if (tcTokenLoss >= 4e-6)
+  throw new Error(`target-config: the token grid is claimed to cost under four parts per million, measured ${tcTokenLoss}`);
+if (tcWorstN / tcTokenLoss < 100)
+  throw new Error("target-config: the unchecked N rounding has to cost orders of magnitude more than the checked token rounding, or the lab's central claim is wrong");
+if (fixedNumber(tcKeepShare.get("high"), 2) !== "51.39" || fixedNumber(tcKeepShare.get("high") - 48, 2) !== "3.39")
+  throw new Error(`target-config: the prose says the upper corner overruns to 51.39 hours, 3.39 over, measured ${fixedNumber(tcKeepShare.get("high"), 4)}`);
+if (!(tcKeepShare.get("low") < 48))
+  throw new Error("target-config: the lower corner has to leave budget unused rather than overrun it");
+// Hoffmann's ratio is a reference the lab quotes, and the middle setting has to reach it.
+const tcMiddle = tcApi.tcPlan("near", "rederive", "t5");
+if (Math.abs(tcMiddle.tokensPerParam / tcApi.TC_CHINCHILLA_RATIO - 1) > 0.05)
+  throw new Error(`target-config: the middle setting is described as landing near Hoffmann's 20 tokens per parameter, measured ${fixedNumber(tcMiddle.tokensPerParam, 4)}`);
+// The throughput sweep the prose calls "more than a factor of two and a half".
+const tcSpread = tcApi.tcPlan("near", "rederive", "t8").tokensPerParam / tcApi.tcPlan("near", "rederive", "t3").tokensPerParam;
+if (!(tcSpread > 2.5))
+  throw new Error(`target-config: tokens per parameter is claimed to travel more than 2.5x across the throughputs, measured ${fixedNumber(tcSpread, 4)}`);
+
+console.log(`target-config OK: ${tcValues} values, A3 §3.3's closing question made computable -- the inverse of 12 n_layer d_model^2 reproduces N exactly while the grid it lands on never does (nearest corner 0.16 % to 2.93 % off over 18 combinations, worst corner 24.90 %, and 11 of 18 nearest corners mixed so no rounding rule predicts them), head_dim thins the reachable set in ${tcThinned} of the 9 target/shape pairs without appearing in the formula and leaves ${tcPrimeHeads} shapes with a prime head count and no grouped-query option, and a left-over D carries the N deviation one-for-one into wall clock (${fixedNumber(tcKeepShare.get("high"), 4)} h against the recomputed 48) while the token grid the API actually checks costs under ${fixedNumber(tcTokenLoss * 1e6, 2)} parts per million`);
 
 
 // ---- render coverage: the seven labs that read their sliders from the DOM ------------
@@ -5969,6 +6213,89 @@ function panelGroupControls(group) {
 }
 
 const renderLabs = [
+  {
+    id: "target-config", entry: "tcStageMarkup", mode: "tcMode", update: "updateTargetConfig",
+    names: ["TC_TARGET_SECONDS", "TC_HANDOUT_N", "TC_SEQ_LEN", "TC_BATCH", "TC_TOKENS_PER_STEP",
+      "TC_CHINCHILLA_RATIO", "TC_TARGETS", "TC_RHOS", "TC_HEAD_DIMS", "tcTarget", "tcRho",
+      "tcHeadDim", "tcContinuousShape", "tcCandidates", "tcHeadDivisors", "TC_THROUGHPUTS",
+      "TC_PICK_TARGET", "TC_PICKS", "TC_RULES", "tcThroughput", "tcPick", "tcRule",
+      "tcSnapTokens", "tcPlan", "tcInt", "tcSci", "tcSigned", "tcRead",
+      "renderTargetShape", "renderTargetBudget", "tcStageMarkup"],
+    options: {
+      tcMode: ["shape", "budget"], tcTarget: "TC_TARGETS", tcRho: "TC_RHOS",
+      tcHeadDim: "TC_HEAD_DIMS", tcPick: "TC_PICKS", tcRule: "TC_RULES",
+      tcThroughput: "TC_THROUGHPUTS"
+    },
+    // mode A turns N into a shape, mode B turns the shape back into a token count; the
+    // fit's prediction and the measured throughput never belong to the same question
+    controls: {
+      tcTarget: ["shape"], tcRho: ["shape"], tcHeadDim: ["shape"],
+      tcPick: ["budget"], tcRule: ["budget"], tcThroughput: ["budget"]
+    },
+    anchors: [
+      [{ tcMode: "shape", tcTarget: "n850", tcRho: "r128", tcHeadDim: "h64", tcPick: "near", tcRule: "keep", tcThroughput: "t5" },
+        '<strong data-tccont="1">d_model = (128 · 850,000,000 / 12)^(1/3) = 2085.207 · n_layer = 2085.207 / 128 = 16.291</strong>',
+        "the continuous solution is the whole subject of mode A and has to be on the screen, not just used"],
+      [{ tcMode: "shape", tcTarget: "n850", tcRho: "r128", tcHeadDim: "h64", tcPick: "near", tcRule: "keep", tcThroughput: "t5" },
+        '<td data-tcparams="2048-17">855,638,016</td>',
+        "the nearest reachable N is the number the reader carries into mode B"],
+      [{ tcMode: "shape", tcTarget: "n850", tcRho: "r128", tcHeadDim: "h64", tcPick: "near", tcRule: "keep", tcThroughput: "t5" },
+        '<strong data-tcdivisors="1">1 · 2 · 4 · 8 · 16 · 32</strong>',
+        "the legal num_key_value_heads follow from a head count the reader never chose"],
+      // A prime head count is the case the grouped-query row exists for. It has to reach
+      // the screen as a verdict, not only as a divisor list of length two.
+      [{ tcMode: "shape", tcTarget: "n850", tcRho: "r64", tcHeadDim: "h128", tcPick: "near", tcRule: "keep", tcThroughput: "t5" },
+        '<strong data-tcdivisors="1">1 · 13</strong>',
+        "a prime head count leaves exactly two divisors"],
+      [{ tcMode: "shape", tcTarget: "n850", tcRho: "r64", tcHeadDim: "h128", tcPick: "near", tcRule: "keep", tcThroughput: "t5" },
+        "die Kopfzahl ist prim",
+        "and the row has to say what that means, or the divisor list is a number without a consequence"],
+      // head_dim does not appear in 12 L d^2; the render still has to follow it.
+      [{ tcMode: "shape", tcTarget: "n1400", tcRho: "r256", tcHeadDim: "h64", tcPick: "near", tcRule: "keep", tcThroughput: "t5" },
+        '<td data-tcparams="3136-12">1,416,167,424</td>',
+        "at head_dim 64 the width axis steps in 64s and 3,136 is reachable"],
+      [{ tcMode: "shape", tcTarget: "n1400", tcRho: "r256", tcHeadDim: "h128", tcPick: "near", tcRule: "keep", tcThroughput: "t5" },
+        '<td data-tcparams="3072-12">1,358,954,496</td>',
+        "at head_dim 128 it is not, and a different corner becomes the nearest one"],
+      // Mode B: the two rules have to print different token counts and different verdicts.
+      // The ledger's N_final has to be the N of the chosen pick. Pinning it to N_pred still
+      // moves the render -- the deviation next to it keeps changing -- so only reading the
+      // number itself back catches a row that quietly reports the prediction instead of the
+      // configuration being submitted.
+      [{ tcMode: "budget", tcTarget: "n850", tcRho: "r128", tcHeadDim: "h64", tcPick: "high", tcRule: "keep", tcThroughput: "t5" },
+        '<strong data-tcnfinal="1">909,950,976 · 1.070531 × N_pred · +7.0531 %</strong>',
+        "the submitted N and its deviation have to be the same configuration's numbers"],
+      [{ tcMode: "budget", tcTarget: "n850", tcRho: "r128", tcHeadDim: "h64", tcPick: "low", tcRule: "keep", tcThroughput: "t5" },
+        '<strong data-tcnfinal="1">805,306,368 · 0.947419 × N_pred · −5.2581 %</strong>',
+        "and they have to follow the pick, not stay on the prediction"],
+      [{ tcMode: "budget", tcTarget: "n850", tcRho: "r128", tcHeadDim: "h64", tcPick: "high", tcRule: "keep", tcThroughput: "t5" },
+        '<strong data-tctokens="1">total_train_tokens = 16,941,121,536 = 258,501 · 65,536</strong>',
+        "a left-over D is the token count computed for N_pred, not for the model being submitted"],
+      [{ tcMode: "budget", tcTarget: "n850", tcRho: "r128", tcHeadDim: "h64", tcPick: "high", tcRule: "keep", tcThroughput: "t5" },
+        "51.3853",
+        "and it turns the 7.05 % parameter overshoot into 3.39 hours past a budget that truncates"],
+      [{ tcMode: "budget", tcTarget: "n850", tcRho: "r128", tcHeadDim: "h64", tcPick: "high", tcRule: "keep", tcThroughput: "t5" },
+        "Dieser Lauf passt nicht in das Budget.",
+        "the verdict has to follow the number, not the chosen pick"],
+      [{ tcMode: "budget", tcTarget: "n850", tcRho: "r128", tcHeadDim: "h64", tcPick: "high", tcRule: "rederive", tcThroughput: "t5" },
+        '<strong data-tctokens="1">total_train_tokens = 15,824,977,920 = 241,470 · 65,536</strong>',
+        "recomputing D from the submitted N is the one keystroke that fixes it"],
+      [{ tcMode: "budget", tcTarget: "n850", tcRho: "r128", tcHeadDim: "h64", tcPick: "high", tcRule: "rederive", tcThroughput: "t5" },
+        "Dieser Lauf passt in das Budget.",
+        "and the verdict has to flip with it"],
+      // The throughput table is the lab's own evidence that a better measurement does not
+      // repair a left-over D: its last column stands still while the others move.
+      [{ tcMode: "budget", tcTarget: "n850", tcRho: "r128", tcHeadDim: "h64", tcPick: "near", tcRule: "rederive", tcThroughput: "t3" },
+        '<td data-tcdriftperparam="t3">11.8014</td>',
+        "tokens per parameter at the lowest throughput"],
+      [{ tcMode: "budget", tcTarget: "n850", tcRho: "r128", tcHeadDim: "h64", tcPick: "near", tcRule: "rederive", tcThroughput: "t3" },
+        '<td data-tcdriftperparam="t8">31.4704</td>',
+        "and at the highest, in the same render -- the sweep is on the screen at every throughput"],
+      [{ tcMode: "budget", tcTarget: "n850", tcRho: "r128", tcHeadDim: "h64", tcPick: "near", tcRule: "rederive", tcThroughput: "t3" },
+        '<td data-tcdriftkeep="t3">48.3184 h</td>',
+        "while the left-over-D column barely moves across the same three throughputs"]
+    ]
+  },
   {
     id: "run-budget-ledger", entry: "rbStageMarkup", mode: "rbMode", update: "updateRunBudgetLedger",
     names: ["RB_BUDGET_SECONDS", "RB_TARGET_HOURS", "RB_SEQ_LEN", "RB_BATCH", "RB_VOCAB",
@@ -6358,3 +6685,56 @@ for (const hit of panelHits) {
   }
 }
 console.log(`panel i18n OK: ${panelGerman} German text nodes across ${panelLabs.size} lab panels reach the DOM without tr(), every one of them translated`);
+
+
+// ---- English render: what a lab actually prints to an English reader ------------------
+// The two i18n guards above read source: `renderer i18n` collects the literals a renderer
+// hands to tr(), `panel i18n` rebuilds the static panel text. Both are blind to a string
+// that reaches tr() as a value rather than a literal -- `tr(entry.note)`, `tr(row.label)`
+// -- and until this pass they were blind to a conditional as well. The one check nothing
+// can slip past is the render itself: build every state of every lab that can render
+// without a DOM, run it through the real translator, and look at what comes out.
+const englishRender = lab => {
+  const ordered = [...lab.names].sort((a, b) => declarationStart(a) - declarationStart(b));
+  const stubs = `
+    const esc = value => String(value ?? "").replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+    const localeCode = () => "en-US";
+${sliceDeclaration(source, "fixedNum")}
+`;
+  return runInNewContext(`${stubs}${ordered.map(name => sliceDeclaration(source, name)).join("\n")}; ({${ordered.join(",")}})`,
+    { localizedUi: panelTranslator });
+};
+let englishStates = 0, englishLabs = 0;
+for (const lab of renderLabs) {
+  const api = englishRender(lab);
+  const render = api[lab.entry];
+  // The state list is built exactly the way render coverage builds it -- same option
+  // specs, including the ones that are functions of the state already chosen -- so the
+  // two guards can never disagree about which states a lab has.
+  const optionsFor = (id, state) => {
+    const spec = lab.options[id];
+    if (Array.isArray(spec)) return spec;
+    if (typeof spec === "function") return spec(state, api);
+    return api[spec].map(entry => (entry && typeof entry === "object" ? entry.key : String(entry)));
+  };
+  let states = [{}];
+  for (const id of Object.keys(lab.options)) {
+    const next = [];
+    for (const state of states) for (const value of optionsFor(id, state)) next.push({ ...state, [id]: value });
+    states = next;
+  }
+  for (const state of states) {
+    const html = render(state);
+    if (!html) throw new Error(`english render: ${lab.id} renders nothing at ${JSON.stringify(state)}`);
+    if (html.includes("${"))
+      throw new Error(`english render: ${lab.id} prints an uninterpolated \${...} at ${JSON.stringify(state)} -- a literal inside a double-quoted tr() argument is never substituted`);
+    for (const node of html.matchAll(/>([^<>]+)</gu)) {
+      const text = decodeEntities(node[1].replace(/\s+/gu, " ").trim());
+      if (text.length >= 3 && GERMAN_WORDS.test(text))
+        throw new Error(`english render: ${lab.id} prints "${text.slice(0, 90)}" and an English reader reads it in German at ${JSON.stringify(state)}`);
+    }
+    englishStates++;
+  }
+  englishLabs++;
+}
+console.log(`english render OK: ${englishStates} states across ${englishLabs} labs rendered through the real translator, no German left on the screen and no uninterpolated placeholder`);
