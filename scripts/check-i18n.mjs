@@ -6151,6 +6151,288 @@ if (!(tcSpread > 2.5))
 console.log(`target-config OK: ${tcValues} values, A3 §3.3's closing question made computable -- the inverse of 12 n_layer d_model^2 reproduces N exactly while the grid it lands on never does (nearest corner 0.16 % to 2.93 % off over 18 combinations, worst corner 24.90 %, and 11 of 18 nearest corners mixed so no rounding rule predicts them), head_dim thins the reachable set in ${tcThinned} of the 9 target/shape pairs without appearing in the formula and leaves ${tcPrimeHeads} shapes with a prime head count and no grouped-query option, and a left-over D carries the N deviation one-for-one into wall clock (${fixedNumber(tcKeepShare.get("high"), 4)} h against the recomputed 48) while the token grid the API actually checks costs under ${fixedNumber(tcTokenLoss * 1e6, 2)} parts per million`);
 
 
+
+// ---- run-plan --------------------------------------------------------------------------
+// A3 §3.3 opens its write-up checklist with "Given your fixed scaling laws budget of 12
+// B200-hours, how did you decide which runs to query?" -- the first point, before the
+// fitting method and before the prediction. The app answered every later point and not
+// this one: `run-budget-ledger` checks what the API accepts and charges, `scaling` and
+// `scaling-fit` work on data that is already there, `target-config` converts a finished N.
+// Which runs you buy decided nothing anywhere.
+//
+// Three properties carry the lab, and all three are arithmetic rather than opinion:
+//   A. Every settable plan costs the same. The ladder is scaled so that
+//      k * sum_j C_j / throughput is exactly the 43,200 s, so any difference in the result
+//      is a difference in shape, never in spending.
+//   B. A grid that picks the same index in every tier returns the prior's exponent, and
+//      returns it exactly. Every measured minimum is then the same factor times
+//      N_prior ∝ sqrt(C), so the least-squares slope in log space is 0.5 by construction --
+//      with a perfect fit and no visible symptom. 63 of the 108 plans end that way.
+//   C. The price of a wrong size is scale-free. Along the frontier the reducible loss is a
+//      pure power law in C, so the compute-equivalent waste depends only on N/N_opt --
+//      not on the budget, the target, or the assumed throughput.
+const rpNames = ["RP_LOSS_E", "RP_LOSS_A", "RP_ALPHA", "RP_LOSS_B", "RP_BETA", "rpLoss",
+  "RP_N_COEFF", "RP_N_EXPONENT", "rpOptimalN", "rpFrontierLoss", "RP_FIT_SECONDS",
+  "RP_TARGET_SECONDS", "RP_THROUGHPUT", "RP_FIT_FLOPS", "RP_TARGET_FLOPS", "RP_PRIOR_RATIO",
+  "rpPriorN", "RP_SPANS", "RP_TIERS", "RP_PER_TIER", "RP_STEPS", "rpSpan", "rpTiersOf",
+  "rpPerTier", "rpStep", "rpLadder", "rpFit", "rpWasteFactor", "rpPlan", "RP_FACTORS",
+  "rpFactor", "RP_WASTE_LEVELS", "rpBandEdge"];
+const rpApi = runInNewContext(`${numberPrelude}${rpNames.map(name => sliceDeclaration(source, name)).join("\n")}; ({${rpNames.join(",")}})`, {});
+let rpValues = 0;
+
+// --- the two numbers the assignment fixes ---------------------------------------------
+if (rpApi.RP_FIT_SECONDS !== 12 * 3600)
+  throw new Error(`run-plan: A3 §3 gives 12 B200-hours for fitting, found ${rpApi.RP_FIT_SECONDS} s`);
+if (rpApi.RP_TARGET_SECONDS !== tcApi.TC_TARGET_SECONDS)
+  throw new Error("run-plan: the target run has to be the same 48 hours target-config and run-budget-ledger name");
+if (rpApi.RP_TARGET_SECONDS !== 4 * rpApi.RP_FIT_SECONDS)
+  throw new Error("run-plan: the whole point is that the target run is four times the entire measurement budget");
+
+// --- the truth of the lab is a derivation, not a fitted number -------------------------
+// N_opt(C) is claimed to be the closed-form argmin of Hoffmann's parametric loss under
+// D = C/(6N). A closed form that is not the argmin would make every number downstream a
+// story, so it is checked against a search rather than trusted.
+if (Math.abs(rpApi.RP_N_EXPONENT - rpApi.RP_BETA / (rpApi.RP_ALPHA + rpApi.RP_BETA)) > 1e-15)
+  throw new Error("run-plan: the compute-optimal exponent has to be beta/(alpha+beta)");
+if (fixedNumber(rpApi.RP_N_EXPONENT, 2) !== "0.45")
+  throw new Error(`run-plan: Hoffmann et al. report a = 0.46 for this fit; the derivation gives ${fixedNumber(rpApi.RP_N_EXPONENT, 6)}`);
+for (const compute of [1e17, 1e18, 1e19, 1e20, 1e21]) {
+  const closed = rpApi.rpOptimalN(compute);
+  let bestParams = 0, bestLoss = Infinity;
+  for (let exponent = Math.log10(closed) - 1; exponent <= Math.log10(closed) + 1; exponent += 0.0002) {
+    const params = Math.pow(10, exponent), value = rpApi.rpLoss(params, compute / (6 * params));
+    if (value < bestLoss) { bestLoss = value; bestParams = params; }
+    rpValues++;
+  }
+  if (Math.abs(bestParams / closed - 1) > 5e-4)
+    throw new Error(`run-plan: the closed form misses the searched argmin at C = ${compute}: ${closed} against ${bestParams}`);
+  if (rpApi.rpFrontierLoss(compute) > bestLoss + 1e-12)
+    throw new Error("run-plan: the frontier loss has to be the loss at the closed-form optimum");
+}
+// The prior is the 20-tokens-per-parameter rule, and its exponent has to be exactly 0.5 --
+// property B rests on that and on nothing else.
+for (const compute of [1e17, 1e19, 1e21]) {
+  if (Math.abs(rpApi.rpPriorN(compute) - Math.sqrt(compute / (6 * rpApi.RP_PRIOR_RATIO))) > 1e-6)
+    throw new Error("run-plan: the prior has to be N = sqrt(C / (6 * 20))");
+  if (Math.abs(rpApi.rpPriorN(4 * compute) / rpApi.rpPriorN(compute) - 2) > 1e-12)
+    throw new Error("run-plan: a prior with exponent 0.5 has to double when C quadruples");
+}
+
+// --- property A: every plan costs the same --------------------------------------------
+const rpPlans = [];
+for (const span of rpApi.RP_SPANS) for (const tiers of rpApi.RP_TIERS)
+  for (const per of rpApi.RP_PER_TIER) for (const step of rpApi.RP_STEPS)
+    rpPlans.push(rpApi.rpPlan(span.key, tiers.key, per.key, step.key));
+if (rpPlans.length !== 108)
+  throw new Error(`run-plan: the plan grid is 3 spans x 3 tier counts x 3 run counts x 4 grid steps = 108, found ${rpPlans.length}`);
+for (const plan of rpPlans) {
+  rpValues++;
+  if (Math.abs(plan.ladder.seconds - rpApi.RP_FIT_SECONDS) > 1e-6)
+    throw new Error(`run-plan: a plan costs ${plan.ladder.seconds} s instead of the budget it is scaled to fill`);
+  if (plan.ladder.rows.length !== plan.tiers.tiers)
+    throw new Error("run-plan: the ladder has to hold one row per tier");
+  const ratio = plan.ladder.rows[plan.ladder.rows.length - 1].compute / plan.ladder.rows[0].compute;
+  if (Math.abs(ratio / plan.span.span - 1) > 1e-9)
+    throw new Error(`run-plan: the ladder's own span is ${ratio}, not the chosen ${plan.span.span}`);
+  for (const row of plan.ladder.rows) {
+    if (row.sizes.length !== plan.per.perTier)
+      throw new Error("run-plan: every tier has to offer exactly the runs the plan paid for");
+    if (Math.abs(row.sizes[1] / row.sizes[0] - plan.step.step) > 1e-9)
+      throw new Error("run-plan: neighbouring sizes have to sit one grid step apart");
+    if (row.measured !== row.sizes[row.pick])
+      throw new Error("run-plan: the measured minimum has to be a grid point, not an interpolation");
+    let bestSlot = 0, bestLoss = Infinity;
+    row.sizes.forEach((params, slot) => {
+      const value = rpApi.rpLoss(params, row.compute / (6 * params));
+      if (value < bestLoss) { bestLoss = value; bestSlot = slot; }
+    });
+    if (bestSlot !== row.pick)
+      throw new Error("run-plan: the chosen index has to be the lowest-loss run of that tier");
+    if (row.edge !== (row.pick === 0 || row.pick === plan.per.perTier - 1))
+      throw new Error("run-plan: the edge flag has to mean the minimum sits on the boundary of the grid");
+  }
+  // A bigger tier really does cost proportionally more wall clock -- the reason span is
+  // the expensive axis and not just the wide one.
+  for (const row of plan.ladder.rows)
+    if (Math.abs(row.seconds - row.compute / rpApi.RP_THROUGHPUT) > 1e-9)
+      throw new Error("run-plan: a tier's runtime has to be its compute divided by the throughput");
+}
+// Buying more of anything shrinks the largest tier, so the extrapolation gets longer. This
+// is the trade the lab is about; if it ever stopped holding the prose would be wrong.
+for (const span of rpApi.RP_SPANS) for (const tiers of rpApi.RP_TIERS) for (const step of rpApi.RP_STEPS) {
+  const few = rpApi.rpPlan(span.key, tiers.key, "p3", step.key), many = rpApi.rpPlan(span.key, tiers.key, "p7", step.key);
+  if (!(many.ladder.topCompute < few.ladder.topCompute && many.ladder.reach > few.ladder.reach))
+    throw new Error(`run-plan: more runs per tier has to shrink the top tier and lengthen the extrapolation at ${span.key}/${tiers.key}/${step.key}`);
+}
+
+// --- property B: a locked grid hands back the prior, exactly ---------------------------
+const rpPrior = rpPlans.filter(plan => plan.prior);
+// The slope is 0.5 by construction, not by approximation: a constant index makes every
+// measured N the same factor times a prior proportional to sqrt(C). Floating point puts a
+// few last bits on it -- 41 of the 63 land on 0.5 bit for bit, the rest within 3e-15 --
+// while the nearest plan that really measured something sits 0.0164 away. Thirteen orders
+// of magnitude of gap is what makes a tolerance here a reading aid rather than a fudge.
+let rpPriorGap = 0, rpMeasuredGap = Infinity;
+for (const plan of rpPlans) {
+  const gap = Math.abs(plan.fit.slope - 0.5);
+  if (plan.prior) rpPriorGap = Math.max(rpPriorGap, gap); else rpMeasuredGap = Math.min(rpMeasuredGap, gap);
+  if (plan.prior && fixedNumber(plan.fit.slope, 6) !== "0.500000")
+    throw new Error("run-plan: a plan that handed back the prior has to print 0.500000 on the screen");
+  if ((plan.ladder.distinct === 1) !== plan.prior)
+    throw new Error(`run-plan: one distinct grid index and an exactly-0.5 slope have to be the same states, split at ${plan.span.key}/${plan.tiers.key}/${plan.per.key}/${plan.step.key}`);
+}
+if (!(rpPriorGap < 1e-14 && rpMeasuredGap > 1e-2))
+  throw new Error(`run-plan: the two families have to stay separated by orders of magnitude, measured ${rpPriorGap} against ${rpMeasuredGap}`);
+if (rpPrior.length !== 63)
+  throw new Error(`run-plan: the prose says 63 of 108 plans hand back the prior, counted ${rpPrior.length}`);
+for (const [stepKey, want] of [["g200", 27], ["g160", 24], ["g125", 6], ["g110", 6]]) {
+  const seen = rpPrior.filter(plan => plan.step.key === stepKey).length;
+  if (seen !== want)
+    throw new Error(`run-plan: grid step ${stepKey} is said to hand back the prior in ${want} of 27 plans, counted ${seen}`);
+}
+for (const [spanKey, want] of [["s4", 27], ["s16", 20], ["s64", 16]]) {
+  const seen = rpPrior.filter(plan => plan.span.key === spanKey).length;
+  if (seen !== want)
+    throw new Error(`run-plan: span ${spanKey} is said to hand back the prior in ${want} of 36 plans, counted ${seen}`);
+}
+// Span is the strongest single lever and still cannot rescue a coarse grid -- both halves
+// of that sentence are checked, because dropping either would make the advice a rule.
+if (!(rpPrior.filter(plan => plan.span.key === "s64").length < rpPrior.filter(plan => plan.span.key === "s4").length))
+  throw new Error("run-plan: a wider span has to leave fewer plans stuck on the prior");
+if (!rpPlans.some(plan => plan.span.key === "s64" && plan.prior))
+  throw new Error("run-plan: the widest span still has to contain plans that hand back the prior, or the lab teaches a rule that is not true");
+
+// --- what the same money buys ----------------------------------------------------------
+const rpDeviations = rpPlans.map(plan => Math.abs(plan.deviation));
+const rpBest = rpPlans.reduce((left, right) => right.waste < left.waste ? right : left);
+const rpWorst = rpPlans.reduce((left, right) => right.waste > left.waste ? right : left);
+if (fixedNumber(Math.min(...rpDeviations) * 100, 2) !== "0.22" || fixedNumber(Math.max(...rpDeviations) * 100, 2) !== "52.17")
+  throw new Error(`run-plan: the prose says the deviations run from 0.22 % to 52.17 %, measured ${fixedNumber(Math.min(...rpDeviations) * 100, 2)} % to ${fixedNumber(Math.max(...rpDeviations) * 100, 2)} %`);
+if (fixedNumber(rpBest.waste * 100, 4) !== "0.0002" || fixedNumber(rpWorst.waste * 100, 4) !== "15.6024")
+  throw new Error(`run-plan: the prose says the waste runs from 0.0002 % to 15.6024 %, measured ${fixedNumber(rpBest.waste * 100, 4)} % to ${fixedNumber(rpWorst.waste * 100, 4)} %`);
+if (!(rpWorst.waste / rpBest.waste > 1e4))
+  throw new Error("run-plan: the prose claims more than four orders of magnitude between the cheapest and the most expensive plan at the same price");
+if (rpBest.tiers.tiers !== 3)
+  throw new Error(`run-plan: the prose says the best plan has only three tiers, found ${rpBest.tiers.tiers}`);
+if (rpBest.span.span !== 64 || rpWorst.span.span !== 4)
+  throw new Error("run-plan: the best plan has to be the widest span and the worst the narrowest, or the lever arm claim is empty");
+if (rpWorst.step.step !== 1.25 || rpWorst.per.perTier !== 7)
+  throw new Error("run-plan: the worst plan is described as the one with the smallest span and a coarse grid");
+// More tiers are the weakest of the three levers. Checked as a median rather than a rule,
+// because there is no plan-by-plan ordering here and claiming one would be false.
+const rpMedian = plans => {
+  const sorted = plans.map(plan => Math.abs(plan.deviation)).sort((left, right) => left - right);
+  return sorted[Math.floor(sorted.length / 2)];
+};
+if (!(rpMedian(rpPlans.filter(plan => plan.span.key === "s64")) < rpMedian(rpPlans.filter(plan => plan.span.key === "s4"))))
+  throw new Error("run-plan: span has to move the median deviation, or the first advice of the lab is unfounded");
+
+// --- the boundary minima this fit deliberately keeps ------------------------------------
+// `scaling-fit` excludes edge minima; A3 §2.1 recommends "simply take the run with the
+// lowest training loss for each compute budget". Two labs in the same app cannot state
+// opposite rules on a hunch, so the tie is measured: dropping the marked tiers from the fit
+// changes 11 of the 108 plans and makes 10 of those worse, and it leaves 18 more with
+// fewer than two tiers, which cannot be fitted at all.
+let rpEdgeChanged = 0, rpEdgeWorse = 0, rpEdgeUnfittable = 0;
+for (const plan of rpPlans) {
+  const inner = plan.ladder.rows.filter(row => !row.edge);
+  if (inner.length < 2) { rpEdgeUnfittable++; continue; }
+  const pruned = rpApi.rpFit(inner);
+  const waste = rpApi.rpWasteFactor(pruned.predicted / rpApi.rpOptimalN(rpApi.RP_TARGET_FLOPS));
+  rpValues++;
+  if (Math.abs(waste - plan.waste) < 1e-12) continue;
+  rpEdgeChanged++;
+  if (waste > plan.waste) rpEdgeWorse++;
+}
+if (rpEdgeChanged !== 11 || rpEdgeWorse !== 10 || rpEdgeUnfittable !== 18)
+  throw new Error(`run-plan: the boundary paragraph says 11 plans change, 10 of them for the worse, and 18 more lose their fit; measured ${rpEdgeChanged} / ${rpEdgeWorse} / ${rpEdgeUnfittable}`);
+// The claim underneath it: a marked row is the grid point nearest the truth, not a wrong
+// one. If a boundary tier ever had an interior neighbour closer to N_opt, the advice to
+// widen the window rather than delete the row would be the wrong advice.
+for (const plan of rpPlans) for (const row of plan.ladder.rows) {
+  if (!row.edge) continue;
+  const nearest = row.sizes.reduce((left, right) =>
+    Math.abs(Math.log(right / row.truth)) < Math.abs(Math.log(left / row.truth)) ? right : left);
+  if (nearest !== row.measured)
+    throw new Error("run-plan: a boundary minimum has to be the grid point closest to the truth, or deleting the row would be the right move");
+  rpValues++;
+}
+
+// Which side of the grid the minima fall on, and why the other branch is untested. The
+// Chinchilla prior overestimates the compute-optimal size in 460 of the 468 tier rows, and
+// undershoots by at most 1.59 % in the other 8, so a minimum can only escape downwards:
+// 87 of the 468 rows sit on the bottom edge and none on the top. Mutation testing confirmed the consequence -- dropping the top-edge
+// half of the edge test is inert on this data, the same shape of blind spot v81 found in
+// run-budget-ledger. Counted here so the branch is knowingly untested rather than silently.
+let rpBottomEdge = 0, rpTopEdge = 0, rpTierRows = 0, rpAbovePrior = 0;
+for (const plan of rpPlans) for (const row of plan.ladder.rows) {
+  rpTierRows++;
+  if (row.pick === 0) rpBottomEdge++;
+  if (row.pick === plan.per.perTier - 1) rpTopEdge++;
+  if (row.truth > row.prior) rpAbovePrior++;
+}
+// The prior overestimates in 460 of the 468 rows, and in the 8 where it does not -- the
+// smallest tiers, where the two curves cross at C = 5.5e16 -- it is under by 1.59 %, far
+// less than the narrowest grid step. That is why no minimum ever reaches the top edge, and
+// why the claim is a measurement here and not "the prior is always too big".
+if (rpAbovePrior !== 8 || rpTierRows - rpAbovePrior !== 460)
+  throw new Error(`run-plan: the prior is expected to overestimate in 460 of 468 tier rows, measured ${rpTierRows - rpAbovePrior}`);
+if (rpTierRows !== 468 || rpBottomEdge !== 87 || rpTopEdge !== 0)
+  throw new Error(`run-plan: 87 of 468 tier minima sit on the bottom edge and none on the top; measured ${rpBottomEdge} and ${rpTopEdge} of ${rpTierRows}`);
+
+// --- property C: the price of a wrong size is scale-free -------------------------------
+if (rpApi.rpWasteFactor(1) !== 0)
+  throw new Error("run-plan: the optimum has to cost nothing");
+// Measured against a bisection on the frontier at four budgets four orders of magnitude
+// apart: the closed form is only allowed to be the shortcut, never a different number.
+for (const compute of [1e18, 1e20, rpApi.RP_TARGET_FLOPS, 1e23]) {
+  const truth = rpApi.rpOptimalN(compute);
+  for (const factor of [0.25, 0.5, 0.9, 1.5, 4]) {
+    const params = truth * factor, reached = rpApi.rpLoss(params, compute / (6 * params));
+    let low = compute / 1e8, high = compute;
+    for (let step = 0; step < 300; step++) {
+      const middle = Math.sqrt(low * high);
+      if (rpApi.rpFrontierLoss(middle) > reached) low = middle; else high = middle;
+    }
+    const measured = 1 - Math.sqrt(low * high) / compute;
+    rpValues++;
+    if (Math.abs(measured - rpApi.rpWasteFactor(factor)) > 1e-9)
+      throw new Error(`run-plan: the closed-form waste ${rpApi.rpWasteFactor(factor)} disagrees with the bisected ${measured} at C = ${compute}`);
+  }
+}
+for (const [factor, want] of [[0.5, "13.9178"], [2, "13.5679"], [1.1, "0.2806"], [0.9, "0.3442"]]) {
+  if (fixedNumber(rpApi.rpWasteFactor(factor) * 100, 4) !== want)
+    throw new Error(`run-plan: a factor of ${factor} is described as costing ${want} %, measured ${fixedNumber(rpApi.rpWasteFactor(factor) * 100, 4)} %`);
+}
+// Almost symmetric, and the popular "err on the large side" is the cheaper direction by a
+// margin small enough that the lab has to say so rather than turn it into a rule.
+if (!(rpApi.rpWasteFactor(2) < rpApi.rpWasteFactor(0.5)))
+  throw new Error("run-plan: too large has to be the cheaper direction, or the asymmetry paragraph points the wrong way");
+if (!(rpApi.rpWasteFactor(0.5) / rpApi.rpWasteFactor(2) < 1.05))
+  throw new Error("run-plan: the asymmetry is described as tiny; a factor above 1.05 would make it a rule worth following");
+for (const [level, low, high] of [[0.01, "0.8355", "1.1977"], [0.02, "0.7751", "1.2918"], [0.05, "0.6665", "1.5053"], [0.10, "0.5592", "1.8004"]]) {
+  if (!rpApi.RP_WASTE_LEVELS.includes(level))
+    throw new Error(`run-plan: the tolerance table no longer offers the ${level} threshold the prose names`);
+  if (fixedNumber(rpApi.rpBandEdge(level, -1), 4) !== low || fixedNumber(rpApi.rpBandEdge(level, 1), 4) !== high)
+    throw new Error(`run-plan: the ${level} band is described as ${low}x to ${high}x, measured ${fixedNumber(rpApi.rpBandEdge(level, -1), 4)}x to ${fixedNumber(rpApi.rpBandEdge(level, 1), 4)}x`);
+  const inside = rpApi.rpBandEdge(level, 1) * 0.999, outside = rpApi.rpBandEdge(level, 1) * 1.001;
+  if (!(rpApi.rpWasteFactor(inside) < level && rpApi.rpWasteFactor(outside) > level))
+    throw new Error(`run-plan: the ${level} band edge does not separate inside from outside`);
+}
+// The flat frontier is why so many badly fitted plans still land respectably -- and why
+// exactly one does not. Both halves are the point of mode B.
+const rpTolerable = rpPlans.filter(plan => plan.waste < 0.10).length;
+if (rpTolerable !== 107)
+  throw new Error(`run-plan: the prose says 107 of 108 plans stay under ten percent waste, counted ${rpTolerable}`);
+for (const factorEntry of rpApi.RP_FACTORS) {
+  const params = rpApi.rpOptimalN(rpApi.RP_TARGET_FLOPS) * factorEntry.factor;
+  if (!(rpApi.rpLoss(params, rpApi.RP_TARGET_FLOPS / (6 * params)) > rpApi.rpFrontierLoss(rpApi.RP_TARGET_FLOPS)))
+    throw new Error(`run-plan: ${factorEntry.key} has to cost loss against the optimum`);
+  rpValues++;
+}
+
+console.log(`run-plan OK: ${rpValues} values, A3 §3.3's first write-up question made computable -- all 108 plans cost the identical ${rpApi.RP_FIT_SECONDS} s while their predictions for the 48-hour run land ${fixedNumber(Math.min(...rpDeviations) * 100, 2)} % to ${fixedNumber(Math.max(...rpDeviations) * 100, 2)} % off (${fixedNumber(rpBest.waste * 100, 4)} % to ${fixedNumber(rpWorst.waste * 100, 4)} % of that run thrown away, and the best plan buys span rather than tiers), a grid that picks one index in every tier returns the prior's 0.5 exactly in ${rpPrior.length} of the 108 -- 27 of 27 at step 2.00 against 6 of 27 at 1.10 -- and the price of a wrong size is scale-free, agreeing with a bisection on the frontier across five orders of magnitude of budget (0.8355x to 1.1977x for under one percent)`);
+
 // ---- render coverage: the seven labs that read their sliders from the DOM ------------
 // Ten of the eighteen lab guards render their markup and read the numbers back out of it.
 // Seven could not. Their stage functions reached for document.getElementById themselves,
@@ -6213,6 +6495,100 @@ function panelGroupControls(group) {
 }
 
 const renderLabs = [
+  {
+    id: "run-plan", entry: "rpStageMarkup", mode: "rpMode", update: "updateRunPlan",
+    names: ["RP_LOSS_E", "RP_LOSS_A", "RP_ALPHA", "RP_LOSS_B", "RP_BETA", "rpLoss",
+      "RP_N_COEFF", "RP_N_EXPONENT", "rpOptimalN", "rpFrontierLoss", "RP_FIT_SECONDS",
+      "RP_TARGET_SECONDS", "RP_THROUGHPUT", "RP_FIT_FLOPS", "RP_TARGET_FLOPS",
+      "RP_PRIOR_RATIO", "rpPriorN", "RP_SPANS", "RP_TIERS", "RP_PER_TIER", "RP_STEPS",
+      "rpSpan", "rpTiersOf", "rpPerTier", "rpStep", "rpLadder", "rpFit", "rpWasteFactor",
+      "rpPlan", "RP_FACTORS", "rpFactor", "RP_WASTE_LEVELS", "rpBandEdge", "rpInt", "rpSci",
+      "rpPct", "rpSigned", "rpRead", "renderRunPlanLadder", "renderRunPlanTolerance",
+      "rpStageMarkup"],
+    options: {
+      rpMode: ["ladder", "tolerance"], rpSpan: "RP_SPANS", rpTiers: "RP_TIERS",
+      rpPer: "RP_PER_TIER", rpStep: "RP_STEPS", rpFactor: "RP_FACTORS"
+    },
+    // Mode A buys a plan and reads what it was worth; mode B prices a deviation without
+    // any plan at all. Nothing the plan sets may reach the tolerance table, or the claim
+    // that the price is scale-free would quietly depend on the ladder.
+    controls: {
+      rpSpan: ["ladder"], rpTiers: ["ladder"], rpPer: ["ladder"], rpStep: ["ladder"],
+      rpFactor: ["tolerance"]
+    },
+    anchors: [
+      // The whole lab rests on every plan costing the same. Two plans as different as the
+      // grid allows have to print the identical second count, and it has to be on screen.
+      [{ rpMode: "ladder", rpSpan: "s64", rpTiers: "t4", rpPer: "p5", rpStep: "g110", rpFactor: "f200" },
+        '<strong data-rpcost="1">4 × 5 Runs = 43200.0000 s</strong>',
+        "the budget line is what makes the comparison fair and has to be read, not assumed"],
+      [{ rpMode: "ladder", rpSpan: "s4", rpTiers: "t6", rpPer: "p7", rpStep: "g125", rpFactor: "f200" },
+        '<strong data-rpcost="1">6 × 7 Runs = 43200.0000 s</strong>',
+        "and the worst plan in the lab has to print the same cost as the best one"],
+      // Mode A's fitted exponent, at the setting the lab's own observe text names.
+      [{ rpMode: "ladder", rpSpan: "s64", rpTiers: "t4", rpPer: "p5", rpStep: "g110", rpFactor: "f200" },
+        '<strong data-rpslope="1">a = 0.451874</strong>',
+        "a grid fine enough to change its mind recovers the truth, and the number has to reach the screen"],
+      [{ rpMode: "ladder", rpSpan: "s64", rpTiers: "t4", rpPer: "p5", rpStep: "g110", rpFactor: "f200" },
+        '<td data-rppick="1">1</td>',
+        "and it recovers it because the chosen index travels across the tiers"],
+      // Mutation testing found this one: the measured column could print the truth instead,
+      // and every other anchor still held -- while the grid error beside it kept reporting a
+      // deviation the table no longer showed. The measurement and its error are read back
+      // together, in a state where the two numbers are far apart.
+      [{ rpMode: "ladder", rpSpan: "s64", rpTiers: "t4", rpPer: "p5", rpStep: "g110", rpFactor: "f200" },
+        '<td data-rpmeasured="2">9.6212e+7</td>',
+        "the measured column has to hold the grid point the tier actually picked"],
+      [{ rpMode: "ladder", rpSpan: "s64", rpTiers: "t4", rpPer: "p5", rpStep: "g110", rpFactor: "f200" },
+        '<td data-rprowdev="2">−4.15 %</td>',
+        "and its error column has to be that same point measured against the truth beside it"],
+      [{ rpMode: "ladder", rpSpan: "s64", rpTiers: "t4", rpPer: "p5", rpStep: "g160", rpFactor: "f200" },
+        '<td data-rpmeasured="3">2.3283e+8</td>',
+        "a locked grid measures the prior itself, and the number on screen has to show that"],
+      [{ rpMode: "ladder", rpSpan: "s64", rpTiers: "t4", rpPer: "p5", rpStep: "g160", rpFactor: "f200" },
+        '<td data-rprowdev="3">+24.03 %</td>',
+        "24 % off in the top tier, which is what a fit of exactly 0.5 is built out of"],
+      // The same plan with a coarser grid: the index locks and the fit becomes the prior.
+      // Both halves are anchored, because the exponent alone could move for other reasons.
+      [{ rpMode: "ladder", rpSpan: "s64", rpTiers: "t4", rpPer: "p5", rpStep: "g160", rpFactor: "f200" },
+        '<strong data-rpslope="1">a = 0.500000</strong>',
+        "one step coarser and the same ladder returns the prior's exponent"],
+      [{ rpMode: "ladder", rpSpan: "s64", rpTiers: "t4", rpPer: "p5", rpStep: "g160", rpFactor: "f200" },
+        '<td data-rppick="3">2</td>',
+        "because every tier now picks the same grid index"],
+      [{ rpMode: "ladder", rpSpan: "s64", rpTiers: "t4", rpPer: "p5", rpStep: "g160", rpFactor: "f200" },
+        "Dieser Plan hat deinen Prior zurückgegeben, nicht die Daten.",
+        "and the verdict has to say so, or the reader sees a clean fit and no warning"],
+      [{ rpMode: "ladder", rpSpan: "s64", rpTiers: "t4", rpPer: "p5", rpStep: "g110", rpFactor: "f200" },
+        "Dieses Raster hat sich unterwegs umentschieden",
+        "the verdict has to follow the grid, not the mode"],
+      // An edge minimum is what scaling-fit warns about; here it has to be visible in the
+      // row it happened in, not only in the explaining paragraph.
+      [{ rpMode: "ladder", rpSpan: "s4", rpTiers: "t6", rpPer: "p3", rpStep: "g125", rpFactor: "f200" },
+        '<td data-rppick="5">0 ⚠</td>',
+        "a minimum on the boundary of the grid has to be marked in its own row"],
+      // What the plan was worth, in both currencies, at the two ends of the range.
+      [{ rpMode: "ladder", rpSpan: "s4", rpTiers: "t6", rpPer: "p7", rpStep: "g125", rpFactor: "f200" },
+        '<strong data-rpwaste="1">15.6024 %</strong>',
+        "the worst plan's price is the number the lever paragraph names"],
+      [{ rpMode: "ladder", rpSpan: "s64", rpTiers: "t3", rpPer: "p7", rpStep: "g125", rpFactor: "f200" },
+        '<strong data-rpdev="1">1.0022 × · +0.22 %</strong>',
+        "and the best plan's deviation is the other end of that same range"],
+      // Mode B: the price table and the band, both scale-free numbers.
+      [{ rpMode: "tolerance", rpSpan: "s64", rpTiers: "t4", rpPer: "p5", rpStep: "g110", rpFactor: "f200" },
+        '<td data-rptolshare="f200">13.5679 %</td>',
+        "twice the optimal size costs 13.5679 % of the run"],
+      [{ rpMode: "tolerance", rpSpan: "s64", rpTiers: "t4", rpPer: "p5", rpStep: "g110", rpFactor: "f200" },
+        '<td data-rptolshare="f050">13.9178 %</td>',
+        "and half of it costs 13.9178 %, which is the whole asymmetry paragraph on one line"],
+      [{ rpMode: "tolerance", rpSpan: "s64", rpTiers: "t4", rpPer: "p5", rpStep: "g110", rpFactor: "f200" },
+        '<td data-rpband="0.01">0.8355 × bis 1.1977 ×</td>',
+        "the one-percent band is the accuracy the assignment actually demands"],
+      [{ rpMode: "tolerance", rpSpan: "s64", rpTiers: "t4", rpPer: "p5", rpStep: "g110", rpFactor: "f050" },
+        '<strong data-rptolwaste="1">13.9178 %</strong>',
+        "and the chosen row has to reach the ledger above the table"]
+    ]
+  },
   {
     id: "target-config", entry: "tcStageMarkup", mode: "tcMode", update: "updateTargetConfig",
     names: ["TC_TARGET_SECONDS", "TC_HANDOUT_N", "TC_SEQ_LEN", "TC_BATCH", "TC_TOKENS_PER_STEP",
