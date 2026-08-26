@@ -6433,6 +6433,277 @@ for (const factorEntry of rpApi.RP_FACTORS) {
 
 console.log(`run-plan OK: ${rpValues} values, A3 §3.3's first write-up question made computable -- all 108 plans cost the identical ${rpApi.RP_FIT_SECONDS} s while their predictions for the 48-hour run land ${fixedNumber(Math.min(...rpDeviations) * 100, 2)} % to ${fixedNumber(Math.max(...rpDeviations) * 100, 2)} % off (${fixedNumber(rpBest.waste * 100, 4)} % to ${fixedNumber(rpWorst.waste * 100, 4)} % of that run thrown away, and the best plan buys span rather than tiers), a grid that picks one index in every tier returns the prior's 0.5 exactly in ${rpPrior.length} of the 108 -- 27 of 27 at step 2.00 against 6 of 27 at 1.10 -- and the price of a wrong size is scale-free, agreeing with a bisection on the frontier across five orders of magnitude of budget (0.8355x to 1.1977x for under one percent)`);
 
+// ---- chain-carry -------------------------------------------------------------------------
+// A3 §3.3 is answered in four steps and the app computed each one alone: `run-plan` buys the
+// runs and predicts N_pred, `scaling-fit` fits, `target-config` snaps N_pred onto a reachable
+// 12 n_layer d_model^2, `run-budget-ledger` checks the contract. The number A3 actually grades
+// appeared nowhere: how far the submitted N_final sits from the true optimum. run-plan measures
+// N_pred against the truth, target-config measures its corners against N_pred -- the two errors
+// meet in no line of either lab.
+//
+// Four properties carry this lab, and each is a count or an identity rather than a reading:
+//   A. It is the same arithmetic, not a second copy of it. The chain calls rpPlan and
+//      tcCandidates, so a number here that disagrees with the lab it came from is a bug in
+//      one of the three, and this guard is where that shows.
+//   B. The errors compose multiplicatively. waste(f1*f2) is not waste(f1) + waste(f2), and on
+//      the plans that undershoot it is not even above waste(f1) -- the grid takes part of the
+//      plan error back. Both directions occur, so neither is an artefact of one plan.
+//   C. The four rounding rules are selection functions, and selection functions are exactly
+//      where a lab can print a truthful number under a lying label. Each is checked against
+//      its definition over every combination, not only at the states the anchors visit.
+//   D. The recommendation is a count with no exception: the rule that reads run-plan's own
+//      grid-lock diagnosis is worse than the nearest corner in none of the combinations. That
+//      it can be is not luck -- every grid-locked fit returns the prior, and the prior
+//      overestimates over this whole compute range.
+const ccNames = ["RP_LOSS_E", "RP_LOSS_A", "RP_ALPHA", "RP_LOSS_B", "RP_BETA", "rpLoss",
+  "RP_N_COEFF", "RP_N_EXPONENT", "rpOptimalN", "rpFrontierLoss", "RP_FIT_SECONDS",
+  "RP_TARGET_SECONDS", "RP_THROUGHPUT", "RP_FIT_FLOPS", "RP_TARGET_FLOPS", "RP_PRIOR_RATIO",
+  "rpPriorN", "RP_SPANS", "RP_TIERS", "RP_PER_TIER", "RP_STEPS", "rpSpan", "rpTiersOf",
+  "rpPerTier", "rpStep", "rpLadder", "rpFit", "rpWasteFactor", "rpPlan", "TC_HANDOUT_N",
+  "TC_RHOS", "TC_HEAD_DIMS", "tcRho", "tcHeadDim", "tcContinuousShape", "tcCandidates",
+  "CC_PLANS", "CC_RULES", "ccPlanOf", "ccRuleOf", "ccTruth", "ccCorners", "ccPickCorner",
+  "ccChain", "CC_SWEEP_CACHE", "ccSweepData"];
+const ccApi = runInNewContext(`${numberPrelude}${ccNames.map(name => sliceDeclaration(source, name)).join("\n")}; ({${ccNames.join(",")}})`, {});
+let ccValues = 0;
+
+// --- A. the chain is wired, not retold -------------------------------------------------
+// Each named plan has to be one of run-plan's own 108, and the chain's first stage has to be
+// rpPlan's own answer to the bit and not a number that merely resembles it.
+for (const entry of ccApi.CC_PLANS) {
+  const plan = ccApi.rpPlan(entry.span, entry.tiers, entry.per, entry.step);
+  const chain = ccApi.ccChain(entry.key, "r128", "h64", "near");
+  if (chain.planFactor !== plan.factor)
+    throw new Error(`chain-carry: ${entry.key} reports a plan factor run-plan does not compute`);
+  if (chain.planWaste !== plan.waste)
+    throw new Error(`chain-carry: ${entry.key} reports a plan waste run-plan does not compute`);
+  if (chain.plan.prior !== plan.prior)
+    throw new Error(`chain-carry: ${entry.key} disagrees with run-plan about whether the fit is grid-locked`);
+  ccValues += 3;
+}
+if (ccApi.ccTruth() !== ccApi.rpOptimalN(ccApi.RP_TARGET_FLOPS))
+  throw new Error("chain-carry: the truth has to be run-plan's own optimum at the same 48-hour budget");
+// And the second stage has to be target-config's grid, corner for corner.
+for (const rho of ccApi.TC_RHOS) for (const head of ccApi.TC_HEAD_DIMS) {
+  const predicted = ccApi.rpPlan("s64", "t3", "p7", "g125").fit.predicted;
+  const mine = ccApi.ccCorners(predicted, rho.key, head.key);
+  const theirs = ccApi.tcCandidates(predicted, rho.rho, head.headDim);
+  if (JSON.stringify(mine.rows) !== JSON.stringify(theirs.rows))
+    throw new Error(`chain-carry: the corners at ${rho.key}/${head.key} are not target-config's`);
+  ccValues += mine.rows.length;
+}
+
+// --- C. the four rules, checked against their definitions over every combination --------
+// A selection function can be bent so that the label lies while every arithmetic anchor
+// holds. Each rule is therefore re-derived here from the corner list itself.
+const ccCombos = [];
+for (const span of ccApi.RP_SPANS) for (const tiers of ccApi.RP_TIERS)
+  for (const per of ccApi.RP_PER_TIER) for (const step of ccApi.RP_STEPS) {
+    const plan = ccApi.rpPlan(span.key, tiers.key, per.key, step.key);
+    for (const rho of ccApi.TC_RHOS) for (const head of ccApi.TC_HEAD_DIMS) {
+      const corners = ccApi.tcCandidates(plan.fit.predicted, rho.rho, head.headDim);
+      if (corners.rows.length < 2) continue;
+      ccCombos.push({ plan, corners: corners.rows });
+    }
+  }
+if (ccCombos.length !== 648)
+  throw new Error(`chain-carry: the sweep is 108 plans over 6 shapes, found ${ccCombos.length}`);
+const ccTruthN = ccApi.ccTruth();
+const ccWasteOf = row => ccApi.rpWasteFactor(row.params / ccTruthN);
+for (const { plan, corners } of ccCombos) {
+  const sorted = [...corners].sort((left, right) => left.params - right.params);
+  const picks = {
+    near: ccApi.ccPickCorner(corners, plan.prior, "near"),
+    down: ccApi.ccPickCorner(corners, plan.prior, "down"),
+    up: ccApi.ccPickCorner(corners, plan.prior, "up"),
+    diag: ccApi.ccPickCorner(corners, plan.prior, "diag")
+  };
+  if (picks.down !== sorted[0]) throw new Error("chain-carry: \"always round down\" does not return the smallest corner");
+  if (picks.up !== sorted[sorted.length - 1]) throw new Error("chain-carry: \"always round up\" does not return the largest corner");
+  // The nearest corner is the one target-config sorts to the front -- and it has to really
+  // minimise the distance to N_pred, or the label and the row would come apart.
+  const closest = Math.min(...corners.map(row => Math.abs(row.ratio - 1)));
+  if (Math.abs(picks.near.ratio - 1) > closest + 1e-15)
+    throw new Error("chain-carry: \"the nearest corner\" is not the corner nearest N_pred");
+  if (picks.diag !== (plan.prior ? picks.down : picks.near))
+    throw new Error("chain-carry: the diagnostic rule has to be round-down on a grid-locked fit and nearest otherwise");
+  ccValues += 4;
+}
+
+// --- D. why the diagnosis is allowed to know anything ----------------------------------
+// A grid-locked fit returns the prior exactly, and the prior assumes exponent 0.5 while the
+// truth grows with beta/(alpha+beta). Above the crossing point of the two curves the prior
+// overestimates -- so the direction is derived, not observed. The count has to agree with it.
+const ccLocked = ccCombos.filter(entry => entry.plan.prior);
+const ccFree = ccCombos.filter(entry => !entry.plan.prior);
+const ccLockedHigh = ccLocked.filter(entry => entry.plan.factor > 1).length;
+const ccFreeHigh = ccFree.filter(entry => entry.plan.factor > 1).length;
+if (ccLockedHigh !== ccLocked.length)
+  throw new Error(`chain-carry: the rule leans on every grid-locked fit overestimating, but ${ccLocked.length - ccLockedHigh} do not`);
+if (ccFreeHigh === 0 || ccFreeHigh === ccFree.length)
+  throw new Error("chain-carry: the measuring fits have to show both signs, or a blanket rounding rule would be justified after all");
+if (ccApi.rpPriorN(ccApi.RP_TARGET_FLOPS) <= ccApi.rpOptimalN(ccApi.RP_TARGET_FLOPS))
+  throw new Error("chain-carry: at the 48-hour budget the prior has to sit above the truth -- that is what makes rounding down the correction");
+// Mutation testing turned up the reason the count alone is not enough: on the grid-locked
+// rows `factor > 1` and `factor > 0` select the same 378, because the smallest of them is
+// 1.1629. The comparison is untestable there by construction, so the margin is asserted
+// directly and the branch is knowingly checked rather than silently assumed.
+const ccLockedFactors = ccLocked.map(entry => entry.plan.factor);
+if (Math.min(...ccLockedFactors) < 1.05)
+  throw new Error(`chain-carry: the grid-locked fits are claimed to overestimate with room to spare, smallest is ${fixedNumber(Math.min(...ccLockedFactors), 4)}`);
+if (!ccFree.some(entry => entry.plan.factor < 1))
+  throw new Error("chain-carry: the measuring fits have to include underestimates, or the same comparison would be untestable everywhere");
+// The degeneracy is a finding about the data, not a blemish to hide: a grid-locked fit no
+// longer depends on the data, so the 378 combinations collapse onto very few predictions.
+// The lab prints the number; the guard is what keeps it honest.
+const ccLockedDistinct = new Set(ccLocked.map(entry => Math.round(entry.plan.factor * 1e6))).size;
+if (ccLockedDistinct > 5)
+  throw new Error(`chain-carry: the grid-locked cases were said to collapse onto very few predictions, found ${ccLockedDistinct}`);
+ccValues += ccCombos.length;
+
+// --- B. the errors multiply, and the sum is the wrong arithmetic ------------------------
+// Two directions have to occur among the 648, or "the grid can take the plan error back"
+// would be a claim about one lucky plan.
+let ccCancel = 0, ccCompound = 0, ccBelowPlan = 0, ccAddOverstates = 0;
+for (const { plan, corners } of ccCombos) {
+  const corner = ccApi.ccPickCorner(corners, plan.prior, "near");
+  const total = plan.factor * corner.ratio;
+  if (Math.abs(Math.log(total)) < Math.abs(Math.log(plan.factor))) ccCancel++; else ccCompound++;
+  const real = ccApi.rpWasteFactor(total);
+  if (real < plan.waste) ccBelowPlan++;
+  // How wrong the addition is depends on the case, and a maximum over ratios explodes
+  // wherever the real waste is near zero. The legible statement is a count: in how many
+  // combinations does the sum overstate the real waste by more than half again.
+  const added = plan.waste + ccApi.rpWasteFactor(corner.ratio);
+  if (added > 1.5 * real) ccAddOverstates++;
+}
+if (!ccCancel || !ccCompound)
+  throw new Error("chain-carry: both composition directions have to occur, or the multiplicative claim rests on one case");
+if (!ccBelowPlan)
+  throw new Error("chain-carry: on some plan the real waste has to fall below the plan's own, or the grid never takes anything back");
+// The composed factor really is the product, checked where the two stages are far apart.
+{
+  const chain = ccApi.ccChain("worst", "r128", "h64", "near");
+  if (Math.abs(chain.totalFactor - chain.planFactor * chain.gridFactor) > 1e-12)
+    throw new Error("chain-carry: the total factor has to be the product of the two stages");
+  if (!(chain.totalWaste < chain.planWaste))
+    throw new Error("chain-carry: the worst plan is the lab's example of the grid taking error back");
+  if (!(chain.addedWaste > chain.totalWaste))
+    throw new Error("chain-carry: and the naive sum has to sit above both, or the point of the second ledger is gone");
+  ccValues += 3;
+}
+
+// --- the ranking the lab recommends, as counts -----------------------------------------
+const ccSummary = ccApi.ccSweepData().summary;
+const ccBy = key => ccSummary.find(entry => entry.rule.key === key);
+if (ccBy("diag").worse !== 0)
+  throw new Error(`chain-carry: the recommended rule is claimed never worse than the nearest corner, found ${ccBy("diag").worse}`);
+if (ccBy("diag").better === 0)
+  throw new Error("chain-carry: a rule that is never worse and never better would not be worth a lab");
+if (ccBy("down").worse === 0 || ccBy("up").worse === 0)
+  throw new Error("chain-carry: the two blanket rules have to be worse somewhere, or the diagnosis buys nothing");
+if (!(ccBy("down").worst > ccBy("near").worst))
+  throw new Error("chain-carry: always rounding down is claimed to own the worst single case");
+if (!(ccBy("diag").mean < ccBy("near").mean))
+  throw new Error("chain-carry: the recommended rule has to win on the mean as well");
+// The sweep and the single chain have to be the same arithmetic: a summary computed from a
+// second, drifting copy would rank rules the mode-A ledger does not.
+for (const entry of ccApi.CC_PLANS) for (const rule of ccApi.CC_RULES) {
+  const chain = ccApi.ccChain(entry.key, "r128", "h64", rule.key);
+  const direct = ccApi.rpWasteFactor(chain.chosen.row.params / ccTruthN);
+  if (chain.totalWaste !== direct)
+    throw new Error(`chain-carry: ${entry.key}/${rule.key} shows a waste its own corner does not produce`);
+  ccValues++;
+}
+
+// --- the numbers the lab card promises -------------------------------------------------
+// A renderer's prose is held by `renderer i18n`: change a German string and its English
+// entry stops matching. The lab *card* has no such tether -- its fields are looked up by
+// lab id, so a number in `observe` or `transferAnswer` can drift away from the arithmetic
+// and nothing notices. Mutation testing walked straight through that gap. Both languages
+// carry the same claims in their own number format, so both are bound here.
+{
+  const cardStart = source.indexOf('        id:"chain-carry",title:');
+  if (cardStart < 0) throw new Error("chain-carry: the lab card is gone");
+  const germanCard = source.slice(cardStart, source.indexOf("\n      },", cardStart));
+  const enStart = englishSource.indexOf('"chain-carry": {');
+  if (enStart < 0) throw new Error("chain-carry: the English lab card is gone");
+  const englishCard = englishSource.slice(enStart, englishSource.indexOf("\n    },", enStart));
+
+  const german = (value, digits) => Number(value).toLocaleString("de-DE",
+    { minimumFractionDigits: digits, maximumFractionDigits: digits, useGrouping: false });
+  const best = ccApi.ccChain("best", "r128", "h64", "near");
+  const worst = ccApi.ccChain("worst", "r128", "h64", "near");
+  const claims = [
+    [best.planWaste * 100, 4, "the best plan's own waste"],
+    [best.totalWaste * 100, 4, "what the grid alone makes of it"],
+    [worst.planWaste * 100, 4, "the worst plan's own waste"],
+    [worst.totalWaste * 100, 4, "and what the nearest corner brings it down to"],
+    [Math.min(...ccLockedFactors), 4, "the smallest grid-locked overestimate"],
+    [Math.max(...ccLockedFactors), 4, "the largest grid-locked overestimate"],
+    [ccApi.RP_N_EXPONENT, 6, "the true compute-optimal exponent"]
+  ];
+  for (const [value, digits, why] of claims) {
+    if (!germanCard.includes(german(value, digits)))
+      throw new Error(`chain-carry: the German card names ${why} but not as ${german(value, digits)}`);
+    if (!englishCard.includes(fixedNumber(value, digits)))
+      throw new Error(`chain-carry: the English card names ${why} but not as ${fixedNumber(value, digits)}`);
+    ccValues += 2;
+  }
+  for (const [count, why] of [[ccBy("diag").better, "how often the diagnostic rule wins"],
+    [ccCombos.length, "how many combinations were checked"]]) {
+    if (!germanCard.includes(String(count)) || !englishCard.includes(String(count)))
+      throw new Error(`chain-carry: both cards have to name ${why} as ${count}`);
+    ccValues += 2;
+  }
+  // The claim that survives every rewrite of the numbers: the rule is never worse. If that
+  // ever stops being 0 the sentence in both cards is false, whatever figures stand beside it.
+  if (ccBy("diag").worse !== 0)
+    throw new Error("chain-carry: both cards claim the rule is worse in none of the combinations");
+}
+
+// --- the English side of the prose carries the same numbers ----------------------------
+// `renderer i18n` proves an English entry exists; `english render` proves no German is left
+// on the screen. Neither looks at the figures inside the English text, so a translated
+// sentence can quote a number the app never computes and both stay green -- mutation
+// testing walked through exactly there. Every number in a German string this lab prints has
+// to reappear in its English entry, and no number may be invented on either side. German
+// writes the decimal separator as a comma and English as a point; nothing else differs,
+// because none of these strings groups thousands.
+{
+  const labStart = source.indexOf("    // ---- Lab: chain-carry ");
+  const labEnd = source.indexOf("    // ---- Lab: ablation-controls ");
+  if (labStart < 0 || labEnd < 0) throw new Error("chain-carry: the lab's code block is gone");
+  const labCode = source.slice(labStart, labEnd);
+
+  const germanStrings = new Set();
+  for (const hit of labCode.matchAll(/tr\("((?:[^"\\]|\\.)*)"\)/g)) germanStrings.add(hit[1]);
+  for (const hit of labCode.matchAll(/tr\([^)]*?\?"((?:[^"\\]|\\.)*)":"((?:[^"\\]|\\.)*)"\)/g)) {
+    germanStrings.add(hit[1]); germanStrings.add(hit[2]);
+  }
+  for (const hit of labCode.matchAll(/(?:label|note):"((?:[^"\\]|\\.)*)"/g)) germanStrings.add(hit[1]);
+
+  const numerals = text => (text.match(/\d+(?:[.,]\d+)*/g) || []);
+  let checked = 0, numeric = 0;
+  for (const german of germanStrings) {
+    if (!/\d/.test(german)) continue;
+    const english = pack.ui?.[german];
+    if (typeof english !== "string")
+      throw new Error(`chain-carry: the string "${german.slice(0, 60)}" has no English entry`);
+    if (/\d{1,3}(?:\.\d{3})+/.test(german))
+      throw new Error(`chain-carry: "${german.slice(0, 60)}" groups thousands, which this comparison does not model`);
+    const want = numerals(german).map(token => token.replace(",", ".")).sort();
+    const got = numerals(english).sort();
+    if (JSON.stringify(want) !== JSON.stringify(got))
+      throw new Error(`chain-carry: the English entry for "${german.slice(0, 50)}" carries ${JSON.stringify(got)} where the German carries ${JSON.stringify(want)}`);
+    numeric++;
+    checked += want.length;
+  }
+  if (numeric < 20)
+    throw new Error(`chain-carry: only ${numeric} numeric strings found, the extraction is not seeing the lab's prose`);
+  ccValues += checked;
+}
+console.log(`chain-carry OK: ${ccValues} values, A3's four steps joined into the number it grades -- N_final against the truth, which neither run-plan nor target-config computes; the two errors multiply rather than add (the naive sum overstates the real waste by more than half again in ${ccAddOverstates} of ${ccCombos.length} combinations, and in ${ccBelowPlan} of them the grid pulls the result below the plan's own error -- ${ccCancel} corners move toward the truth against ${ccCompound} away), all four rounding rules re-derived from the corner list in every combination, and the rule that reads run-plan's grid-lock diagnosis better in ${ccBy("diag").better} and worse in ${ccBy("diag").worse} -- earned because ${ccLockedHigh} of ${ccLocked.length} grid-locked fits overestimate (collapsing onto ${ccLockedDistinct} distinct predictions) while the measuring ones split ${ccFreeHigh} of ${ccFree.length}`);
+
 // ---- render coverage: the seven labs that read their sliders from the DOM ------------
 // Ten of the eighteen lab guards render their markup and read the numbers back out of it.
 // Seven could not. Their stage functions reached for document.getElementById themselves,
@@ -6587,6 +6858,149 @@ const renderLabs = [
       [{ rpMode: "tolerance", rpSpan: "s64", rpTiers: "t4", rpPer: "p5", rpStep: "g110", rpFactor: "f050" },
         '<strong data-rptolwaste="1">13.9178 %</strong>',
         "and the chosen row has to reach the ledger above the table"]
+    ]
+  },
+  {
+    id: "chain-carry", entry: "ccStageMarkup", mode: "ccMode", update: "updateChainCarry",
+    names: ["RP_LOSS_E", "RP_LOSS_A", "RP_ALPHA", "RP_LOSS_B", "RP_BETA", "rpLoss",
+      "RP_N_COEFF", "RP_N_EXPONENT", "rpOptimalN", "rpFrontierLoss", "RP_FIT_SECONDS",
+      "RP_TARGET_SECONDS", "RP_THROUGHPUT", "RP_FIT_FLOPS", "RP_TARGET_FLOPS",
+      "RP_PRIOR_RATIO", "rpPriorN", "RP_SPANS", "RP_TIERS", "RP_PER_TIER", "RP_STEPS",
+      "rpSpan", "rpTiersOf", "rpPerTier", "rpStep", "rpLadder", "rpFit", "rpWasteFactor",
+      "rpPlan", "TC_HANDOUT_N", "TC_RHOS", "TC_HEAD_DIMS", "tcRho", "tcHeadDim",
+      "tcContinuousShape", "tcCandidates", "CC_PLANS", "CC_RULES", "ccPlanOf", "ccRuleOf",
+      "ccTruth", "ccCorners", "ccPickCorner", "ccChain", "CC_SWEEP_CACHE", "ccSweepData",
+      "ccInt", "ccSci", "ccPct", "ccSigned", "ccRead", "renderChainCarryChain",
+      "renderChainCarrySweep", "ccStageMarkup"],
+    options: {
+      ccMode: ["chain", "sweep"], ccPlan: "CC_PLANS", ccRho: "TC_RHOS",
+      ccHead: "TC_HEAD_DIMS", ccRule: "CC_RULES", ccSweepRule: "CC_RULES"
+    },
+    // Mode A follows one plan through to one submitted number; mode B sweeps every plan
+    // against every shape and compares the four rules. Nothing the single chain sets may
+    // reach the sweep, or the claim that the sweep ranks the rules would depend on which
+    // chain happened to be on screen.
+    controls: {
+      ccPlan: ["chain"], ccRho: ["chain"], ccHead: ["chain"], ccRule: ["chain"],
+      ccSweepRule: ["sweep"]
+    },
+    anchors: [
+      // The whole lab rests on the two factors multiplying. This one string carries f1,
+      // f2 and their product together, so a renderer that composed them any other way --
+      // adding them, dropping one, using N_pred where N_final belongs -- changes it.
+      [{ ccMode: "chain", ccPlan: "worst", ccRho: "r128", ccHead: "h64", ccRule: "near", ccSweepRule: "diag" },
+        '<strong data-cctotal="1">0.478316 × 1.009748 = 0.482978 ×</strong>',
+        "the plan factor, the grid factor and their product have to be on screen together"],
+      // Waste is not the sum of the two reported wastes, and on the worst plan it is not
+      // even above the plan's own. Both halves are read back in the same state, because
+      // either number alone proves nothing about the relation between them.
+      [{ ccMode: "chain", ccPlan: "worst", ccRho: "r128", ccHead: "h64", ccRule: "near", ccSweepRule: "diag" },
+        '<strong data-ccplanwaste="1">15.6024 %</strong>',
+        "run-plan's own number for this plan has to be the one this lab shows"],
+      [{ ccMode: "chain", ccPlan: "worst", ccRho: "r128", ccHead: "h64", ccRule: "near", ccSweepRule: "diag" },
+        '<strong data-ccwaste="2">15.2279 %</strong>',
+        "and the real waste has to fall below it -- the grid took part of the plan error back"],
+      [{ ccMode: "chain", ccPlan: "worst", ccRho: "r128", ccHead: "h64", ccRule: "near", ccSweepRule: "diag" },
+        '<strong data-ccadded="1">15.6054 %</strong>',
+        "while the sum a reader would form from two separate labs is a third, larger number"],
+      // The other end of the same claim: a plan whose own error is negligible, where the
+      // grid is the entire error rather than a correction to it.
+      [{ ccMode: "chain", ccPlan: "best", ccRho: "r128", ccHead: "h64", ccRule: "near", ccSweepRule: "diag" },
+        '<strong data-ccplanwaste="1">0.0002 %</strong>',
+        "the best plan's own error is three ten-thousandths of the run"],
+      [{ ccMode: "chain", ccPlan: "best", ccRho: "r128", ccHead: "h64", ccRule: "near", ccSweepRule: "diag" },
+        '<strong data-ccwaste="2">0.0191 %</strong>',
+        "and the grid alone multiplies it by roughly ninety -- the dominance has flipped"],
+      // The corner the rule picks, read back as an identity and not only as a number:
+      // width and layers together pin which row of the table was selected.
+      [{ ccMode: "chain", ccPlan: "worst", ccRho: "r128", ccHead: "h64", ccRule: "up", ccSweepRule: "diag" },
+        '<strong data-ccfinal="1">N_final = 431,947,776 · d_model = 1,664 · n_layer = 13</strong>',
+        "rounding up on the worst plan has to land on the furthest corner"],
+      [{ ccMode: "chain", ccPlan: "worst", ccRho: "r128", ccHead: "h64", ccRule: "up", ccSweepRule: "diag" },
+        '<strong data-ccwaste="1">12.2680 %</strong>',
+        "and that corner is the cheapest of the four, three points below the nearest one"],
+      // The diagnostic rule: it has to move on a grid-locked plan and stand still on a
+      // measuring one. Both directions are anchored, or a rule that ignores the diagnosis
+      // and a rule that always rounds down would be indistinguishable here.
+      [{ ccMode: "chain", ccPlan: "locked", ccRho: "r128", ccHead: "h64", ccRule: "near", ccSweepRule: "diag" },
+        '<strong data-ccwaste="1">4.3934 %</strong>',
+        "the nearest corner on a grid-locked plan rounds around an already inflated N_pred"],
+      [{ ccMode: "chain", ccPlan: "locked", ccRho: "r128", ccHead: "h64", ccRule: "diag", ccSweepRule: "diag" },
+        '<strong data-ccfinal="1">N_final = 1,146,617,856 · d_model = 2,304 · n_layer = 18</strong>',
+        "and the diagnostic rule has to take the lower corner there"],
+      [{ ccMode: "chain", ccPlan: "locked", ccRho: "r128", ccHead: "h64", ccRule: "diag", ccSweepRule: "diag" },
+        '<strong data-ccwaste="1">3.2639 %</strong>',
+        "which buys 1.13 points of the run for reading a number that is already on screen"],
+      [{ ccMode: "chain", ccPlan: "best", ccRho: "r128", ccHead: "h64", ccRule: "diag", ccSweepRule: "diag" },
+        '<strong data-ccfinal="1">N_final = 805,306,368 · d_model = 2,048 · n_layer = 16</strong>',
+        "on a measuring plan the same rule has to fall back to the nearest corner"],
+      // The verdict follows the gap to the cheapest corner, not the mode or the plan.
+      [{ ccMode: "chain", ccPlan: "locked", ccRho: "r128", ccHead: "h64", ccRule: "near", ccSweepRule: "diag" },
+        "Diese Regel lässt hier etwas liegen.",
+        "a rule that misses the cheapest corner has to say so"],
+      [{ ccMode: "chain", ccPlan: "locked", ccRho: "r128", ccHead: "h64", ccRule: "diag", ccSweepRule: "diag" },
+        "Diese Regel trifft hier die billigste Ecke.",
+        "and the same lab has to change that verdict when the rule does hit it"],
+      // The grid-locked explanation is the lab's recommendation; it has to follow the
+      // plan's diagnosis, not the rounding rule the reader happens to have selected.
+      [{ ccMode: "chain", ccPlan: "locked", ccRho: "r128", ccHead: "h64", ccRule: "near", ccSweepRule: "diag" },
+        "Dieser Plan ist rasterfest",
+        "the grid-locked reading has to appear on the grid-locked plan"],
+      [{ ccMode: "chain", ccPlan: "best", ccRho: "r128", ccHead: "h64", ccRule: "near", ccSweepRule: "diag" },
+        "Dieser Plan hat wirklich gemessen",
+        "and the measuring reading on the measuring one"],
+      // Mode B: the ranking of the four rules, and the one column the recommendation
+      // rests on -- how often each rule is worse than the nearest corner.
+      // Mutation testing found these two: the grid column could print the total and the
+      // total column the grid, and every ledger anchor still held -- the table would then
+      // have shown a corner 2 % from N_pred sitting 52 % from the truth, in the same cell.
+      // Two dependent cells of one row have to be read back together, in a state where the
+      // two numbers are far apart, or neither proves the relation between them.
+      [{ ccMode: "chain", ccPlan: "worst", ccRho: "r128", ccHead: "h64", ccRule: "near", ccSweepRule: "diag" },
+        '<td data-ccrowgrid="1664-12">1.009748 ×</td><td data-ccrowtotal="1664-12">0.482978 ×</td>',
+        "the grid factor and the total factor of one row have to be that row's two numbers"],
+      [{ ccMode: "chain", ccPlan: "worst", ccRho: "r128", ccHead: "h64", ccRule: "near", ccSweepRule: "diag" },
+        '<td data-ccrowgrid="1664-13">1.093894 ×</td><td data-ccrowtotal="1664-13">0.523226 ×</td><td data-ccrowwaste="1664-13">12.2680 % ◀</td>',
+        "and on the cheapest row all three have to agree, marker included"],
+      [{ ccMode: "chain", ccPlan: "locked", ccRho: "r128", ccHead: "h64", ccRule: "near", ccSweepRule: "diag" },
+        '<td data-ccrowgrid="2304-18">0.955515 ×</td><td data-ccrowtotal="2304-18">1.388920 ×</td>',
+        "a grid factor below one against a total above one is the composition in one row"],
+      [{ ccMode: "sweep", ccPlan: "best", ccRho: "r128", ccHead: "h64", ccRule: "near", ccSweepRule: "diag" },
+        '<strong data-ccsweepn="1">648</strong>',
+        "the sweep has to cover every plan against every shape"],
+      [{ ccMode: "sweep", ccPlan: "best", ccRho: "r128", ccHead: "h64", ccRule: "near", ccSweepRule: "diag" },
+        '<strong data-ccsweepcmp="1">309 besser · 339 gleich · 0 schlechter</strong>',
+        "the diagnostic rule is strictly better -- never worse is the claim, and it is a count"],
+      [{ ccMode: "sweep", ccPlan: "best", ccRho: "r128", ccHead: "h64", ccRule: "near", ccSweepRule: "diag" },
+        '<td data-ccruleworse="down">196</td>',
+        "while always rounding down is worse in 196 of them"],
+      [{ ccMode: "sweep", ccPlan: "best", ccRho: "r128", ccHead: "h64", ccRule: "near", ccSweepRule: "diag" },
+        '<td data-ccruleworse="up">449</td>',
+        "and always rounding up in 449 -- the two blanket rules are not free"],
+      [{ ccMode: "sweep", ccPlan: "best", ccRho: "r128", ccHead: "h64", ccRule: "near", ccSweepRule: "diag" },
+        '<td data-ccruleworst="down">25.8705 %</td>',
+        "rounding down also owns the worst single case in the lab"],
+      [{ ccMode: "sweep", ccPlan: "best", ccRho: "r128", ccHead: "h64", ccRule: "near", ccSweepRule: "diag" },
+        '<td data-ccrulemean="diag">2.2232 %</td>',
+        "and the diagnostic rule owns the lowest mean"],
+      // Why the diagnosis knows anything: the grid-locked cases all point one way. The
+      // degenerate part of that is printed beside it rather than left implicit.
+      [{ ccMode: "sweep", ccPlan: "best", ccRho: "r128", ccHead: "h64", ccRule: "near", ccSweepRule: "diag" },
+        '<strong data-cclockedhigh="1">378 von 378</strong>',
+        "every grid-locked combination overestimates -- that is what makes the rule safe"],
+      [{ ccMode: "sweep", ccPlan: "best", ccRho: "r128", ccHead: "h64", ccRule: "near", ccSweepRule: "diag" },
+        '<strong data-ccfreehigh="1">78 von 270</strong>',
+        "and the measuring ones do not, so no blanket direction is available there"],
+      [{ ccMode: "sweep", ccPlan: "best", ccRho: "r128", ccHead: "h64", ccRule: "near", ccSweepRule: "diag" },
+        '<strong data-cclockeddistinct="1">3</strong>',
+        "the 378 collapse onto 3 distinct predictions, and the lab has to print that itself"]
+    ],
+    forbid: [
+      // The measuring plan must not be rounded down by the diagnostic rule; anchoring the
+      // corner it does take leaves open that the low corner is printed somewhere too.
+      [{ ccMode: "chain", ccPlan: "best", ccRho: "r128", ccHead: "h64", ccRule: "diag", ccSweepRule: "diag" },
+        '<strong data-ccfinal="1">N_final = 761,266,176',
+        "the diagnostic rule must not round a measuring plan down"]
     ]
   },
   {
