@@ -45,7 +45,12 @@ MIN_TERMS = 8
 
 def entry_span(text, marker, start=0):
     i = text.index(marker, start)
-    j = text.index("{", i)
+    if marker.startswith('"id":'):
+        j = text.rindex("{", start, i)
+        lo = j
+    else:
+        j = text.index("{", i)
+        lo = i
     depth, k, quote, esc = 0, j, "", False
     while k < len(text):
         c = text[k]
@@ -63,7 +68,7 @@ def entry_span(text, marker, start=0):
         elif c == "}":
             depth -= 1
             if depth == 0:
-                return i, k + 1
+                return lo, k + 1
         k += 1
     raise ValueError(f"unbalanced entry for {marker!r}")
 
