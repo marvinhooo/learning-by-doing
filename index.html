@@ -6401,14 +6401,15 @@
     function prioritizedReviewCards(limit=Infinity,scope=reviewScope){return scopedReviewCards(scope).map((card,order)=>({card,order,record:user.reviewState[card.id]})).sort((a,b)=>REVIEW_POLICY.compare(a,b)).slice(0,limit).map(entry=>entry.card)}
     function reviewStats(scope="all"){const cards=scopedReviewCards(scope),records=cards.map(card=>user.reviewState[card.id]);return{eligible:cards.length,reviewed:records.filter(record=>REVIEW_POLICY.attempted(record)).length,newCards:records.filter(record=>!REVIEW_POLICY.attempted(record)).length,again:records.filter(record=>record?.lastResult==="again").length,hard:records.filter(record=>record?.lastResult==="hard").length,good:records.filter(record=>record?.lastResult==="good").length}}
     function lecturePrerequisitesMarkup(guide,lectureId=LECTURE_IDS.find(id=>LECTURE_GUIDES[id]===guide)||""){
-      // A third of all groundwork entries point at a concept this same lecture teaches.
-      // The page they open is the right one, but calling it groundwork without saying so
-      // sends the reader into the lecture while they think they are still before it.
+      // 15 of the 45 groundwork entries link to a concept this same lecture teaches, so
+      // "what you need first" could drop the reader into the middle of the lecture under a
+      // label that promised the opposite. Nothing is removed and no section is added: the
+      // card says which of the two it is and the button says where it goes.
       return `<div class="concept-orientation-grid">${guide.prereqs.map(prereq=>{
         const inside=prereq.concept?guide.concepts.indexOf(prereq.concept):-1;
-        const note=inside>=0?`<p class="concept-position">${currentLanguage==="en"?`This lecture teaches it itself · core concept ${inside+1} of ${guide.concepts.length}`:`Diese Lecture lehrt sie selbst · Kernkonzept ${inside+1} von ${guide.concepts.length}`}</p>`:"";
+        const where=inside>=0?`<p class="concept-position">${currentLanguage==="en"?`Core concept ${inside+1} of ${guide.concepts.length} in this lecture`:`Kernkonzept ${inside+1} von ${guide.concepts.length} dieser Lecture`}</p>`:"";
         const open=inside>=0?(currentLanguage==="en"?"Open core concept":"Kernkonzept öffnen"):(currentLanguage==="en"?"Open refresher":"Grundlage einfach öffnen");
-        return `<article class="concept-orientation-card"><h3>${esc(localeValue(prereq.label))}</h3><p>${esc(localeValue(prereq.explain))}</p>${note}${prereq.concept?`<button class="button ghost small" data-open-concept="${prereq.concept}" data-lecture-context="${lectureId}">${open}</button>`:""}</article>`;
+        return `<article class="concept-orientation-card"><h3>${esc(localeValue(prereq.label))}</h3><p>${esc(localeValue(prereq.explain))}</p>${where}${prereq.concept?`<button class="button ghost small" data-open-concept="${prereq.concept}" data-lecture-context="${lectureId}">${open}</button>`:""}</article>`;
       }).join("")}</div>`;
     }
     function countWords(text){return String(text==null?"":text).trim().split(/\s+/).filter(Boolean).length;}
