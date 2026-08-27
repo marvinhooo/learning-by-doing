@@ -9,8 +9,9 @@ where the text is hardest. This tool writes real lists into both language files.
 Three subcommands:
 
     python3 scripts/concept-terms.py todo
-        Lists every concept that still has no hand-written terms, in lecture order,
-        with how many the automatic fallback finds for it today.
+        Lists every concept that still has no hand-written terms: first the ones a
+        lecture references, in lecture order, then the nine self-study prerequisites
+        that belong to no lecture and are reached from the assignment pages.
 
     python3 scripts/concept-terms.py check <concept-id> [...]
         For each concept: which abbreviations the page uses without expanding them first.
@@ -206,14 +207,28 @@ def auto_terms(src, d):
 # ---- subcommands -------------------------------------------------------------------------
 
 def cmd_todo():
+    # Nine concepts belong to no lecture -- they are the self-study prerequisites the
+    # assignment pages point at (matmul, probability, logs, cross-entropy, adamw, ...).
+    # Listing only what the lecture guides reference would call the job finished while
+    # the most basic pages in the course still had no terms, so they are listed too.
     src = DE_FILE.read_text(encoding="utf-8")
     data = concepts(src)
-    rows = [(lid, cid, auto_terms(src, data[cid]))
-            for lid, cid in lecture_order(src)
-            if cid in data and not data[cid].get("terms")]
-    print(f"{len(rows)} concepts still without a hand-written term list, in lecture order:\n")
-    for lid, cid, n in rows:
-        print(f"  L{lid[1:]}  {cid:30} automatic fallback finds {n}{'   <-- shows nothing today' if n == 0 else ''}")
+    ordered = [cid for _, cid in lecture_order(src)]
+    lectures = {cid: lid for lid, cid in lecture_order(src)}
+    open_ids = [cid for cid in data if not data[cid].get("terms")]
+    in_lecture = [cid for cid in ordered if cid in open_ids]
+    outside = sorted(cid for cid in open_ids if cid not in lectures)
+    print(f"{len(open_ids)} concepts still without a hand-written term list.\n")
+    print(f"{len(in_lecture)} of them appear in a lecture, in lecture order:\n")
+    for cid in in_lecture:
+        n = auto_terms(src, data[cid])
+        print(f"  L{lectures[cid][1:]}  {cid:30} automatic fallback finds {n}{'   <-- shows nothing today' if n == 0 else ''}")
+    if outside:
+        print(f"\n{len(outside)} belong to no lecture -- self-study prerequisites reached from the")
+        print("assignment pages. They are the most basic pages in the course, so do these FIRST:\n")
+        for cid in outside:
+            n = auto_terms(src, data[cid])
+            print(f"  --   {cid:30} automatic fallback finds {n}{'   <-- shows nothing today' if n == 0 else ''}")
 
 
 def cmd_check(ids):
