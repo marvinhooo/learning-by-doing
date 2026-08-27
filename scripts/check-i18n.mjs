@@ -2669,6 +2669,34 @@ const surfaced = new Set([...selfStudyByAssignment.values()].flatMap(ids => [...
 if (!surfaced.size) throw new Error("assignment self-study: no assignment surfaces a self-study concept any more, so the section renders nowhere");
 for (const id of surfaced) if (!selfStudyConcepts.includes(id)) throw new Error(`assignment self-study: ${id} is needed by a problem but missing from the assignment-only list`);
 console.log(`assignment self-study OK: ${surfaced.size} concepts no lecture teaches, surfaced on ${selfStudyByAssignment.size} assignment pages`);
+// The practice link beside a self-study concept. The map is hand-written because labs carry no
+// concept list, so it is exactly the kind of table that rots silently: a renamed lab would turn
+// into a dead button, and a concept that quietly leaves the self-study set would keep a link
+// that belongs on a lecture page instead. Both are checked, and so is the one concept that has
+// no lab -- if a lab ever covers it, this fails and the decision gets taken deliberately.
+{
+  const mapText = source.slice(source.indexOf("const SELF_STUDY_LABS="), source.indexOf("\n", source.indexOf("const SELF_STUDY_LABS=")));
+  if (!mapText) throw new Error("assignment self-study: the concept-to-lab map is gone");
+  const pairs = [...mapText.matchAll(/"([a-z0-9-]+)":"([a-z0-9-]+)"/g)].map(hit => [hit[1], hit[2]]);
+  if (!pairs.length) throw new Error("assignment self-study: the concept-to-lab map is empty");
+  const labIds = new Set(base.labs.map(lab => lab.id));
+  for (const [conceptId, labId] of pairs) {
+    if (!selfStudyConcepts.includes(conceptId))
+      throw new Error(`assignment self-study: ${conceptId} has a practice lab but is not a self-study concept -- it belongs on a lecture page now`);
+    if (!labIds.has(labId))
+      throw new Error(`assignment self-study: ${conceptId} points at ${labId}, which is not a lab -- the button would be dead`);
+  }
+  const withoutLab = selfStudyConcepts.filter(id => !pairs.some(pair => pair[0] === id));
+  if (withoutLab.length !== 1 || withoutLab[0] !== "lm-objective")
+    throw new Error(`assignment self-study: the concepts with no practice lab are ${JSON.stringify(withoutLab)}, which is not the documented state -- decide the placement rather than letting the list drift`);
+  // and the renderer has to actually use the map, or the table above proves nothing
+  const renderer = source.slice(source.indexOf("function assignmentSelfStudyConcepts"), source.indexOf("function renderAssignmentDetail"));
+  for (const required of ["SELF_STUDY_LABS[conceptId]", "data-open-lab", "entry.lab"])
+    if (!renderer.includes(required))
+      throw new Error(`assignment self-study: the practice link must stay data-driven (missing ${required})`);
+  console.log(`assignment self-study practice OK: ${pairs.length} of ${selfStudyConcepts.length} concepts no lecture teaches now offer the lab that computes them, ${withoutLab.length} deliberately without one`);
+}
+
 const transformerModule = base.modules.find(module => module.id === "transformer");
 const initIndex = transformerModule?.concepts.indexOf("parameter-initialization") ?? -1;
 const rmsIndex = transformerModule?.concepts.indexOf("rmsnorm") ?? -1;
@@ -6704,6 +6732,401 @@ for (const entry of ccApi.CC_PLANS) for (const rule of ccApi.CC_RULES) {
 }
 console.log(`chain-carry OK: ${ccValues} values, A3's four steps joined into the number it grades -- N_final against the truth, which neither run-plan nor target-config computes; the two errors multiply rather than add (the naive sum overstates the real waste by more than half again in ${ccAddOverstates} of ${ccCombos.length} combinations, and in ${ccBelowPlan} of them the grid pulls the result below the plan's own error -- ${ccCancel} corners move toward the truth against ${ccCompound} away), all four rounding rules re-derived from the corner list in every combination, and the rule that reads run-plan's grid-lock diagnosis better in ${ccBy("diag").better} and worse in ${ccBy("diag").worse} -- earned because ${ccLockedHigh} of ${ccLocked.length} grid-locked fits overestimate (collapsing onto ${ccLockedDistinct} distinct predictions) while the measuring ones split ${ccFreeHigh} of ${ccFree.length}`);
 
+// ---- causal-invariance ---------------------------------------------------------
+// `causal-mask` decides two of A1's largest problems -- scaled_dot_product_attention and
+// multihead_self_attention -- and no lecture teaches it, so it reaches the reader only
+// through the assignment page's self-study section. Its concept page names four wrong
+// implementations and A1's own mission names the test ("test causal invariance -- a change
+// to a future token must not alter earlier logits"). Nothing computed either half.
+//
+// The reference below is typed from those definitions rather than reused from the app: a
+// mask that is allowed where j <= i, added to the scores before softmax, and an invariance
+// probe that changes one token and measures the largest movement at earlier positions.
+const cmApi = renderApi(["CM_VOCAB", "CM_HEAD_DIM", "CM_LOGIT_SCALE", "CM_SENTINEL",
+  "CM_SEQUENCE", "CM_LENGTHS", "CM_VARIANTS", "CM_DEPTHS", "cmLengthOf", "cmVariantOf",
+  "cmDepthOf", "cmTokens", "cmQK", "cmRawScores", "cmAllowed", "cmSoftmax", "cmAttention",
+  "cmMass", "cmLoss", "cmRowSumDeviation", "cmNaNCount", "cmInvariance", "cmUnmaskedGap",
+  "cmCoverage", "cmProbeSweep", "cmNum", "cmSci", "cmRead",
+  "renderCausalInvarianceTests", "renderCausalInvarianceLoss", "cmStageMarkup"], {});
+let cmValues = 0, cmMarginLow = 0;
+
+// --- the mask itself, typed from the concept page's own sentence ---------------------
+// "M[i,j] = allowed exactly when j <= i". Every variant is a named deviation from it, and
+// each deviation is spelled out here instead of read back from the app.
+const cmRefAllowed = {
+  correct: (i, j) => j <= i,
+  after: (i, j) => j <= i,
+  flipped: (i, j) => j >= i,
+  "strict-inf": (i, j) => j < i,
+  "strict-big": (i, j) => j < i
+};
+for (const variant of cmApi.CM_VARIANTS) {
+  for (let i = 0; i < 8; i++) for (let j = 0; j < 8; j++) {
+    if (cmApi.cmAllowed(variant.key, i, j) !== cmRefAllowed[variant.key](i, j))
+      throw new Error(`causal-invariance: ${variant.key} disagrees with its own definition at i=${i}, j=${j}`);
+    cmValues++;
+  }
+}
+// The two j < i variants must build the identical triangle -- the whole point is that they
+// differ only in the sentinel, so a reader cannot tell them apart from the mask picture.
+for (let i = 0; i < 8; i++) for (let j = 0; j < 8; j++)
+  if (cmApi.cmAllowed("strict-inf", i, j) !== cmApi.cmAllowed("strict-big", i, j))
+    throw new Error("causal-invariance: the two j < i variants must share one triangle, or the lab's point is gone");
+
+// --- softmax, typed again ------------------------------------------------------------
+function cmRefSoftmax(row) {
+  const top = Math.max(...row);
+  if (!Number.isFinite(top)) return row.map(() => NaN);
+  const weights = row.map(value => Math.exp(value - top));
+  const total = weights.reduce((sum, value) => sum + value, 0);
+  return weights.map(value => value / total);
+}
+// --- the three tests, each re-derived from what it claims to measure -------------------
+for (const length of cmApi.CM_LENGTHS.map(entry => entry.length)) {
+  const scores = cmApi.cmRawScores(length);
+  for (const variant of cmApi.CM_VARIANTS) {
+    const built = cmApi.cmAttention(length, variant.key);
+    for (let i = 0; i < length; i++) {
+      let want;
+      if (variant.key === "after") {
+        want = cmRefSoftmax(scores[i]).map((weight, j) => (j <= i ? weight : 0));
+      } else {
+        const sentinel = variant.key === "strict-big" ? -1e9 : -Infinity;
+        want = cmRefSoftmax(scores[i].map((value, j) =>
+          cmRefAllowed[variant.key](i, j) ? value : value + sentinel));
+      }
+      for (let j = 0; j < length; j++) {
+        const got = built[i][j];
+        const ok = Number.isFinite(want[j]) ? Math.abs(got - want[j]) < 1e-12 : !Number.isFinite(got);
+        if (!ok) throw new Error(`causal-invariance: ${variant.key} row ${i} col ${j} at T=${length} is ${got}, the definition gives ${want[j]}`);
+        cmValues++;
+      }
+    }
+  }
+}
+
+// --- the coverage matrix: the claim the lab is built on --------------------------------
+// Each cell is asserted by name. A lab that quietly re-labels one of these is a lab that
+// teaches the wrong debugging rule, and no arithmetic guard above would notice.
+const cmVerdicts = (length, depth, probe) => Object.fromEntries(cmApi.cmCoverage(length, depth, probe)
+  .map(entry => [entry.variant.key, {
+    rowSum: entry.rowSum > 1e-9 ? "fail" : "pass",
+    finite: entry.nan > 0 ? "fail" : "pass",
+    invariance: entry.invariance.verdict,
+    loss: entry.loss.mean
+  }]));
+for (const { length } of cmApi.CM_LENGTHS) {
+  for (let probe = 1; probe < length; probe++) {
+    const full = cmVerdicts(length, "all", probe);
+    // The correct mask passes all three, always.
+    for (const test of ["rowSum", "finite", "invariance"])
+      if (full.correct[test] !== "pass")
+        throw new Error(`causal-invariance: the correct mask fails ${test} at T=${length}, p=${probe}`);
+    // The flipped triangle is the one the named test really catches.
+    if (full.flipped.invariance !== "fail")
+      throw new Error(`causal-invariance: the flipped triangle has to fail causal invariance at T=${length}, p=${probe}`);
+    // Masking after softmax is perfectly causal and breaks only the row sum. This is the
+    // first of the two the named test misses, and the reason the row sum stands beside it.
+    if (full.after.invariance !== "pass" || full.after.rowSum !== "fail" || full.after.finite !== "pass")
+      throw new Error(`causal-invariance: "masked after softmax" must pass invariance and fail only the row sum at T=${length}, p=${probe}`);
+    // The loud sentinel fails on finiteness and has no invariance verdict at all -- a NaN
+    // model cannot be probed, and reporting that as a pass would be the worse lie.
+    if (full["strict-inf"].finite !== "fail" || full["strict-inf"].invariance !== "none")
+      throw new Error(`causal-invariance: the -Infinity variant must fail finiteness and return no invariance verdict at T=${length}, p=${probe}`);
+    if (Number.isFinite(full["strict-inf"].loss))
+      throw new Error("causal-invariance: the -Infinity variant cannot have a finite loss");
+    // The silent sentinel passes both structural tests and fails only the full-depth probe.
+    if (full["strict-big"].rowSum !== "pass" || full["strict-big"].finite !== "pass")
+      throw new Error(`causal-invariance: the -1e9 variant has to pass both structural tests, or it would not be silent`);
+    if (full["strict-big"].invariance !== "fail")
+      throw new Error(`causal-invariance: the -1e9 variant has to fail the full-depth probe at T=${length}, p=${probe}`);
+    cmValues += 8;
+  }
+}
+// --- the depth split: the finding that makes the lab worth doing ------------------------
+// Broken is row 0 alone, so a probe that looks only at p-1 sees the violation at p = 1 and
+// never again. Both halves are asserted: it must fire at p = 1 and be silent past it, or
+// the narrow test would be either useless or equivalent and the lesson would be empty.
+let cmNarrowBlind = 0, cmWideCaught = 0;
+for (const { length } of cmApi.CM_LENGTHS) {
+  const sweep = cmApi.cmProbeSweep(length, "strict-big");
+  for (const row of sweep) {
+    if (row.all.verdict !== "fail")
+      throw new Error(`causal-invariance: the full-depth probe has to catch the -1e9 variant at p=${row.probe}, T=${length}`);
+    cmWideCaught++;
+    const expected = row.probe === 1 ? "fail" : "pass";
+    if (row.prev.verdict !== expected)
+      throw new Error(`causal-invariance: the p-1 probe at p=${row.probe}, T=${length} is ${row.prev.verdict}, the geometry says ${expected}`);
+    if (row.probe > 1) {
+      if (row.prev.worst !== 0)
+        throw new Error(`causal-invariance: the p-1 probe has to be exactly blind past p = 1, measured ${row.prev.worst}`);
+      cmNarrowBlind++;
+    }
+    cmValues += 2;
+  }
+}
+if (!cmNarrowBlind) throw new Error("causal-invariance: the narrow probe is never blind, so the depth split teaches nothing");
+// And the two depths have to agree on the correct mask, or the split would look like noise.
+for (const { length } of cmApi.CM_LENGTHS) for (let probe = 1; probe < length; probe++)
+  for (const depth of ["all", "prev"])
+    if (cmApi.cmInvariance(length, "correct", probe, depth).verdict !== "pass")
+      throw new Error("causal-invariance: the correct mask has to pass at both depths");
+
+// --- why the 1e-9 threshold is not a tuning knob ------------------------------------------
+// Mutation testing loosened it to 1e-3 and nothing moved. That is not a missing guard but a
+// property of the arithmetic, and the honest response is to measure the property rather than
+// to swap the mutation for a luckier one. Masking is exact: a forbidden position contributes
+// exactly zero to the mass, so a passing probe reads 0 and not "almost 0". There is no grey
+// zone in float64 at all, and every threshold strictly between 0 and the smallest real
+// violation gives identical verdicts. If that ever stops holding -- an approximation creeping
+// into the mask, a sentinel that no longer cancels -- this fails and the constant has to be
+// argued for instead of assumed.
+{
+  const violations = [], passes = [];
+  for (const { length } of cmApi.CM_LENGTHS) for (const variant of cmApi.CM_VARIANTS)
+    for (let probe = 1; probe < length; probe++) for (const depth of ["all", "prev"]) {
+      const result = cmApi.cmInvariance(length, variant.key, probe, depth);
+      if (result.verdict === "fail") violations.push(result.worst);
+      else if (result.verdict === "pass") passes.push(result.worst);
+    }
+  if (!violations.length || !passes.length)
+    throw new Error("causal-invariance: the probe has to produce both verdicts, or the threshold is untestable by construction");
+  for (const value of passes)
+    if (value !== 0)
+      throw new Error(`causal-invariance: a passing probe measured ${value} rather than exactly 0 -- masking is supposed to be exact, and the threshold would become a real choice`);
+  const smallest = Math.min(...violations);
+  if (!(smallest > 1e-3))
+    throw new Error(`causal-invariance: the smallest real violation is ${smallest}, close enough to the threshold that its value starts to matter`);
+  cmValues += violations.length + passes.length;
+  cmMarginLow = smallest;
+}
+
+// --- why row 0 is broken: shift invariance, derived rather than observed -----------------
+// softmax(x + c) = softmax(x). A fully masked row adds the same constant everywhere, so it
+// returns the *unmasked* distribution. The gap has to be floating-point noise and nothing
+// more -- if it were a real difference the lab's explanation would be wrong.
+for (const { length } of cmApi.CM_LENGTHS) {
+  const gap = cmApi.cmUnmaskedGap(length);
+  if (!(gap.gap < 1e-6))
+    throw new Error(`causal-invariance: row 0 under -1e9 is claimed to be the unmasked row, measured gap ${gap.gap}`);
+  if (gap.gap === 0)
+    throw new Error("causal-invariance: an exactly zero gap would mean the sentinel was never added");
+  // and it really is a distribution over the whole sequence, future included
+  const total = gap.masked.reduce((sum, value) => sum + value, 0);
+  if (Math.abs(total - 1) > 1e-12)
+    throw new Error("causal-invariance: the silently unmasked row still has to sum to 1, that is why it is silent");
+  if (!(gap.masked[length - 1] > 0.01))
+    throw new Error("causal-invariance: row 0 has to put real mass on the last position, or 'it reads the future' is overstated");
+  cmValues += 3;
+}
+// The same row with -Infinity is NaN. The pair is the lab's argument for the loud sentinel.
+for (const { length } of cmApi.CM_LENGTHS) {
+  if (!(cmApi.cmNaNCount(length, "strict-inf") >= length))
+    throw new Error("causal-invariance: the -Infinity variant has to produce a whole NaN row");
+  if (cmApi.cmNaNCount(length, "strict-big") !== 0)
+    throw new Error("causal-invariance: the -1e9 variant must produce no NaN at all, that is the point");
+  cmValues += 2;
+}
+
+// --- the loss ranking: the lab's headline, and the claim most worth disbelieving ---------
+// Three of the four broken masks look better than the correct one, and the fourth has no
+// loss at all. Re-derived from the definition: the logit of a token is the attention mass
+// on positions holding it, and the loss is the negative log of the softmax of that.
+function cmRefLoss(length, variantKey) {
+  const tokens = cmApi.CM_SEQUENCE.slice(0, length);
+  const attention = cmApi.cmAttention(length, variantKey);
+  const per = [];
+  for (let i = 0; i < length - 1; i++) {
+    const mass = new Array(cmApi.CM_VOCAB).fill(0);
+    for (let j = 0; j < length; j++) mass[tokens[j]] += attention[i][j];
+    const distribution = cmRefSoftmax(mass.map(value => value * cmApi.CM_LOGIT_SCALE));
+    per.push(-Math.log(distribution[tokens[i + 1]]));
+  }
+  return per;
+}
+let cmLooksBetter = 0, cmEvaluable = 0;
+for (const { length } of cmApi.CM_LENGTHS) {
+  const correct = cmApi.cmLoss(length, "correct");
+  for (const variant of cmApi.CM_VARIANTS) {
+    const reference = cmRefLoss(length, variant.key), built = cmApi.cmLoss(length, variant.key);
+    for (let i = 0; i < reference.length; i++) {
+      const ok = Number.isFinite(reference[i])
+        ? Math.abs(built.per[i] - reference[i]) < 1e-12
+        : !Number.isFinite(built.per[i]);
+      if (!ok) throw new Error(`causal-invariance: ${variant.key} loss at position ${i}, T=${length} is ${built.per[i]}, the definition gives ${reference[i]}`);
+      cmValues++;
+    }
+    if (variant.key === "correct" || !built.finite) continue;
+    cmEvaluable++;
+    if (built.mean < correct.mean) cmLooksBetter++;
+    else throw new Error(`causal-invariance: ${variant.key} is claimed to look better than the correct mask at T=${length}, measured ${built.mean} against ${correct.mean}`);
+  }
+  // The headline, stated as the lab states it: the correct mask is the worst of the finite ones.
+  const finite = cmApi.CM_VARIANTS.map(variant => cmApi.cmLoss(length, variant.key))
+    .filter(entry => entry.finite).map(entry => entry.mean);
+  if (correct.mean !== Math.max(...finite))
+    throw new Error(`causal-invariance: at T=${length} the correct mask is not the highest loss, so the lab's warning is false`);
+  cmValues++;
+}
+if (cmLooksBetter !== cmEvaluable || !cmEvaluable)
+  throw new Error("causal-invariance: the claim is that every evaluable broken variant looks better, and it has to be all of them");
+// The leak has to be a large effect, or "not narrowly" in the prose is an overstatement.
+const cmLeakRatio = cmApi.cmLoss(6, "correct").mean / cmApi.cmLoss(6, "flipped").mean;
+if (!(cmLeakRatio > 2))
+  throw new Error(`causal-invariance: the flipped triangle is claimed to be far better on loss, measured only ${cmLeakRatio}x`);
+cmValues++;
+
+// --- where NaN is allowed to reach the screen, and where it is not ----------------------
+// `render coverage` can only say "a NaN appears somewhere" for this lab, because every state
+// lists the -Infinity variant in a table. The useful half is which cell holds it. A NaN that
+// escaped into another variant's row would be a wrong number under a correct label.
+{
+  const cmStates = [];
+  for (const mode of ["tests", "loss"]) for (const variant of cmApi.CM_VARIANTS)
+    for (const length of cmApi.CM_LENGTHS) for (const depth of cmApi.CM_DEPTHS)
+      for (const probe of ["1", "2", "3"])
+        cmStates.push({ cmMode: mode, cmVariant: variant.key, cmLength: length.key,
+          cmProbe: probe, cmDepth: depth.key, cmLossLength: length.key });
+  const cmOwner = suffix => (suffix.startsWith("strict-inf") ? "strict-inf" : suffix.split("-")[0]);
+  for (const state of cmStates) {
+    const html = cmApi.cmStageMarkup(state);
+    for (const cell of html.matchAll(/<(?:td|strong) data-(cmcovloss|cmlossmean|cmlossdelta|cmper)="([^"]+)"[^>]*>([^<]*)</g)) {
+      if (cell[3].includes("NaN") && cmOwner(cell[2]) !== "strict-inf")
+        throw new Error(`causal-invariance: NaN reached ${cell[1]} for ${cell[2]} at ${JSON.stringify(state)}, where the arithmetic is finite`);
+      cmValues++;
+    }
+    // and the loud variant's loss really is on screen as NaN, in both modes
+    if (!/data-(?:cmcovloss|cmlossmean)="strict-inf"[^>]*>NaN</.test(html))
+      throw new Error(`causal-invariance: the -Infinity variant's NaN has to be visible at ${JSON.stringify(state)}`);
+    cmValues++;
+  }
+}
+
+// --- the numbers the lab card promises --------------------------------------------------
+// Card fields are looked up by lab id and have no translation tether of their own, so both
+// language cards are bound to the arithmetic here (the class v84 opened on chain-carry).
+{
+  const cardStart = source.indexOf('        id:"causal-invariance",title:');
+  if (cardStart < 0) throw new Error("causal-invariance: the lab card is gone");
+  const germanCard = source.slice(cardStart, source.indexOf("\n      },", cardStart));
+  const enStart = englishSource.indexOf('"causal-invariance": {');
+  if (enStart < 0) throw new Error("causal-invariance: the English lab card is gone");
+  const englishCard = englishSource.slice(enStart, englishSource.indexOf("\n    },", enStart));
+  // The card writes small counts as words, the way the rest of the prose does. Binding the
+  // word rather than a digit keeps the tether real: if the arithmetic ever produces a fifth
+  // broken variant, the sentence stops matching and has to be rewritten.
+  const cmWords = { de: ["null", "ein", "zwei", "drei", "vier", "fünf", "sechs"],
+    en: ["zero", "one", "two", "three", "four", "five", "six"] };
+  const broken = cmApi.CM_VARIANTS.filter(variant => variant.key !== "correct").length;
+  const missed = ["after", "strict-big"].length;
+  const lookBetter = cmLooksBetter / cmApi.CM_LENGTHS.length;
+  for (const [count, why] of [[broken, "how many broken variants there are"],
+    [missed, "how many the named test misses"], [lookBetter, "how many look better on loss"]]) {
+    if (!Number.isInteger(count) || count >= cmWords.de.length)
+      throw new Error(`causal-invariance: ${why} came out as ${count}, which the card's wording does not cover`);
+    for (const [card, label, lang] of [[germanCard, "German", "de"], [englishCard, "English", "en"]])
+      if (!card.includes(cmWords[lang][count]))
+        throw new Error(`causal-invariance: the ${label} card has to name ${why} as "${cmWords[lang][count]}"`);
+    cmValues += 2;
+  }
+  // The card's own warning, held against the arithmetic rather than against its wording.
+  if (cmApi.cmLoss(6, "correct").mean !== Math.max(...cmApi.CM_VARIANTS
+    .map(variant => cmApi.cmLoss(6, variant.key)).filter(entry => entry.finite).map(entry => entry.mean)))
+    throw new Error("causal-invariance: both cards claim the correct mask carries the highest loss");
+}
+
+// --- the English side of the prose carries the same numbers ------------------------------
+// `renderer i18n` proves an English entry exists, `english render` proves no German is left.
+// Neither looks at the figures inside the English text, so a translated sentence could quote
+// a number the app never computes and both stay green.
+{
+  const labStart = source.indexOf("    // ---- Lab: causal-invariance ");
+  const labEnd = source.indexOf("    // ---- Lab: ablation-controls ");
+  if (labStart < 0 || labEnd < 0) throw new Error("causal-invariance: the lab's code block is gone");
+  const labCode = source.slice(labStart, labEnd);
+  const germanStrings = new Set();
+  for (const hit of labCode.matchAll(/tr\("((?:[^"\\]|\\.)*)"\)/g)) germanStrings.add(hit[1]);
+  for (const hit of labCode.matchAll(/(?:label|note):"((?:[^"\\]|\\.)*)"/g)) germanStrings.add(hit[1]);
+  const numerals = text => (text.match(/\d+(?:[.,]\d+)*/g) || []);
+  let cmNumericStrings = 0;
+  for (const german of germanStrings) {
+    if (!/\d/.test(german)) continue;
+    const english = pack.ui?.[german];
+    if (typeof english !== "string")
+      throw new Error(`causal-invariance: the string "${german.slice(0, 60)}" has no English entry`);
+    if (/\d{1,3}(?:\.\d{3})+/.test(german))
+      throw new Error(`causal-invariance: "${german.slice(0, 60)}" groups thousands, which this comparison does not model`);
+    const want = numerals(german).map(token => token.replace(",", ".")).sort();
+    const got = numerals(english).sort();
+    if (JSON.stringify(want) !== JSON.stringify(got))
+      throw new Error(`causal-invariance: the English entry for "${german.slice(0, 50)}" carries ${JSON.stringify(got)} where the German carries ${JSON.stringify(want)}`);
+    cmNumericStrings++;
+    cmValues += want.length;
+  }
+  if (cmNumericStrings < 8)
+    throw new Error(`causal-invariance: only ${cmNumericStrings} numeric strings found, the extraction is not seeing the lab's prose`);
+}
+
+// --- registration: the lab has to be reachable where the reader actually is ---------------
+// It answers an A1 question no lecture opens, so it belongs both to the module that carries
+// the concept and to the mission whose failure note names the test.
+{
+  const transformer = base.modules.find(module => module.id === "transformer");
+  if (!transformer.labs.includes("causal-invariance"))
+    throw new Error("causal-invariance: the transformer module has to offer the lab, or the concept stays read-only");
+  if (!transformer.concepts.includes("causal-mask"))
+    throw new Error("causal-invariance: the transformer module no longer carries causal-mask, so the placement has to be decided again");
+  const mission = base.assignments.find(a => a.id === "a1").missions.find(m => m.id === "attention-lm");
+  if (!mission.labs.includes("causal-invariance"))
+    throw new Error("causal-invariance: A1's attention-lm mission names the invariance test and has to offer the lab that runs it");
+  if (!/kausale Invarianz/.test(mission.failure))
+    throw new Error("causal-invariance: the mission's failure note no longer names the test, so the lab has lost its reason to sit there");
+  // and it must stay off every lecture page, for the same reason its concept does
+  for (const [lectureId, guide] of Object.entries(base.lectureGuides))
+    if ((guide.labs || []).includes("causal-invariance"))
+      throw new Error(`causal-invariance: ${lectureId} lists the lab, but no lecture PDF teaches causal-mask -- it belongs to the assignment page`);
+}
+console.log(`causal-invariance OK: ${cmValues} values, A1's own first trace made computable -- the causal-invariance test its mission names catches ${1} of the ${cmApi.CM_VARIANTS.length - 1} wrong masks the concept page lists, passes "masked after softmax" completely (a normalization error, not a causality one) and returns no verdict at all on the -Infinity variant, while the -1e9 twin passes both structural tests and is caught only at full depth -- exactly blind to a p-1 probe in ${cmNarrowBlind} of ${cmWideCaught} probe positions because row 0 alone is broken, and it is broken because softmax(x+c)=softmax(x) hands a fully masked row the unmasked distribution back; and the loss ranks the correct mask last of all ${cmApi.CM_VARIANTS.length} at every length, the leak alone looking ${cmLeakRatio.toFixed(4)}x better; every passing probe reads exactly 0 against a smallest real violation of ${cmMarginLow.toFixed(4)}, so the 1e-9 threshold is a formality rather than a tuned constant`);
+
+// ---- English numerals: every figure a German string prints, the English one prints too ---
+// `renderer i18n` proves an English entry exists. `english render` proves no German is left
+// on the screen. Neither looks *inside* the English text, so a translated sentence could
+// quote a figure the app never computes and both stay green -- and because English is the
+// default language, such a number would be shown to the primary reader and to no one else.
+// v84 closed that hole for one lab. This closes it for every string that reaches tr().
+//
+// Comparing decimal numbers across the two locales is the hard part: German writes 13,9178
+// where English writes 13.9178, but a comma is also an ordinary list separator inside
+// [2,3,5,4] and max(1,2). Rather than guess which role a separator plays, the comparison
+// drops separators entirely and matches the *digit runs*. A locale swap leaves those
+// identical; a changed, invented, or dropped figure does not. It stays blind to exactly one
+// class -- a digit sequence regrouped without changing its digits, such as 1,23 against
+// 12,3 -- which is why the numbers a lab's claim rests on also carry their own anchors.
+{
+  const germanStrings = new Set();
+  for (const hit of source.matchAll(/tr\("((?:[^"\\]|\\.)*)"\)/g)) germanStrings.add(hit[1]);
+  for (const hit of source.matchAll(/tr\([^)]*?\?"((?:[^"\\]|\\.)*)":"((?:[^"\\]|\\.)*)"\)/g)) {
+    germanStrings.add(hit[1]); germanStrings.add(hit[2]);
+  }
+  const digitRuns = text => (text.match(/\d+/g) || []).slice().sort();
+  // Strings with no English entry at all are `renderer i18n`'s business, not this guard's:
+  // it already fails on any of them that is not deliberately identical in both languages.
+  let numericStrings = 0, comparedRuns = 0, untranslated = 0;
+  for (const german of germanStrings) {
+    if (!/\d/.test(german)) continue;
+    const english = pack.ui?.[german];
+    if (typeof english !== "string") { untranslated++; continue; }
+    numericStrings++;
+    const want = digitRuns(german), got = digitRuns(english);
+    if (JSON.stringify(want) !== JSON.stringify(got))
+      throw new Error(`english numerals: the entry for "${german.slice(0, 60)}" prints ${JSON.stringify(got)} where the German prints ${JSON.stringify(want)} -- an English reader would be shown a figure the app never computed`);
+    comparedRuns += want.length;
+  }
+  if (numericStrings < 300)
+    throw new Error(`english numerals: only ${numericStrings} numeric strings found, the extraction is not seeing the app's prose any more`);
+  console.log(`english numerals OK: ${numericStrings} translated strings carry numbers, ${comparedRuns} digit runs identical on both sides (${untranslated} numeric strings are held by renderer i18n instead, having no separate English entry)`);
+}
+
 // ---- render coverage: the seven labs that read their sliders from the DOM ------------
 // Ten of the eighteen lab guards render their markup and read the numbers back out of it.
 // Seven could not. Their stage functions reached for document.getElementById themselves,
@@ -6766,6 +7189,78 @@ function panelGroupControls(group) {
 }
 
 const renderLabs = [
+  {
+    id: "causal-invariance", entry: "cmStageMarkup", mode: "cmMode", update: "updateCausalInvariance",
+    names: ["CM_VOCAB", "CM_HEAD_DIM", "CM_LOGIT_SCALE", "CM_SENTINEL", "CM_SEQUENCE",
+      "CM_LENGTHS", "CM_VARIANTS", "CM_DEPTHS", "cmLengthOf", "cmVariantOf", "cmDepthOf",
+      "cmTokens", "cmQK", "cmRawScores", "cmAllowed", "cmSoftmax", "cmAttention", "cmMass",
+      "cmLoss", "cmRowSumDeviation", "cmNaNCount", "cmInvariance", "cmUnmaskedGap",
+      "cmCoverage", "cmProbeSweep", "cmNum", "cmSci", "cmRead",
+      "renderCausalInvarianceTests", "renderCausalInvarianceLoss", "cmStageMarkup"],
+    options: {
+      cmMode: ["tests", "loss"], cmVariant: "CM_VARIANTS", cmLength: "CM_LENGTHS",
+      cmProbe: ["1", "2", "3", "4", "5"], cmDepth: "CM_DEPTHS", cmLossLength: "CM_LENGTHS"
+    },
+    // Mode A probes one implementation; mode B prices all five and has no probe at all.
+    // Nothing mode A sets may reach the loss table, or the ranking would quietly depend on
+    // the variant the reader happened to leave selected.
+    controls: {
+      cmVariant: ["tests"], cmLength: ["tests"], cmProbe: ["tests"], cmDepth: ["tests"],
+      cmLossLength: ["loss"]
+    },
+    // NaN is a value in this lab, not a fault, and it is on screen in *every* state: both
+    // modes carry a table listing all five variants, and the -Infinity variant's loss is a
+    // NaN by construction -- that is the lab's argument for the loud sentinel. A blanket
+    // `true` would make this property vacuous, so the guard block below pins down the other
+    // half instead: which cells are allowed to hold it, and that no other cell does.
+    nan: () => true,
+    anchors: [
+      // The finding, read back off the screen: the silent variant is caught at full depth
+      // and reports exactly nothing to a p-1 probe at the same position.
+      [{ cmMode: "tests", cmVariant: "strict-big", cmLength: "t6", cmProbe: "5", cmDepth: "prev", cmLossLength: "t6" },
+        '<td data-cmsweepprev="5">0.00e+0 ✓</td>',
+        "the narrow probe has to print its own blindness, not merely have it"],
+      [{ cmMode: "tests", cmVariant: "strict-big", cmLength: "t6", cmProbe: "5", cmDepth: "prev", cmLossLength: "t6" },
+        '<td data-cmsweepall="5">1.67e-1 ✗</td>',
+        "and the full-depth probe beside it has to show the violation the narrow one missed"],
+      // The two structural tests pass for that variant, which is what makes it silent.
+      [{ cmMode: "tests", cmVariant: "strict-big", cmLength: "t6", cmProbe: "5", cmDepth: "all", cmLossLength: "t6" },
+        '<td data-cmcovsum="strict-big">✓</td>',
+        "a silent variant that failed a visible test would not be silent"],
+      [{ cmMode: "tests", cmVariant: "strict-big", cmLength: "t6", cmProbe: "5", cmDepth: "all", cmLossLength: "t6" },
+        '<td data-cmcovnan="strict-big">✓</td>',
+        "and it has to reach the screen as a pass on finiteness too"],
+      // Masking after softmax: the other one the named test misses, and the row that proves
+      // the invariance column and the row-sum column are read together rather than in turn.
+      [{ cmMode: "tests", cmVariant: "after", cmLength: "t6", cmProbe: "5", cmDepth: "all", cmLossLength: "t6" },
+        '<td data-cmcovinv="after">✓</td>',
+        "the test A1 names passes a wrong implementation, and the screen has to say so"],
+      [{ cmMode: "tests", cmVariant: "after", cmLength: "t6", cmProbe: "5", cmDepth: "all", cmLossLength: "t6" },
+        '<td data-cmcovsum="after">✗</td>',
+        "while the row sum beside it fails -- one cell without the other teaches the wrong rule"],
+      // The -Infinity twin: no verdict, not a pass. The distinction is the honest part.
+      [{ cmMode: "tests", cmVariant: "strict-inf", cmLength: "t6", cmProbe: "5", cmDepth: "all", cmLossLength: "t6" },
+        '<td data-cmcovinv="strict-inf">—</td>',
+        "a NaN model cannot be probed, and printing a pass there would be the worse lie"],
+      // Row 0 under the finite sentinel really is the unmasked row, on screen.
+      [{ cmMode: "tests", cmVariant: "strict-big", cmLength: "t6", cmProbe: "5", cmDepth: "all", cmLossLength: "t6" },
+        '<strong data-cmsilentgap="1">1.43e-8</strong>',
+        "the gap to the unmasked row is the whole derivation and has to be legible"],
+      // Mode B's headline: the correct mask last, and the leak far ahead.
+      [{ cmMode: "loss", cmVariant: "correct", cmLength: "t6", cmProbe: "5", cmDepth: "all", cmLossLength: "t6" },
+        '<td data-cmlossmean="correct">3.307207</td>',
+        "the number the warning rests on has to be on the screen, not only in the guard"],
+      [{ cmMode: "loss", cmVariant: "correct", cmLength: "t6", cmProbe: "5", cmDepth: "all", cmLossLength: "t6" },
+        '<td data-cmlossmean="flipped">1.492323</td>',
+        "and the leaking mask's loss beside it, or 'looks better' is a claim without a figure"],
+      [{ cmMode: "loss", cmVariant: "correct", cmLength: "t6", cmProbe: "5", cmDepth: "all", cmLossLength: "t6" },
+        '<td data-cmlossbetter="flipped">ja</td>',
+        "the verdict column is a selection, which is where a true number can carry a lying label"],
+      [{ cmMode: "loss", cmVariant: "correct", cmLength: "t6", cmProbe: "5", cmDepth: "all", cmLossLength: "t6" },
+        '<td data-cmlossbetter="after">ja</td>',
+        "and the second one the named test misses looks better too"]
+    ]
+  },
   {
     id: "run-plan", entry: "rpStageMarkup", mode: "rpMode", update: "updateRunPlan",
     names: ["RP_LOSS_E", "RP_LOSS_A", "RP_ALPHA", "RP_LOSS_B", "RP_BETA", "rpLoss",

@@ -307,3 +307,13 @@ Iteration Counter: 1
 - Verifiziert: Locale- und Semantikcheck fuer 75 Concepts, 79 Formeln, 72 Symbole, 70 Glossareintraege, 27 Labs, 29 Missions und 1102 UI-Texte; Inline-JavaScript und Service Worker parsen; reproduzierbarer `_site`-Build und `git diff --check` sind sauber.
 - Browserpruefung: Lecture 1 zeigt im vollstaendigen Ablauf korrekt `1 / 4`, `2 / 4`, `3 / 4` und `4 / 4`; der Weiter-Button wechselt von der vorgeschalteten Seite 1 auf Seite 2. Deutsch und Englisch, 390 x 844 Pixel ohne horizontalen Ueberlauf und eine leere Fehler-/Warnungskonsole wurden geprueft.
 - Service-Worker-Cache und Sprachbundle stehen auf Version 52. Der Iteration Counter bleibt 1, da dieser Run manuell/interaktiv gestartet wurde.
+
+## 2026-08-27 - Der Test, den A1 nennt, hat nie jemand laufen lassen (geplanter Deep Review, v85)
+
+- Gegenprobe zum vermuteten Hebel aus v84: alle 375 numerischen Strings deutsch gegen englisch geprueft, genau eine echte Abweichung gefunden. Der Hebel war praeventiv, nicht kurativ.
+- Befund stattdessen ueber die eigenen Guards: 11 der 124 Probleme werden ueber den Lecture-Pfad nie erreichbar, 9 davon in A1. `causal-mask` entscheidet zwei der groessten A1-Probleme, wird von keiner Lecture gelehrt und war das einzige Selbststudium-Konzept ohne Lab.
+- Neues Lab `causal-invariance`: fuenf Maskenvarianten gegen drei Tests. Der Test, den A1s Mission selbst nennt, findet eine von vier; "nach Softmax maskiert" ist vollkommen kausal, und die vergessene Diagonale mit endlichem Platzhalter ist nur bei voller Testtiefe zu sehen (12 von 15 Sondenpositionen sind fuer die enge Lesart blind). Grund hergeleitet: softmax(x+c) = softmax(x), also gibt eine voll maskierte Zeile die unmaskierte Verteilung zurueck.
+- Modus B rechnet die bisher nur behauptete Leakage-Folge: die korrekte Maske hat bei jeder Sequenzlaenge den hoechsten Loss aller fuenf Varianten. Der Loss ordnet frische Implementierungen falsch.
+- Selbststudium-Abschnitt bietet jetzt zu fuenf von sechs Konzepten das Lab an, das sie durchrechnet.
+- Repo-weiter Guard `english numerals` ueber Ziffernfolgen: 372 Strings, 1.293 Folgen beidseitig identisch.
+- Pruefung: alle Guards gruen (41 s), render coverage 6.757 auf 7.657 Zustaende ueber 12 Labs, beide Sprachen headless ueber 420 Zustaende, 612 DOM-IDs ohne Duplikat. Mutationstest 19 Mutationen; der erste Lauf war durch gleichzeitige Edits ungueltig und wurde wiederholt, die eine Entkommene (Invarianzschwelle) als inert nachgewiesen und ihre Marge direkt geguardet.

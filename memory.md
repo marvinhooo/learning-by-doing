@@ -1,6 +1,8 @@
 # Memory
 
 ## Stabile Produktentscheidungen
+- Konzepte, die keine Lecture lehrt (`lm-objective`, `causal-mask`, `cross-entropy`, `adamw`, `clipping`, `sampling`), erscheinen ausschliesslich auf der Assignment-Seite. Wo ein Lab ein solches Konzept wirklich durchrechnet, wird es dort neben der Konzeptseite angeboten; die Zuordnung Konzept zu Lab steht ausdruecklich als Tabelle im Code, weil Labs keine Konzeptliste tragen. Ein solches Lab bleibt von jeder Lecture-Seite fern, solange kein Lecture-PDF sein Konzept lehrt.
+- Zahlen in einem englischen Eintrag werden repo-weit gegen die deutsche Quelle gehalten, indem Ziffernfolgen ohne Trennzeichen verglichen werden. Ein Vergleich, der Dezimaltrennzeichen deutet, erzeugt Fehlalarme, weil ein Komma in `[2,3,5,4]` ein Listentrenner ist.
 
 - Die CS336-Lernhilfe ist zweisprachig und offline-first: Englisch ist die Standardsprache, Deutsch ist per Umschalter verfuegbar. Sie bleibt lokal ohne Build-Schritt nutzbar und kann als Progressive Web App (PWA; installierbare Web-App) ueber GitHub Pages bereitgestellt werden.
 - Sie folgt der Assignment-KI-Richtlinie: Konzepterklaerungen und gestufte Hinweise sind erlaubt; Assignment-Implementierungen und abgabefertige Antworten sind ausgeschlossen.
