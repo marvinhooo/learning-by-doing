@@ -2,3 +2,4 @@
 _site/
 *.pdf
 CS336 lectures/
+__pycache__/
