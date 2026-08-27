@@ -389,7 +389,7 @@ const termMatchIndex = (text, term) => String(term).split(/\s+\/\s+/u).map(value
   return match ? Math.min(best, match.index + match[1].length) : best;
 }, Number.POSITIVE_INFINITY);
 const renderedPrimerTerms = (locale, concept) => {
-  if (concept.terms?.length) return concept.terms.slice(0, 8).map(([term, definition]) => ({term, definition}));
+  if (concept.terms?.length) return concept.terms.slice(0, 12).map(([term, definition]) => ({term, definition}));
   const text = prose([concept.title, concept.summary, concept.context, concept.why, concept.mental, concept.details, concept.pitfalls, concept.checks, concept.answers]);
   return (conceptPrimerTerms[locale] || []).map(([term, definition]) => ({term, definition, index:termMatchIndex(text, term)})).filter(item => Number.isFinite(item.index)).sort((a, b) => a.index - b.index).slice(0, 8);
 };
