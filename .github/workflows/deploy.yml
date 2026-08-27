@@ -22,6 +22,12 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      # build-site.mjs imports check-i18n.mjs, so the guards run as part of the build.
+      # They use Math.f16round for the fp16 rounding in mixed-precision, which needs
+      # Node 24 or newer; the runner's default Node 22 fails with "not a function".
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
       - uses: actions/configure-pages@v5
       - name: Build static site
         run: node scripts/build-site.mjs
