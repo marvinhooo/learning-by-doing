@@ -6445,6 +6445,24 @@ window.CS336_EN = Object.freeze({
       "why": "Text and bytes are different representations; decode only after a complete valid byte sequence has been assembled."
     },
     "1": {
+      "q": "“é” is encoded with str.encode(\"utf-8\"). How many bytes result?",
+      "opts": [
+        "2 bytes",
+        "1 byte",
+        "4 bytes"
+      ],
+      "why": "“é” is code point U+00E9 and lies outside ASCII, so UTF-8 needs two bytes. That is exactly why a byte-level tokenizer is never the same as a character tokenizer."
+    },
+    "2": {
+      "q": "A BPE training run produces two different merge lists from an identical corpus. What is the most likely cause?",
+      "opts": [
+        "The pairs were iterated from a set, whose order for strings varies per process",
+        "torch.manual_seed was not set",
+        "The file was read once as binary and once as text"
+      ],
+      "why": "Python randomizes string hashing per process, so the iteration order of a set is not reproducible. Ties between pairs have to be decided by an explicit rule, not by the order in which they happen to appear."
+    },
+    "3": {
       "q": "X has shape (B,T,D), W has shape (D,4D). What is the output shape of X@W?",
       "opts": [
         "(B,T,4D)",
@@ -6453,7 +6471,25 @@ window.CS336_EN = Object.freeze({
       ],
       "why": "Linear acts on the last axis; B and T remain."
     },
-    "2": {
+    "4": {
+      "q": "Q has shape (B,T,d_model) with d_model=512 and 8 heads. Which shape does attention expect after the head split and transpose?",
+      "opts": [
+        "(B,8,T,64)",
+        "(B,T,8,64)",
+        "(8,B,T,512)"
+      ],
+      "why": "d_head = 512/8 = 64, and attention batches over the (B,head) axes, so the head axis moves in front of the position axis. (B,T,8,64) is the state right after the reshape, before the transpose."
+    },
+    "5": {
+      "q": "The scores have shape (B,H,T,T). Which mask shape broadcasts onto them without a copy?",
+      "opts": [
+        "(1,1,T,T)",
+        "(B,T)",
+        "(T,B,1,1)"
+      ],
+      "why": "Broadcasting aligns axes from the right, and each axis must either match or be 1. (1,1,T,T) fits any batch and head count; (B,T) aligns against the wrong two axes."
+    },
+    "6": {
       "q": "Why is max(z) subtracted in stable Softmax?",
       "opts": [
         "The distribution remains unchanged, overflow risk decreases",
@@ -6462,7 +6498,25 @@ window.CS336_EN = Object.freeze({
       ],
       "why": "Softmax is invariant to common logit shifts."
     },
-    "3": {
+    "7": {
+      "q": "A model gives the actual next token a probability of 0.25. What is that token's cross-entropy loss (natural logarithm)?",
+      "opts": [
+        "≈ 1.386",
+        "≈ 0.693",
+        "≈ 0.25"
+      ],
+      "why": "The loss is −ln(p) = −ln(0.25) = ln(4) ≈ 1.386. 0.693 would be ln(2), the loss at p = 0.5 — the number you see when a model is only guessing between two options."
+    },
+    "8": {
+      "q": "Why do you sum logarithms for a sentence's log-likelihood instead of multiplying the probabilities?",
+      "opts": [
+        "The product of many numbers below 1 underflows to exactly 0 in float32; the sum of logarithms does not",
+        "The sum is mathematically something different and therefore more accurate",
+        "Logarithms are always positive and are faster to add"
+      ],
+      "why": "With 1000 tokens at p ≈ 0.1 each, the product is 10⁻¹⁰⁰⁰ and lies far below the smallest normal float32 value of about 1.18·10⁻³⁸ — it becomes 0, and its logarithm is −∞. The sum of the logarithms, by contrast, is about −2303 and stays an ordinary number."
+    },
+    "9": {
       "q": "At a graph branch, x influences the loss via two paths. What happens during backward pass?",
       "opts": [
         "The path gradients add up",
@@ -6471,7 +6525,25 @@ window.CS336_EN = Object.freeze({
       ],
       "why": "The derivative of a sum is the sum of the contributions."
     },
-    "4": {
+    "10": {
+      "q": "For a softmax followed by cross-entropy loss on target token k: what is ∂L/∂z_j for a j other than k?",
+      "opts": [
+        "+y_j, the probability the model assigned",
+        "0, because j is not the target token",
+        "−y_j"
+      ],
+      "why": "The composed gradient is y − onehot(k). For j = k that gives y_k − 1 (negative, so the logit is pushed up), and for every other j it leaves +y_j: each wrong token is pushed down exactly as hard as the model believed in it."
+    },
+    "11": {
+      "q": "A gradient flows back through a chain of 12 blocks, each scaling it by 0.8. Which factor arrives at the input?",
+      "opts": [
+        "0.8¹² ≈ 0.069",
+        "12 · 0.8 = 9.6",
+        "0.8; the factor does not change along the chain"
+      ],
+      "why": "Along a chain, gradient factors multiply; at a branch they add. After twelve blocks barely 7 percent is left — and that is exactly why the residual path of a pre-norm block keeps a route with factor 1 open."
+    },
+    "12": {
       "q": "Which statement about backward() is correct?",
       "opts": [
         "It accumulates gradients; the optimizer updates parameters",
@@ -6480,7 +6552,7 @@ window.CS336_EN = Object.freeze({
       ],
       "why": "Autograd and Optimizer are separate; gradients accumulate by default."
     },
-    "5": {
+    "13": {
       "q": "What does a complete checkpoint-resume test prove?",
       "opts": [
         "The next batch and update match an uninterrupted run",
@@ -6489,7 +6561,16 @@ window.CS336_EN = Object.freeze({
       ],
       "why": "Exact resume requires optimizer state, schedule, RNG states, data position, and progress in addition to loadable weights."
     },
-    "6": {
+    "14": {
+      "q": "A tensor has been transposed. What happens with view(), and what with reshape()?",
+      "opts": [
+        "view() fails because the strides are no longer contiguous; reshape() copies when it has to",
+        "Both always copy the data",
+        "view() copies, reshape() always returns a view"
+      ],
+      "why": "transpose changes only the strides, not the memory. view() demands a stride structure that can describe the new shape without a copy and raises otherwise; reshape() first attempts the same and only copies when that fails — which makes it more convenient and is why it hides the copy."
+    },
+    "15": {
       "q": "Over which axis does Attention-Softmax normalize?",
       "opts": [
         "Over Key positions per Query",
@@ -6498,7 +6579,7 @@ window.CS336_EN = Object.freeze({
       ],
       "why": "Each Query builds a distribution over allowed Keys."
     },
-    "7": {
+    "16": {
       "q": "Which branch mixes sequence positions?",
       "opts": [
         "Attention",
@@ -6507,7 +6588,16 @@ window.CS336_EN = Object.freeze({
       ],
       "why": "MLP and Norm work position-wise; Attention exchanges information."
     },
-    "8": {
+    "17": {
+      "q": "Where does the normalization sit in a pre-norm block?",
+      "opts": [
+        "Before the sublayer; the residual path itself stays unnormalized",
+        "After the sublayer, right before the addition",
+        "After the addition, at the block's output"
+      ],
+      "why": "Pre-norm normalizes the branch that goes into attention or the MLP and leaves the residual path untouched. That leaves a route from block input to block output with no scaling, so the gradient reaches the early layers without passing through twelve normalizations. Post-norm normalizes after the addition and cuts exactly that route."
+    },
+    "18": {
       "q": "A GPU timer measures only very short time without synchronization. Likely why?",
       "opts": [
         "GPU work was started asynchronously only",
@@ -6516,7 +6606,7 @@ window.CS336_EN = Object.freeze({
       ],
       "why": "CPU dispatch ends before GPU work is completed."
     },
-    "9": {
+    "19": {
       "q": "What does Activation Checkpointing primarily reduce?",
       "opts": [
         "stored activations against recomputation",
@@ -6525,7 +6615,16 @@ window.CS336_EN = Object.freeze({
       ],
       "why": "It trades activation memory for additional forward passes."
     },
-    "10": {
+    "20": {
+      "q": "An operation reads 4 MiB and computes 2 MFLOP. What is its arithmetic intensity?",
+      "opts": [
+        "≈ 0.48 FLOP/byte",
+        "≈ 2.1 FLOP/byte",
+        "≈ 8 FLOP/byte"
+      ],
+      "why": "2·10⁶ FLOP divided by 4·2²⁰ = 4194304 bytes is about 0.48 FLOP/byte. That is far below the ridge point of today's accelerators, which only become compute-bound in the hundreds of FLOP/byte: extra arithmetic would be free here, saved bytes would not."
+    },
+    "21": {
       "q": "With C≈6ND and fixed C: N doubles. What holds for D?",
       "opts": [
         "D halves",
@@ -6534,7 +6633,25 @@ window.CS336_EN = Object.freeze({
       ],
       "why": "D=C/(6N)."
     },
-    "11": {
+    "22": {
+      "q": "An IsoFLOP sweep holds C fixed and plots the loss against model size N. What does the minimum of that curve mean?",
+      "opts": [
+        "The compute-optimal model size for this budget",
+        "The smallest model size that still converges at all",
+        "The model size with the best inference latency"
+      ],
+      "why": "At fixed C, N and the token count D are coupled through C ≈ 6ND: more parameters necessarily means fewer tokens. So the minimum names the best split of one budget, not a quality limit — with twice the budget it sits somewhere else."
+    },
+    "23": {
+      "q": "The loss follows L = a·N^(−α). What does that relationship look like on a log-log plot?",
+      "opts": [
+        "A straight line with slope −α",
+        "An upward-opening parabola",
+        "A straight line with slope a"
+      ],
+      "why": "Taking logs of both sides gives log L = log a − α·log N, a straight line whose slope is the exponent and whose intercept is the prefactor. That is why scaling laws are fitted in log-log space: there a power law is a linear regression."
+    },
+    "24": {
       "q": "What does an LSH collision mean?",
       "opts": [
         "Candidate pair that still needs verification",
@@ -6543,7 +6660,25 @@ window.CS336_EN = Object.freeze({
       ],
       "why": "Locality-Sensitive Hashing (LSH) is retrieval, not final decision."
     },
-    "12": {
+    "25": {
+      "q": "Document A has 100 distinct n-grams, document B also 100, of which 30 are shared. What is the Jaccard similarity?",
+      "opts": [
+        "30/170 ≈ 0.18",
+        "30/100 = 0.30",
+        "30/200 = 0.15"
+      ],
+      "why": "Jaccard is intersection over union, and the union counts the shared n-grams only once: 100 + 100 − 30 = 170. The other two answers are the two usual mistakes — dividing by one document's size, or double-counting the overlap."
+    },
+    "26": {
+      "q": "A quality classifier reaches precision 1.00 at recall 0.14. What does that mean for the corpus you keep?",
+      "opts": [
+        "Everything kept really is good, but roughly six of every seven good documents were thrown away",
+        "The corpus is complete but contains a lot of junk",
+        "The two values contradict each other; the figure is impossible"
+      ],
+      "why": "Precision describes how clean what you keep is; recall, how much of the good material arrives at all. At 0.14, about one seventh of the good documents make it into the corpus. A threshold tuned on precision alone therefore looks perfect and shrinks the corpus dramatically."
+    },
+    "27": {
       "q": "When is Perplexity directly comparable?",
       "opts": [
         "With the same tokenizer and evaluation setup",
@@ -6552,7 +6687,25 @@ window.CS336_EN = Object.freeze({
       ],
       "why": "Tokenization and context handling define the unit."
     },
-    "13": {
+    "28": {
+      "q": "A model answers correctly in substance but never closes the tags the parser expects. What does the benchmark measure?",
+      "opts": [
+        "Zero points, even though the capability is there",
+        "Partial credit for the correct content",
+        "Full points; the parser tolerates format deviations"
+      ],
+      "why": "A score arises as a chain: prompt → generated text → parser → comparison against the gold answer. Every link can produce a zero without anything crashing. That is why Assignment 5 separates format reward from answer reward: a model that can do the arithmetic but does not close its tags looks, in the total, like one that computes the wrong answer."
+    },
+    "29": {
+      "q": "A benchmark score jumps after a new web crawl was added to the training data. Which explanation has to be checked before “the model is better”?",
+      "opts": [
+        "The test set may be inside the crawl, in which case the score measures memorization",
+        "The benchmark has probably changed its metric",
+        "Perplexity dropped, so every score rises with it"
+      ],
+      "why": "Benchmark items sit on the public web as ordinary pages, and a crawl collects them along with everything else. Before a jump is read as capability, the overlap between test set and corpus has to be measured — contamination produces exactly the same picture as real progress."
+    },
+    "30": {
       "q": "Which state grows linearly with batch size and cached context during autoregressive serving?",
       "opts": [
         "Key-Value Cache",
@@ -6561,7 +6714,25 @@ window.CS336_EN = Object.freeze({
       ],
       "why": "The KV Cache stores earlier Keys and Values for every layer, sequence, and position."
     },
-    "14": {
+    "31": {
+      "q": "Why is decode memory-bandwidth-bound while prefill is compute-bound?",
+      "opts": [
+        "Decode processes one token per sequence yet still reads all the weights; prefill processes many tokens per weight read",
+        "Decode uses a different kernel library than prefill",
+        "Prefill computes in FP32 and decode in BF16"
+      ],
+      "why": "What decides it is how many tokens one loaded weight matrix serves. Prefill pushes the whole prompt through at once and reaches high arithmetic intensity; decode fetches the same weights for a single new token — the arithmetic units sit waiting on memory."
+    },
+    "32": {
+      "q": "32 layers, 8 KV heads, head_dim 128, BF16 (2 bytes). How large is the KV cache for a sequence of 1024 positions?",
+      "opts": [
+        "128 MiB",
+        "64 MiB",
+        "16 MiB"
+      ],
+      "why": "2 (keys and values) · 32 layers · 8 heads · 128 · 1024 positions · 2 bytes = 134217728 bytes, that is 128 MiB. This is per sequence and grows with the batch — which is why grouped-query attention reduces the number of KV heads and not the number of query heads."
+    },
+    "33": {
       "q": "All G answers of a prompt have the same reward. What does group-centered GRPO-Advantage yield?",
       "opts": [
         "No relative learning signal",
@@ -6569,6 +6740,24 @@ window.CS336_EN = Object.freeze({
         "Randomly unbiased signal"
       ],
       "why": "After subtracting the group mean, all advantages are zero."
+    },
+    "34": {
+      "q": "Why does the policy gradient use ∇log π rather than ∇π?",
+      "opts": [
+        "Because ∇log π = ∇π/π, the gradient can be estimated as an expectation under π — directly from drawn samples",
+        "log π is merely more numerically stable; otherwise there is no difference",
+        "log π is always positive and ∇π is not"
+      ],
+      "why": "The log-derivative trick turns a gradient over a distribution into an expectation under that same distribution: ∇E[R] = E[R·∇log π]. That is exactly what makes it estimable — you draw samples from π and average, without summing over every possible output."
+    },
+    "35": {
+      "q": "Why is the importance ratio π_new/π_old clipped in PPO and GRPO?",
+      "opts": [
+        "So that a single sample that was very unlikely under the old policy cannot dominate the update",
+        "So that the ratio always stays below 1",
+        "So that the reward is normalized to the range 0 to 1"
+      ],
+      "why": "The ratio is unbounded above: a token the old policy gave 0.001 and the new one gives 0.5 carries a factor of 500. Clipping limits how far a single sample can carry an update, and only that makes several gradient steps on the same drawn batch defensible."
     }
   },
   "quiz": {
