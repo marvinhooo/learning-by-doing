@@ -24,6 +24,7 @@ so each side is parsed under its own convention.
 Exit code 1 if any stated equality does not hold.
 """
 import json
+import math
 import re
 import sys
 from pathlib import Path
@@ -36,7 +37,9 @@ NUMBER = r"\d[\d.,]*"
 SCALES = {"tausend": 1e3, "thousand": 1e3, "mio": 1e6, "million": 1e6, "millionen": 1e6,
           "millions": 1e6, "mrd": 1e9, "milliarde": 1e9, "milliarden": 1e9,
           "billion": 1e9, "billions": 1e9, "%": 0.01}
-TOKEN = re.compile(rf"({NUMBER}|[+−·×*/()=-]|%|[A-Za-zäöüß]+)")
+SUPERSCRIPT = {"\u2070":0,"\u00b9":1,"\u00b2":2,"\u00b3":3,"\u2074":4,"\u2075":5,"\u2076":6,"\u2077":7,"\u2078":8,"\u2079":9}
+FUNCS = ("log2", "log", "ln", "exp", "sqrt")
+TOKEN = re.compile(rf"({NUMBER}|log2|log|ln|exp|sqrt|[+\u2212\u00b7\u00d7*/()=^\u221a-]|[\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079]+|%|[A-Za-z\u00e4\u00f6\u00fc\u00df]+)")
 MULT = "·×*"
 MINUS = "−-"
 
@@ -70,6 +73,20 @@ def evaluate(tokens, locale):
 
     def atom():
         nonlocal pos
+        if pos < len(tokens) and tokens[pos] in FUNCS:
+            name = tokens[pos]
+            pos += 1
+            value = atom()
+            if name == "exp":
+                return math.exp(value)
+            if name == "sqrt":
+                return math.sqrt(value)
+            if name == "log2":
+                return math.log2(value)
+            return math.log(value)          # this material writes log for the natural log
+        if pos < len(tokens) and tokens[pos] == "\u221a":
+            pos += 1
+            return math.sqrt(atom())
         if pos < len(tokens) and tokens[pos] == "(":
             pos += 1
             value = expression()
@@ -85,13 +102,25 @@ def evaluate(tokens, locale):
         pos += 1
         return parse_number(tokens[pos - 1], locale)
 
-    def product():
+    def power():
         nonlocal pos
         value = atom()
+        if pos < len(tokens) and tokens[pos] and tokens[pos][0] in SUPERSCRIPT:
+            digits = "".join(str(SUPERSCRIPT[c]) for c in tokens[pos])
+            pos += 1
+            return value ** int(digits)
+        if pos < len(tokens) and tokens[pos] == "^":
+            pos += 1
+            return value ** power()
+        return value
+
+    def product():
+        nonlocal pos
+        value = power()
         while pos < len(tokens) and (tokens[pos] in MULT or tokens[pos] == "/"):
             op = tokens[pos]
             pos += 1
-            right = atom()
+            right = power()
             if op == "/":
                 if right == 0:
                     raise ValueError
@@ -122,10 +151,19 @@ def evaluate(tokens, locale):
 # it evaluates a DIFFERENT expression and reports correct prose as wrong.
 # Underscores and Greek letters are parts of variable names (d_h, alpha_max) and change
 # no arithmetic. Superscripts, subscripts, roots and carets do, so they stay disqualifying.
-HARMLESS = set(" \t\n,.;:!?\"'()[]„“”‘’…-–—/%&#_\u00a0")
+HARMLESS = set(" \t\n,.;:!?\"'()[]„“”‘’…-–—/%&#_^\u00a0\u221a")
+HARMLESS |= set(SUPERSCRIPT)
 HARMLESS |= {chr(c) for c in range(0x0370, 0x0400)}          # Greek
 HARMLESS |= set("\u2192\u2190\u21d2\u2264\u2265\u2248\u00d7")   # arrows and relations
-FUNCTIONS = re.compile(r"\b(?:ln|log|exp|sqrt|sin|cos|max|min|softmax|logsumexp)\s*\(")
+FUNCTIONS = re.compile(r"\b(?:sin|cos|max|min|softmax|logsumexp|sigma|argmax)\s*\(")
+# Scientific notation like "1e-4" is not modelled; refuse rather than misread it.
+SCIENTIFIC = re.compile(r"\d\s*e\s*[+\u2212-]?\s*\d")
+# Any name applied to a bracket is a function. The ones this checker evaluates are
+# listed in FUNCS; every other -- sigma(2.0), P(Match), J(A,B) -- would have its name
+# dropped and its argument read as a bare value, so the sentence is refused instead.
+# No space before the bracket: "sigma(2.0)" is application, "...ab (auf 9.999)" is
+# ordinary prose and must not disqualify the sentence.
+APPLIED = re.compile(r"([A-Za-z\u0370-\u03ff][A-Za-z0-9_\u0370-\u03ff]*)\(")
 
 
 def readable(sentence):
@@ -133,7 +171,9 @@ def readable(sentence):
     leftover = sentence
     for piece in sorted(set(TOKEN.findall(sentence)), key=len, reverse=True):
         leftover = leftover.replace(piece, " ")
-    if FUNCTIONS.search(sentence):
+    if FUNCTIONS.search(sentence) or SCIENTIFIC.search(sentence):
+        return False
+    if any(name not in FUNCS for name in APPLIED.findall(sentence)):
         return False
     return all(c in HARMLESS for c in leftover)
 
@@ -170,7 +210,9 @@ def chains(text):
             if token == "=":
                 parts.append(current)
                 current = []
-            elif re.fullmatch(NUMBER, token) or token in "+/()" or token in MULT or token in MINUS:
+            elif (re.fullmatch(NUMBER, token) or token in "+/()^" or token in MULT
+                  or token in MINUS or token in FUNCS or token == "\u221a"
+                  or token[0] in SUPERSCRIPT):
                 if re.fullmatch(NUMBER, token):
                     token = token.rstrip(".,")
                     if not token:
