@@ -8023,3 +8023,208 @@ for (const lab of renderLabs) {
   englishLabs++;
 }
 console.log(`english render OK: ${englishStates} states across ${englishLabs} labs rendered through the real translator, no German left on the screen and no uninterpolated placeholder`);
+
+// ---- basics check: what it offers is what was actually missed ---------------------------
+// The optional basics check is the only feature that answers "which foundations can I skip?",
+// and until v86 it answered a different question. `slice(0, 3)` took the three lowest area
+// scores whatever they were, so a run with every answer correct still offered three refreshers
+// -- each labelled 100% -- and a run with five gaps showed three of them and dropped two in
+// silence. Nine of the twelve areas also rested on a single three-option question, so an area
+// verdict was one question: guessing read 3.33 of 12 areas as fully mastered.
+//
+// This block runs the app's own `diagnosticGapRows` and `diagnosticGaps` -- sliced out of
+// index.html, not retyped -- against constructed answer sheets, so it fails if the selection
+// ever drifts back toward a fixed number of suggestions.
+{
+  const diagnosticAreas = readConstant("DIAGNOSTIC_AREAS");
+  const bcContext = {
+    DIAGNOSTIC: base.diagnostic,
+    DIAGNOSTIC_AREAS: diagnosticAreas,
+    Object, Math, Array, JSON
+  };
+  runInNewContext(
+    sliceDeclaration(source, "diagnosticAreaQuestionCount") + "\n" +
+    sliceDeclaration(source, "diagnosticGapRows") + "\n" +
+    sliceDeclaration(source, "diagnosticGaps") + "\n" +
+    "this.gaps = diagnosticGaps;",
+    bcContext
+  );
+  const diagnosticGaps = bcContext.gaps;
+
+  // 1. every area is decided by more than one question, and names a refresher that exists
+  const PER_AREA = 3;
+  const areaKeys = diagnosticAreas.map(area => area.key);
+  if (new Set(areaKeys).size !== areaKeys.length) throw new Error("basics check: an area key appears twice");
+  const sourceAreas = [...new Set(base.diagnostic.map(question => question.area))];
+  for (const key of sourceAreas)
+    if (!areaKeys.includes(key)) throw new Error(`basics check: question area "${key}" has no entry in DIAGNOSTIC_AREAS, so its result would render as a bare key`);
+  for (const area of diagnosticAreas) {
+    const asked = base.diagnostic.filter(question => question.area === area.key).length;
+    if (asked !== PER_AREA)
+      throw new Error(`basics check: area "${area.key}" is decided by ${asked} question(s); with fewer than ${PER_AREA} a single guess reads as a cleared area`);
+    if (!area.name?.de || !area.name?.en)
+      throw new Error(`basics check: area "${area.key}" is missing a name in one language`);
+    if (!base.concepts.some(concept => concept.id === area.concept))
+      throw new Error(`basics check: area "${area.key}" points at concept "${area.concept}", which does not exist`);
+  }
+  const bcQuestions = base.diagnostic.length;
+  if (bcQuestions !== areaKeys.length * PER_AREA)
+    throw new Error(`basics check: ${bcQuestions} questions across ${areaKeys.length} areas is not ${PER_AREA} each`);
+
+  // 2. the selection is the set of missed areas -- all of it, and nothing else
+  const sheet = missedAreas => {
+    const counts = {}, scores = {};
+    for (const key of areaKeys) {
+      const correct = missedAreas.includes(key) ? PER_AREA - 1 : PER_AREA;
+      counts[key] = { correct, total: PER_AREA };
+      scores[key] = Math.round(correct / PER_AREA * 100);
+    }
+    return { scores, counts };
+  };
+  const offered = missedAreas => diagnosticGaps(sheet(missedAreas)).gaps.map(row => row.area.key).sort();
+  const cases = [
+    [],
+    ["rl"],
+    ["python", "shapes", "math", "grad", "rl"],   // the five-gap case that used to show three
+    areaKeys.slice()
+  ];
+  let bcChecks = 0;
+  for (const missed of cases) {
+    const got = offered(missed), want = missed.slice().sort();
+    if (JSON.stringify(got) !== JSON.stringify(want))
+      throw new Error(`basics check: missing ${want.length} areas (${want.join(", ") || "none"}) offers ${got.length} refreshers (${got.join(", ") || "none"})`);
+    const clear = diagnosticGaps(sheet(missed)).clear.map(row => row.area.key);
+    if (clear.length + got.length !== areaKeys.length)
+      throw new Error("basics check: gaps and cleared areas do not partition the twelve areas");
+    bcChecks += 2;
+  }
+  // a perfect run must offer nothing at all -- the defect this block exists for
+  if (offered([]).length !== 0)
+    throw new Error("basics check: a run with every answer correct still offers a refresher");
+  // and the source must not carry a fixed-size suggestion list any more
+  const bcRegion = ["diagnosticSummaryHtml", "openDiagnostic", "diagnosticGaps", "diagnosticGapRows"]
+    .map(name => sliceDeclaration(source, name)).join("\n");
+  if (/\.slice\(0\s*,\s*\d+\)/.test(bcRegion))
+    throw new Error("basics check: a fixed-size slice is back in the result path, so the list is a top-N again rather than what was missed");
+
+  // 3. an old stored result carries percentages but no counts; it still has to render
+  const legacy = { scores: Object.fromEntries(areaKeys.map((key, index) => [key, index < 4 ? 0 : 100])) };
+  const legacyGaps = diagnosticGaps(legacy);
+  if (legacyGaps.gaps.length !== 4 || legacyGaps.rows.length !== areaKeys.length)
+    throw new Error("basics check: a result stored before per-area counts existed no longer reads back as four gaps");
+  bcChecks += 1;
+
+  // 4. how often a pure guess reads an area as cleared -- measured, not asserted from theory.
+  // With one question an area cleared on a 1-in-3 guess; with three it takes 1 in 27.
+  const bcTrials = 20000;
+  let bcCleared = 0, bcCleanRuns = 0;
+  let bcSeed = 20260828;
+  const bcRandom = () => (bcSeed = (bcSeed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  for (let trial = 0; trial < bcTrials; trial++) {
+    const counts = {}, scores = {};
+    for (const key of areaKeys) {
+      const asked = base.diagnostic.filter(question => question.area === key);
+      const correct = asked.filter(question => Math.floor(bcRandom() * question.opts.length) === question.a).length;
+      counts[key] = { correct, total: asked.length };
+      scores[key] = Math.round(correct / asked.length * 100);
+    }
+    const cleared = diagnosticGaps({ scores, counts }).clear.length;
+    bcCleared += cleared;
+    if (!cleared) bcCleanRuns++;
+  }
+  const bcFalseClear = bcCleared / bcTrials;
+  // Compared against the exact figure for the design this replaced, not against a guess about
+  // it: one three-option question clears an area with probability 1/3, three of them with 1/27.
+  const bcPerArea = bcFalseClear / areaKeys.length;
+  if (!(bcPerArea < 1 / 9))
+    throw new Error(`basics check: a guessed area still clears with probability ${bcPerArea.toFixed(4)}; one question per area was 0.3333, so the verdict has not become meaningfully harder to guess`);
+  if (bcPerArea > 2 / 27 || bcPerArea < 1 / 81)
+    throw new Error(`basics check: the measured guess rate ${bcPerArea.toFixed(4)} is nowhere near the 1/27 the three-question design predicts -- either the questions or the scoring changed shape`);
+
+  // 5. in the two banks where a number *is* the answer, both languages print the same figures.
+  // Prose is deliberately out of scope: a translation legitimately writes "2D" where the German
+  // writes "zweidimensional", and 92 such pairs exist across concepts, formulas and labs.
+  const bcRuns = text => (String(text).match(/\d+/g) || []).slice().sort();
+  let bcNumeric = 0, bcCompared = 0;
+  for (const bank of ["diagnostic", "quiz"]) {
+    base[bank].forEach((question, index) => {
+      const english = pack[bank]?.[String(index)];
+      if (!english) throw new Error(`basics check: ${bank} question ${index} has no English entry`);
+      const pairs = [[question.q, english.q], [question.why, english.why],
+        ...question.opts.map((option, at) => [option, english.opts[at]])];
+      for (const [german, translated] of pairs) {
+        if (!/\d/.test(german) && !/\d/.test(translated)) continue;
+        bcNumeric++;
+        const want = bcRuns(german), got = bcRuns(translated);
+        if (JSON.stringify(want) !== JSON.stringify(got))
+          throw new Error(`basics check: ${bank}[${index}] prints ${JSON.stringify(got)} in English where the German prints ${JSON.stringify(want)} -- the answer to a fixed-answer question would differ by language`);
+        bcCompared += want.length;
+      }
+    });
+  }
+  if (bcNumeric < 40)
+    throw new Error(`basics check: only ${bcNumeric} numeric strings found across both question banks, the extraction is not seeing them`);
+
+  // 6. the panel this all feeds actually renders, in both languages, for every shape of result.
+  // `english render` reaches lab panels only, so without this the new markup would be held by
+  // nothing at all -- the blind spot that costs the most is a guard that cannot render.
+  const bcRender = {
+    CONCEPTS: base.concepts, DIAGNOSTIC: base.diagnostic, DIAGNOSTIC_AREAS: diagnosticAreas,
+    GERMAN_I18N_DATA: { concepts: Object.fromEntries(base.concepts.map(concept => [concept.id, concept])) },
+    Object, Math, Array, JSON, String, Number, Boolean
+  };
+  runInNewContext(
+    "var currentLanguage='de';var user={diagnostic:null};\n" +
+    // `esc` cannot be sliced -- its body carries a regex containing a quote, which the slicer
+    // reads as an unterminated string. It escapes markup and is not what this block tests, so a
+    // faithful one-liner stands in for it; every function that decides anything is the real one.
+    "const esc = value => String(value ?? \"\").replace(/[&<>\"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));\n" +
+    sliceDeclaration(source, "localeValue") + "\n" +
+    "const byId=(list,id)=>list.find(item=>item.id===id);\n" +
+    sliceDeclaration(source, "countWords") + "\n" +
+    sliceDeclaration(source, "conceptReadingWords") + "\n" +
+    sliceDeclaration(source, "diagnosticAreaQuestionCount") + "\n" +
+    sliceDeclaration(source, "diagnosticGapRows") + "\n" +
+    sliceDeclaration(source, "diagnosticGaps") + "\n" +
+    sliceDeclaration(source, "diagnosticMinutes") + "\n" +
+    sliceDeclaration(source, "diagnosticRefresherButtons") + "\n" +
+    sliceDeclaration(source, "diagnosticSummaryHtml") + "\n" +
+    "this.render=(language,record)=>{currentLanguage=language;user={diagnostic:record};return diagnosticSummaryHtml()};",
+    bcRender
+  );
+  const bcRecords = [null, sheet([]), sheet(["rl"]), sheet(["python", "shapes", "math", "grad", "rl"]),
+    sheet(areaKeys.slice()), { scores: Object.fromEntries(areaKeys.map((key, index) => [key, index < 4 ? 0 : 100])) }];
+  let bcRendered = 0;
+  for (const language of ["de", "en"]) for (const record of bcRecords) {
+    const html = bcRender.render(language, record);
+    if (record === null) {
+      if (html !== "") throw new Error("basics check: an unrun check still renders a result panel");
+      continue;
+    }
+    if (!html) throw new Error(`basics check: the ${language} result panel renders nothing`);
+    if (/undefined|NaN|\$\{/.test(html))
+      throw new Error(`basics check: the ${language} result panel prints "${html.match(/undefined|NaN|\$\{/)[0]}" -- ${html.slice(Math.max(0, html.search(/undefined|NaN|\$\{/) - 60), html.search(/undefined|NaN|\$\{/) + 60)}`);
+    const opens = (html.match(/<(?!\/)[a-z]/g) || []).length, closes = (html.match(/<\//g) || []).length;
+    if (opens !== closes)
+      throw new Error(`basics check: the ${language} result panel leaves ${opens - closes} tags unbalanced`);
+    if (language === "en") for (const node of html.matchAll(/>([^<>]+)</gu)) {
+      const text = decodeEntities(node[1].replace(/\s+/gu, " ").trim());
+      if (text.length >= 3 && GERMAN_WORDS.test(text))
+        throw new Error(`basics check: the English result panel prints "${text.slice(0, 90)}" and an English reader reads it in German`);
+    }
+    bcRendered++;
+  }
+  // The numbers on the buttons are read, not just computed: a guard that only checks the values
+  // inside diagnosticGaps stays green while the markup prints them the wrong way round.
+  {
+    const html = bcRender.render("de", sheet(["python", "grad"]));
+    const printed = [...html.matchAll(/·\s*(\d+)\/(\d+)/g)].map(hit => `${hit[1]}/${hit[2]}`);
+    if (JSON.stringify(printed) !== JSON.stringify(["2/3", "2/3"]))
+      throw new Error(`basics check: the two refresher buttons print ${JSON.stringify(printed)} where a sheet missing one of three questions in each area must print ["2/3","2/3"]`);
+    bcRendered += 0;
+  }
+  if (bcRendered !== (bcRecords.length - 1) * 2)
+    throw new Error("basics check: not every result shape was rendered in both languages");
+
+  console.log(`basics check OK: ${bcQuestions} questions across ${areaKeys.length} areas, ${PER_AREA} each -- what the result offers is exactly what was missed in all ${cases.length} constructed sheets (a clean run offers 0, the five-gap sheet offers 5 where the old fixed slice showed 3), a pre-v86 stored result still reads back, a guessed area now clears with probability ${bcPerArea.toFixed(4)} against the exact 0.3333 of one three-option question -- ${bcFalseClear.toFixed(2)} of ${areaKeys.length} areas per guessed run, and ${bcCleanRuns} of ${bcTrials} guessed runs clear nothing at all, ${bcCompared} digit runs over ${bcNumeric} numeric strings are identical in both languages, and all ${bcRendered} result panels (${bcRecords.length - 1} shapes in two languages, plus the unrun check that renders nothing) come out balanced with no German left in the English one, each refresher button printing its own 2/3 rather than the inverse`);
+}
