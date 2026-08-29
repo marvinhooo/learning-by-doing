@@ -8228,3 +8228,208 @@ console.log(`english render OK: ${englishStates} states across ${englishLabs} la
 
   console.log(`basics check OK: ${bcQuestions} questions across ${areaKeys.length} areas, ${PER_AREA} each -- what the result offers is exactly what was missed in all ${cases.length} constructed sheets (a clean run offers 0, the five-gap sheet offers 5 where the old fixed slice showed 3), a pre-v86 stored result still reads back, a guessed area now clears with probability ${bcPerArea.toFixed(4)} against the exact 0.3333 of one three-option question -- ${bcFalseClear.toFixed(2)} of ${areaKeys.length} areas per guessed run, and ${bcCleanRuns} of ${bcTrials} guessed runs clear nothing at all, ${bcCompared} digit runs over ${bcNumeric} numeric strings are identical in both languages, and all ${bcRendered} result panels (${bcRecords.length - 1} shapes in two languages, plus the unrun check that renders nothing) come out balanced with no German left in the English one, each refresher button printing its own 2/3 rather than the inverse`);
 }
+
+// ---- review order: what you missed comes back next, not in six weeks --------------------
+// The recall deck is the only feature that answers "what should I go over again?", and until
+// v87 it answered the opposite. `priority` gave an unrated card 0 and every rated card 1, 2 or
+// 3, so *any* rating -- "Noch nicht" included -- sent a card behind all 237 others. The three
+// buttons therefore changed nothing a reader could observe until the entire deck had been
+// drawn once: 238 cards at ten a session is 24 sessions. A card missed on day one came back
+// on day twenty-four, and the deck's own description ("priorisiert neue sowie zuletzt mit
+// 'Noch nicht' bewertete Karten") described a behaviour the code did not have.
+//
+// Two properties have to hold together, which is why a plain reordering is not enough: the
+// backlog returns in the very next session, and new material never stalls behind it. This
+// block runs the app's own `prioritizedReviewCards` and `REVIEW_POLICY` -- sliced out of
+// index.html, not retyped -- and pins both, plus the exact number of the version replaced.
+{
+  const roNames = ["CONCEPTS", "FORMULAS", "MODULES", "REVIEW_POLICY", "stableReviewKey",
+    "reviewConceptCardId", "buildReviewCards", "scopedReviewCards", "prioritizedReviewCards", "reviewStats"];
+  const roContext = { Object, Math, Array, JSON, Date, Number, Set, String, Infinity };
+  runInNewContext(
+    `const byId=(list,id)=>list.find(entry=>entry&&entry.id===id);
+     const GERMAN_I18N_DATA={concepts:{}};const LECTURE_GUIDES={};const ASSIGNMENTS=[];
+     const lectureUsesConcept=()=>false;let reviewScope="all";let user={reviewState:{}};
+     ${roNames.map(name => sliceDeclaration(source, name)).join("\n")}
+     this.api={buildReviewCards,prioritizedReviewCards,reviewStats,REVIEW_POLICY,
+       setState:next=>{user.reviewState=next}};`,
+    roContext
+  );
+  const { buildReviewCards, prioritizedReviewCards, reviewStats, REVIEW_POLICY: policy, setState } = roContext.api;
+  const roDeck = buildReviewCards();
+  const SESSION = 10;
+  const roEpoch = Date.UTC(2026, 0, 1);
+  const rated = (result, at) => policy.next(undefined, result, at);
+
+  // 1. The order itself: what was missed, then what was hard, then what is new, then what is
+  //    known. The middle boundary is the whole finding -- before v87 "new" sat in front.
+  {
+    const state = {};
+    setState(state);
+    state[roDeck[100].id] = rated("good", roEpoch);
+    state[roDeck[101].id] = rated("hard", roEpoch);
+    state[roDeck[102].id] = rated("again", roEpoch);
+    const shape = prioritizedReviewCards(Infinity).map(card => state[card.id]?.lastResult || "new");
+    const expected = ["again", "hard", "new"];
+    expected.forEach((want, index) => {
+      if (shape[index] !== want)
+        throw new Error(`review order: position ${index + 1} of the deck is "${shape[index]}", not "${want}" -- a rated card must not sit behind an unseen one`);
+    });
+    if (shape[shape.length - 1] !== "good")
+      throw new Error(`review order: the last card is "${shape[shape.length - 1]}", not "good" -- what you already know belongs at the back`);
+  }
+
+  // 2. The number the replaced version produced, recomputed rather than remembered: with the
+  //    old priority a just-missed card ranked dead last, so it returned only after the deck
+  //    had been drawn once. Comparing against the exact old figure keeps the claim honest.
+  const oldPriority = record => (!policy.attempted(record) ? 0 : record.lastResult === "again" ? 1 : record.lastResult === "hard" ? 2 : 3);
+  const oldRank = (() => {
+    const state = {};
+    const missed = roDeck[0].id;
+    state[missed] = rated("again", roEpoch);
+    const entries = roDeck.map((card, order) => ({ card, order, record: state[card.id] }));
+    entries.sort((a, b) => (oldPriority(a.record) - oldPriority(b.record)) || (policy.time(a.record?.lastAt) - policy.time(b.record?.lastAt)) || (a.order - b.order));
+    return entries.findIndex(entry => entry.card.id === missed) + 1;
+  })();
+  const oldReturnSession = Math.ceil(oldRank / SESSION);
+  if (oldRank !== roDeck.length)
+    throw new Error(`review order: the replaced ordering is expected to rank a missed card last of ${roDeck.length}; it ranked ${oldRank}. Re-derive the claim before changing the number.`);
+  const newRank = (() => {
+    const state = {};
+    setState(state);
+    state[roDeck[0].id] = rated("again", roEpoch);
+    return prioritizedReviewCards(Infinity).findIndex(card => card.id === roDeck[0].id) + 1;
+  })();
+  if (newRank !== 1)
+    throw new Error(`review order: a just-missed card ranks ${newRank}, not first`);
+
+  // 3. Sessions, driven the way a reader drives them. Four rating habits, including the two
+  //    that break a naive fix: rate everything "again" (a pure-backlog deck would stop dead)
+  //    and rate everything "good" (the backlog must not invent work).
+  const drive = (rate, sessions) => {
+    const state = {};
+    setState(state);
+    let clock = roEpoch, missed = null, comeback = null, minNew = Infinity, short = null;
+    const touched = new Set();
+    for (let session = 1; session <= sessions; session++) {
+      const cards = prioritizedReviewCards(SESSION);
+      if (cards.length !== Math.min(SESSION, roDeck.length)) short = session;
+      if (new Set(cards.map(card => card.id)).size !== cards.length)
+        throw new Error(`review order: session ${session} showed the same card twice`);
+      minNew = Math.min(minNew, cards.filter(card => !policy.attempted(state[card.id])).length);
+      for (const card of cards) {
+        if (missed && card.id === missed && comeback === null && session > 1) comeback = session;
+        const result = rate(card, session);
+        if (result !== "good" && !missed) missed = card.id;
+        state[card.id] = policy.next(state[card.id], result, clock);
+        clock += 60000;
+        touched.add(card.id);
+      }
+      clock += 86400000;
+    }
+    return { touched: touched.size, comeback, minNew, short, state };
+  };
+  const RESERVED = Math.floor(SESSION / 2);
+  const roAlways = drive(() => "again", 30);
+  const roMixed = (() => { let n = 0; return drive(() => (n++ % 3 === 0 ? "again" : "good"), 30); })();
+  const roGood = drive(() => "good", 30);
+  for (const [label, run] of [["alles Noch-nicht", roAlways], ["jede dritte verfehlt", roMixed], ["alles gewusst", roGood]]) {
+    if (run.short !== null)
+      throw new Error(`review order (${label}): session ${run.short} was short of ${SESSION} cards while the deck still held some`);
+  }
+  for (const [label, run] of [["alles Noch-nicht", roAlways], ["jede dritte verfehlt", roMixed]]) {
+    if (run.comeback !== 2)
+      throw new Error(`review order (${label}): the first missed card returned in session ${run.comeback}, not the next one`);
+    if (run.minNew < RESERVED)
+      throw new Error(`review order (${label}): one session carried only ${run.minNew} unseen cards; ${RESERVED} of ${SESSION} stay reserved so a backlog can never stop new material`);
+  }
+  if (roGood.touched !== roDeck.length)
+    throw new Error(`review order: a reader who knows everything saw ${roGood.touched} of ${roDeck.length} cards in 30 sessions`);
+
+  // 4. The reservation is for unseen cards only, so it has to lapse once none are left --
+  //    otherwise a worked-through deck would pad the session with cards already known.
+  {
+    const state = {};
+    setState(state);
+    roDeck.forEach((card, index) => { state[card.id] = rated(index < 20 ? "again" : "good", roEpoch + index * 1000); });
+    const session = prioritizedReviewCards(SESSION);
+    const open = session.filter(card => state[card.id].lastResult === "again").length;
+    if (open !== SESSION)
+      throw new Error(`review order: with 20 cards outstanding and nothing unseen, the session held ${open} of them instead of ${SESSION}`);
+  }
+
+  // 5. A record written before v87 carries the same three fields, so it has to keep sorting.
+  //    Nothing migrates it -- if it ever stopped being read, a reader's history would vanish
+  //    silently rather than loudly.
+  {
+    const state = {};
+    setState(state);
+    const legacy = { firstAt: "2026-07-01T08:00:00.000Z", lastAt: "2026-07-02T08:00:00.000Z", lastResult: "again" };
+    state[roDeck[7].id] = legacy;
+    if (!policy.attempted(legacy)) throw new Error("review order: a stored pre-v87 record no longer counts as attempted");
+    if (prioritizedReviewCards(Infinity)[0].id !== roDeck[7].id)
+      throw new Error("review order: a stored pre-v87 'again' record does not reach the front");
+    if (reviewStats("all").again !== 1) throw new Error("review order: the deck summary lost a stored rating");
+  }
+
+  // 6. The number reaches the screen. The closing panel is where a reader learns that the
+  //    cards they fumbled are coming straight back; a correct sort behind silent prose would
+  //    still leave them believing the old behaviour.
+  const roPanel = (results, language) => {
+    const panelContext = {
+      currentLanguage: language,
+      reviewSessionResults: results,
+      updateReviewDeckUi() {},
+      requestAnimationFrame() {},
+      document: { getElementById: () => null },
+      openModal(title, eyebrow, body) { panelContext.captured = { title, eyebrow, body }; }
+    };
+    runInNewContext(sliceDeclaration(source, "finishReviewSession") + "\nfinishReviewSession();", panelContext);
+    return panelContext.captured.body;
+  };
+  let roPanels = 0;
+  for (const language of ["de", "en"]) {
+    const withGaps = roPanel({ again: 3, hard: 1, good: 6 }, language);
+    const clean = roPanel({ again: 0, hard: 0, good: 10 }, language);
+    for (const [label, body] of [["mit Lücken", withGaps], ["ohne Lücken", clean]]) {
+      if (/undefined|NaN|\$\{/.test(body))
+        throw new Error(`review order: the ${language} closing panel (${label}) printed an unresolved value`);
+      const open = (body.match(/<(\w+)[^>]*>/g) || []).length, close = (body.match(/<\/(\w+)>/g) || []).length;
+      if (open - close !== (body.match(/<(br|hr|img|input)\b/g) || []).length)
+        throw new Error(`review order: the ${language} closing panel (${label}) is unbalanced`);
+      roPanels++;
+    }
+    // 3 again + 1 hard is the 4 that come back; the clean panel must not claim a backlog.
+    if (!withGaps.includes("4"))
+      throw new Error(`review order: the ${language} closing panel does not print the 4 cards that return next session`);
+    if (/\b4\b/.test(clean))
+      throw new Error(`review order: the ${language} closing panel claims a backlog after a clean session`);
+    if (language === "de" && !/nächsten Sitzung vorn/.test(withGaps))
+      throw new Error("review order: the German closing panel no longer says where the missed cards went");
+    if (language === "en" && !/next session/.test(withGaps))
+      throw new Error("review order: the English closing panel no longer says where the missed cards went");
+  }
+
+  console.log(`review order OK: ${roDeck.length} cards, a session of ${SESSION} -- a card rated "Noch nicht" now ranks ${newRank} of ${roDeck.length} and returns in session 2, where the replaced ordering ranked it ${oldRank} of ${roDeck.length} and brought it back in session ${oldReturnSession}; the deck reads again -> hard -> new -> good, ${RESERVED} of ${SESSION} seats stay reserved for unseen cards so even a reader who rates every card "Noch nicht" still meets ${roAlways.minNew} new ones per session and ${roAlways.touched} cards in 30, the reservation lapses on a worked-through deck (20 outstanding fill all ${SESSION} seats), a stored pre-v87 record still sorts to the front, and ${roPanels} closing panels print the returning count in both languages`);
+}
+
+// ---- readme counts: the front page has to count the same app ---------------------------
+// The README advertised 48 labs while the app carried 57 -- a number that had simply stopped
+// being updated. It is the first thing a reader sees, so it is worth holding to the same
+// standard as the app's own prose: every count in that sentence is read back out of the data.
+{
+  const readme = await readFile(path.join(root, "README.md"), "utf8");
+  const glossary = readConstant("GLOSSARY"), symbols = readConstant("SYMBOLS");
+  const claims = [
+    ["Konzepte", base.concepts.length], ["Formeln", base.formulas.length],
+    ["Symbole", symbols.length], ["Glossarbegriffe", glossary.length],
+    ["interaktive Labs", base.labs.length]
+  ];
+  for (const [noun, actual] of claims) {
+    const hit = readme.match(new RegExp(`(\\d+)\\s+${noun}\\b`));
+    if (!hit) throw new Error(`readme counts: the README no longer states a number of ${noun}`);
+    if (Number(hit[1]) !== actual)
+      throw new Error(`readme counts: the README advertises ${hit[1]} ${noun}, the app carries ${actual}`);
+  }
+  console.log(`readme counts OK: ${claims.map(([noun, actual]) => `${actual} ${noun}`).join(", ")} -- every number on the front page read back out of the app`);
+}
