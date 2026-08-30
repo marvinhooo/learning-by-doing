@@ -134,7 +134,18 @@ const labObjectives = readConstant("LAB_OBJECTIVES");
 const glossaryDetails = readConstant("GLOSSARY_DETAILS");
 base.formulas.forEach(item => { item.answer = formulaAnswers[item.id]; });
 base.assignments.forEach(item => { item.checkAnswers = assignmentAnswers[item.id]; });
-base.labs.forEach(item => { item.transferAnswer = labAnswers[item.id]; });
+// Not a retyped copy: the app's own merge statement, run against the same two sources it runs on.
+// The retyped duplicate that stood here reproduced the app's defect instead of exposing it -- it
+// erased the inline transferAnswer of 11 labs exactly as the app did, so 16 versions of guards read
+// the wiped value and saw nothing wrong. See the "lab transfer answers" block at the end.
+const labMergeStatement = (() => {
+  const start = source.indexOf("    LABS.forEach(item=>{");
+  if (start < 0) throw new Error("labs: the transferAnswer merge statement is gone from index.html");
+  const line = source.slice(start, source.indexOf("\n", start)).trim();
+  if (!line.includes("transferAnswer")) throw new Error("labs: the first LABS.forEach no longer merges transferAnswer");
+  return line;
+})();
+new Function("LABS", "LAB_TRANSFER_ANSWERS", labMergeStatement)(base.labs, labAnswers);
 base.glossary.forEach(item => { item.detail = glossaryDetails[item.term]; });
 
 const assertUnique = (items, label, key = "id") => {
@@ -8432,4 +8443,89 @@ console.log(`english render OK: ${englishStates} states across ${englishLabs} la
       throw new Error(`readme counts: the README advertises ${hit[1]} ${noun}, the app carries ${actual}`);
   }
   console.log(`readme counts OK: ${claims.map(([noun, actual]) => `${actual} ${noun}`).join(", ")} -- every number on the front page read back out of the app`);
+}
+
+// ---- lab transfer answers: the explanation the "Lösungsidee" toggle actually opens onto -------
+// The transfer answer lives in two homes -- the LAB_TRANSFER_ANSWERS map, and an inline
+// `transferAnswer:` on the lab object that every lab written since v72 uses. The merge assigned
+// unconditionally, so it did not join the two homes, it erased one: the 11 labs the map does not
+// name ended with `transferAnswer === undefined`, and `esc(undefined)` is the empty string. Their
+// "Lösungsidee anzeigen" opened onto an empty paragraph. The English overlay reinstalled the field
+// from the pack, so the loss was German-only -- invisible to every guard that reads the English
+// side. This block runs the app's own merge and its own disclosure renderer, in both languages,
+// and recomputes what the replaced merge did rather than restating it.
+{
+  const labsDecl = sliceDeclaration(source, "LABS");
+  const mapDecl = sliceDeclaration(source, "LAB_TRANSFER_ANSWERS");
+  const merge = labMergeStatement;
+
+  const runMerge = statement => {
+    const box = {};
+    runInNewContext(`${labsDecl}\n${mapDecl}\n${statement}\nglobalThis.OUT = LABS;`, box);
+    return box.OUT;
+  };
+  const merged = runMerge(merge);
+  if (merged.length !== base.labs.length) throw new Error("lab transfer answers: the sliced LABS is not the app's LABS");
+
+  // The app's own renderer, not a copy: the lab page must keep printing this field through
+  // answerDisclosure, or the guard would be proving something the reader never sees.
+  const labDetail = sliceDeclaration(source, "renderLabDetail");
+  if (!labDetail.includes("answerDisclosure(lab.transferAnswer,"))
+    throw new Error("lab transfer answers: renderLabDetail no longer prints transferAnswer through answerDisclosure");
+  const renderBox = {};
+  // esc is a one-line arrow whose body carries a character class with a quote in it, which
+  // sliceDeclaration's quote tracking cannot follow -- so take its line, and check it is one line.
+  const escStart = source.indexOf("const esc = value =>");
+  const escLine = source.slice(escStart, source.indexOf("\n", escStart));
+  if (!escLine.endsWith(";") || !escLine.includes("value ?? \"\""))
+    throw new Error("lab transfer answers: esc is no longer the one-line arrow that turns a missing answer into an empty string");
+  runInNewContext(`${escLine}\n${sliceDeclaration(source, "answerDisclosure")}\nglobalThis.OUT = answerDisclosure;`, renderBox);
+  const disclosure = renderBox.OUT;
+  const printedBody = markup => (markup.match(/<p>([\s\S]*)<\/p>/) || [, ""])[1].trim();
+
+  // One home per lab. Two entries for the same id would let the map and the inline text drift
+  // apart with only the merge order deciding which one a reader gets.
+  const mapBox = {};
+  runInNewContext(`${mapDecl}\nglobalThis.OUT = LAB_TRANSFER_ANSWERS;`, mapBox);
+  const mapKeys = new Set(Object.keys(mapBox.OUT));
+  const rawBox = {};
+  runInNewContext(`${labsDecl}\nglobalThis.OUT = LABS;`, rawBox);
+  const inlineIds = rawBox.OUT.filter(lab => Object.hasOwn(lab, "transferAnswer")).map(lab => lab.id);
+  const both = inlineIds.filter(id => mapKeys.has(id));
+  if (both.length) throw new Error(`lab transfer answers: ${both.join(", ")} carry an answer in both homes -- only the merge order decides which one is shown`);
+  for (const id of mapKeys) if (!base.labs.some(lab => lab.id === id)) throw new Error(`lab transfer answers: the map answers ${id}, which is not a lab`);
+
+  // German: what the reader opens has to contain the answer, measured on the printed paragraph.
+  let printed = 0;
+  for (const lab of merged) {
+    const body = printedBody(disclosure(lab.transferAnswer, "Lösungsidee anzeigen"));
+    if (!body) throw new Error(`lab transfer answers: ${lab.id} opens "Lösungsidee anzeigen" onto an empty paragraph in German`);
+    if (/undefined|\[object Object\]/.test(body)) throw new Error(`lab transfer answers: ${lab.id} prints an unresolved value in German`);
+    if (body.length < 80) throw new Error(`lab transfer answers: ${lab.id} prints only ${body.length} characters in German`);
+    printed++;
+  }
+
+  // English: the overlay only copies fields that are listed, so the list is part of the contract.
+  const i18nFields = readConstant("I18N_FIELDS");
+  if (!(i18nFields.labs || []).includes("transferAnswer"))
+    throw new Error("lab transfer answers: I18N_FIELDS.labs no longer carries transferAnswer, so the English overlay would leave the German text standing");
+  for (const lab of merged) {
+    const english = pack.labs?.[lab.id]?.transferAnswer;
+    if (typeof english !== "string" || !english.trim())
+      throw new Error(`en.labs.${lab.id}.transferAnswer is missing -- the English reader gets the German answer or none`);
+    const body = printedBody(disclosure(english, "Show explanation"));
+    if (!body || /undefined/.test(body)) throw new Error(`lab transfer answers: ${lab.id} prints no English explanation`);
+    printed++;
+  }
+
+  // The number of the replaced version, recomputed instead of remembered: the unconditional
+  // assignment has to be shown to leave exactly the inline labs empty. If that stops being true,
+  // this fails rather than carrying a stale claim forward.
+  const replaced = runMerge("LABS.forEach(item=>{ item.transferAnswer=LAB_TRANSFER_ANSWERS[item.id]; });");
+  const lost = replaced.filter(lab => !String(lab.transferAnswer ?? "").trim()).map(lab => lab.id);
+  if (lost.length !== inlineIds.length || lost.some(id => !inlineIds.includes(id)))
+    throw new Error(`lab transfer answers: the replaced merge is expected to erase exactly the ${inlineIds.length} inline answers, it erased ${lost.length} (${lost.join(", ")})`);
+  if (!lost.length) throw new Error("lab transfer answers: no lab keeps its answer inline any more, so this block no longer proves anything -- retake the decision");
+
+  console.log(`lab transfer answers OK: ${merged.length} labs, ${printed} disclosures printed in both languages -- ${inlineIds.length} of them keep their answer inline (${lost.slice(0, 3).join(", ")}, …) where the replaced unconditional merge erased all ${lost.length} to undefined and printed an empty paragraph in German while English still read from the pack, the two homes never name the same lab, and no printed answer is shorter than 80 characters`);
 }

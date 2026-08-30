@@ -5448,7 +5448,14 @@
       "moe-routing": "Perfekte Expertbalance zählt Assignments pro Expert, aber nicht automatisch Bytes, Topologie oder Expert-zu-Gerät-Zuordnung. Mehrere gleich belastete Experts können auf demselben Gerät liegen, Tokenziele können ungleich über Links verteilt sein, und ein langsamer Rank oder ungünstige All-to-All-Route kann weiterhin den Straggler bestimmen.",
       "rlvr-system-transfer": "DPO benötigt log π_current(chosen|x), log π_current(rejected|x), log π_ref(chosen|x) und log π_ref(rejected|x), jeweils nur über echte Antworttokens. Die feste Reference definiert die unveränderte Ausgangsbasis; würde sie mittrainiert, könnte sich der Vergleichsmaßstab mit der Policy bewegen und das angegebene DPO-Ziel ändern."
 };
-    LABS.forEach(item=>{ item.transferAnswer=LAB_TRANSFER_ANSWERS[item.id]; });
+    // The transfer answer has two homes: this map, and an inline `transferAnswer:` on the lab itself
+    // (every lab written since v72 carries it inline, next to the question it answers). Assigning
+    // unconditionally therefore did not merge the two -- it erased one. The 11 labs the map does not
+    // name lost their answer to `undefined`, and `esc(undefined)` is the empty string, so "Lösungsidee
+    // anzeigen" opened onto an empty paragraph. The English overlay set the field again from the pack,
+    // which is why the loss was German-only and invisible from the English side. The map may fill in,
+    // never overwrite.
+    LABS.forEach(item=>{ if(item.transferAnswer===undefined) item.transferAnswer=LAB_TRANSFER_ANSWERS[item.id]; });
 
     const LAB_OBJECTIVES = {
       "transformer-ledger": {
