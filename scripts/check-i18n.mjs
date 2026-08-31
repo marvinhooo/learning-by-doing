@@ -8529,3 +8529,117 @@ console.log(`english render OK: ${englishStates} states across ${englishLabs} la
 
   console.log(`lab transfer answers OK: ${merged.length} labs, ${printed} disclosures printed in both languages -- ${inlineIds.length} of them keep their answer inline (${lost.slice(0, 3).join(", ")}, …) where the replaced unconditional merge erased all ${lost.length} to undefined and printed an empty paragraph in German while English still read from the pack, the two homes never name the same lab, and no printed answer is shorter than 80 characters`);
 }
+
+// A formula card is where an equation gets built from its purpose, its named quantities and one small
+// calculation. Two surfaces put one in front of a reader who walks Lecture 1 to Lecture 17: the lecture
+// page prints its own curated list, and a concept page prints that concept's formulas filtered to the
+// same list -- falling back to the concept's first formula when the lecture curates none of them.
+// A card outside both surfaces exists, but the path never leads there: it is reachable only from the
+// formula index or from an assignment page, so the reader meets it at the problem instead of before it.
+// Before v89 that was true of eleven of the 79 cards, MFU among them, although Lecture 2 gives MFU its
+// own section heading and its formula. The functions below are the app's own, sliced out of index.html
+// rather than retyped, so this block cannot pass against a copy that has drifted away from the renderer.
+{
+  const pathApi = runInNewContext(
+    `${["LECTURE_GUIDES", "lectureLearningPages", "conceptFormulaIds"].map(name => sliceDeclaration(source, name)).join("\n")}
+     const LECTURE_IDS = Object.keys(LECTURE_GUIDES);
+     ({LECTURE_GUIDES, LECTURE_IDS, lectureLearningPages, conceptFormulaIds})`, {});
+  const formulaById = new Map(base.formulas.map(formula => [formula.id, formula]));
+  const conceptById = new Map(base.concepts.map(concept => [concept.id, concept]));
+
+  // Both surfaces have to keep printing, or the reachability argument below describes a renderer that
+  // no longer exists. The primer fallback is read as text for the same reason: it is the only thing
+  // that puts a card on a page whose lecture curates none of that concept's formulas.
+  const lectureRenderer = sliceDeclaration(source, "renderLectureDetail");
+  if (!lectureRenderer.includes("guide.formulas.map(formulaId=>byId(FORMULAS,formulaId))"))
+    throw new Error("lecture formulas: the lecture page no longer prints its curated formulas");
+  const primerRenderer = sliceDeclaration(source, "conceptExamplePrimer");
+  if (!primerRenderer.includes("conceptFormulaIds(c,lectureId)[0]") || !primerRenderer.includes("curatedFormulaId||c.formulas?.[0]"))
+    throw new Error("lecture formulas: the concept primer no longer falls back to the concept's first formula, so pages whose lecture curates nothing would show no worked example");
+  const conceptRenderer = sliceDeclaration(source, "renderConceptDetail");
+  if (!conceptRenderer.includes("conceptFormulaIds(c,lectureId)"))
+    throw new Error("lecture formulas: the concept page no longer filters its formulas through the lecture curation");
+
+  // Surface one: what a lecture page itself prints.
+  const reachable = new Map();
+  const note = (id, where) => { if (!reachable.has(id)) reachable.set(id, []); reachable.get(id).push(where); };
+  for (const lectureId of pathApi.LECTURE_IDS) {
+    const curated = pathApi.LECTURE_GUIDES[lectureId].formulas || [];
+    if (new Set(curated).size !== curated.length) throw new Error(`lecture formulas: ${lectureId} curates the same formula twice`);
+    for (const id of curated) {
+      if (!formulaById.has(id)) throw new Error(`lecture formulas: ${lectureId} curates ${id}, which is not a formula`);
+      note(id, lectureId);
+    }
+    // Surface two: every learning page of that lecture, through the app's own filter and fallback.
+    for (const conceptId of pathApi.lectureLearningPages(lectureId)) {
+      const concept = conceptById.get(conceptId);
+      if (!concept) throw new Error(`lecture formulas: ${lectureId} leads to ${conceptId}, which is not a concept`);
+      const curatedHere = pathApi.conceptFormulaIds(concept, lectureId);
+      const printed = curatedHere.length ? curatedHere : (concept.formulas?.[0] ? [concept.formulas[0]] : []);
+      for (const id of printed) note(id, `${lectureId}:${conceptId}`);
+    }
+  }
+
+  // The two cards the path deliberately does not carry. Each names the concept whose subject it is, and
+  // that concept has to stay one no lecture teaches: the moment a lecture picks it up, this fails and the
+  // placement is decided again instead of silently staying off the path.
+  const offPath = [
+    ["causal-attention", "causal-mask", "no lecture PDF teaches the causal mask; A1 does, and the assignment page carries it"],
+    ["gradient-clip", "clipping", "no lecture PDF teaches clipping; the gradients concept lists the card as a companion"]
+  ];
+  for (const [formulaId, conceptId] of offPath) {
+    if (!formulaById.has(formulaId)) throw new Error(`lecture formulas: the off-path card ${formulaId} no longer exists`);
+    if (!selfStudyConcepts.includes(conceptId))
+      throw new Error(`lecture formulas: ${conceptId} left the assignment-only list, so ${formulaId} has to be placed on that lecture now`);
+    if (reachable.has(formulaId))
+      throw new Error(`lecture formulas: ${formulaId} is on the path via ${reachable.get(formulaId).join(", ")} -- it must leave the off-path list`);
+  }
+  const unreachable = base.formulas.filter(formula => !reachable.has(formula.id)).map(formula => formula.id);
+  const declared = offPath.map(([id]) => id);
+  for (const id of unreachable)
+    if (!declared.includes(id))
+      throw new Error(`lecture formulas: ${id} is on no lecture page and no learning page -- walking Lecture 1 to 17 never shows it. Curate it where its source teaches it, or declare it off-path with a reason`);
+
+  // The cards v89 put back, each on the lecture whose own source derives it. Losing one would return a
+  // reader to the state where the card exists but the path never reaches it.
+  const restored = [
+    ["l02", "mfu", "Lecture 2 has the section \"Model FLOPs utilization (MFU)\" and mfu = actual_flop_per_sec / promised_flop_per_sec"],
+    ["l02", "training-flops", "Lecture 2: \"Total: 6 (# data points) (# parameters) FLOPs\""],
+    ["l02", "linear-map", "Lecture 2 builds nn.Linear and counts its operations"],
+    ["l02", "linear-params", "Lecture 2: \"(D K) is the number of parameters\", actual_num_flops = 2 * B * D * K"],
+    ["l03", "softmax", "Lecture 3: \"Recall the softmax calculation\" and softmaxes ill-behaved through exponentials"],
+    ["l10", "mlp-arithmetic-intensity", "Lecture 10 derives flops == 2*B*D*F over bytes_transferred == 2*B*D + 2*D*F + 2*B*F"],
+    ["l10", "attention-arithmetic-intensity", "Lecture 10: assert intensity == S*T / (S + T)"],
+    ["l10", "ssm-recurrence", "Lecture 10 has the section \"State-space models\""],
+    ["l10", "diffusion-generation", "Lecture 10 has the section \"Diffusion models\""],
+    ["l14", "ngram-filter", "Lecture 14: \"Algorithmic tools: n-gram models (KenLM), classifiers (fastText), importance resampling (DSIR)\""],
+    ["l14", "fasttext-filter", "Lecture 14 has the section fasttext_main() and \"fastText classifier: bag of word embeddings\""],
+    ["l14", "importance-resampling", "Lecture 14 has the section dsir_main() and \"Do importance resampling with p, q, and raw samples\""]
+  ];
+  for (const [lectureId, formulaId] of restored) {
+    if (!(pathApi.LECTURE_GUIDES[lectureId].formulas || []).includes(formulaId))
+      throw new Error(`lecture formulas: ${lectureId} no longer curates ${formulaId}, although its own source derives it`);
+    if (!reachable.has(formulaId)) throw new Error(`lecture formulas: ${formulaId} is curated but still unreachable`);
+  }
+
+  // Adding a card to a lecture also decides which one becomes that page's worked example, because the
+  // primer takes the first curated formula in the concept's own order. These three moved, and each moved
+  // onto the equation its lecture actually derives -- pinned here so a later edit cannot shift them back
+  // unnoticed.
+  for (const [lectureId, conceptId, expected] of [
+    ["l02", "resource-accounting", "training-flops"],
+    ["l02", "training-loop", "mfu"],
+    ["l03", "probability", "softmax"],
+    ["l10", "alternative-sequence-models", "ssm-recurrence"],
+    ["l14", "filtering-mechanics", "ngram-filter"],
+    ["l02", "shapes", "matmul"]
+  ]) {
+    const concept = conceptById.get(conceptId);
+    const primer = pathApi.conceptFormulaIds(concept, lectureId)[0] || concept.formulas?.[0];
+    if (primer !== expected)
+      throw new Error(`lecture formulas: the worked example on ${lectureId}'s ${conceptId} page is ${primer}, expected ${expected}`);
+  }
+
+  const lecturePageOnly = [...reachable].filter(([, where]) => where.every(entry => !entry.includes(":"))).map(([id]) => id);
+  console.log(`lecture formulas OK: ${reachable.size} of ${base.formulas.length} cards reachable by walking Lecture 1 to 17 (${unreachable.length} declared off-path: ${unreachable.join(", ")}), ${restored.length} of them curated by v89 onto the lecture whose own source derives them, ${lecturePageOnly.length} carried by a lecture page alone (${lecturePageOnly.join(", ")}), and 6 worked-example primers pinned`);
+}
