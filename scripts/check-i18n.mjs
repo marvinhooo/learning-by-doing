@@ -7777,7 +7777,92 @@ const renderLabs = [
       [{ batchSetup: "real", batchStart: "inclusive", batchTarget: "shift" }, "312,493",
         "how rarely the off-by-one start rule is caught at A1 scale is the number the lab exists for"]
     ]
-  }
+  },
+  {
+    id: "baseline-variance", entry: "bvStageMarkup", mode: "bvMode", update: "updateBaselineVariance",
+    names: ["BV_P_LADDER", "BV_N_LADDER", "bvScore", "bvReward", "bvOutcomes", "bvMean",
+      "bvVarSingle", "bvVar", "bvClosedMean", "bvClosedVarPlain", "bvClosedVarBaseline",
+      "bvClosedGainMean", "BV_BASELINES", "BV_MODES", "bvNumber", "bvFind", "bvPick",
+      "bvLabel", "bvCell", "bvRead", "bvSelection", "bvLedgerStage", "bvCrossoverStage",
+      "bvStageMarkup"],
+    options: {
+      bvMode: ["ledger", "crossover"], bvN: "BV_N_LADDER", bvP: "BV_P_LADDER",
+      bvBaseline: "BV_BASELINES", bvCompare: ["mean", "optimal", "half", "max"]
+    },
+    // Mode A works one (p, b) case in full; mode B sweeps every p and has no single case at
+    // all. Nothing mode A selects may reach the sweep, or the crossover the reader reads off
+    // would silently depend on the case left standing in the other panel. n is the one control
+    // both modes show, and it has to move both.
+    controls: { bvN: ["ledger", "crossover"], bvP: ["ledger"], bvBaseline: ["ledger"], bvCompare: ["crossover"] },
+    anchors: [
+      // Part (a) on screen: with no baseline the variance is p(1-p)^3, and outcome A = 0
+      // contributes literally nothing because its reward is zero.
+      [{ bvMode: "ledger", bvN: "1", bvP: "0.9", bvBaseline: "none", bvCompare: "mean" },
+        '<strong data-bv-var1="0.0008999999999999993">0.0009000000</strong>',
+        "the reference variance of part (a) is what every later comparison is measured against"],
+      [{ bvMode: "ledger", bvN: "1", bvP: "0.9", bvBaseline: "none", bvCompare: "mean" },
+        '<strong data-bv-outcome0="0">0.000000</strong>',
+        "the wrong answer reporting nothing at all is the reason the plain estimator spreads"],
+      // Part (c), the finding: at p = 0.9 the population mean costs 64 times the variance of
+      // no baseline, while the expectation beside it does not move by a digit.
+      [{ bvMode: "ledger", bvN: "1", bvP: "0.9", bvBaseline: "mean", bvCompare: "mean" },
+        '<strong data-bv-var1="0.0576">0.0576000000</strong>',
+        "the population-mean variance at p = 0.9 is the number the lab card quotes"],
+      [{ bvMode: "ledger", bvN: "1", bvP: "0.9", bvBaseline: "mean", bvCompare: "mean" },
+        '<strong data-bv-ratio="64.00000000000004">64.000000×</strong>',
+        "64 times is the claim in both language cards and has to be legible on screen, not only true"],
+      [{ bvMode: "ledger", bvN: "1", bvP: "0.9", bvBaseline: "mean", bvCompare: "mean" },
+        '<strong data-bv-mean="0.08999999999999998">0.0900000000</strong>',
+        "unbiasedness is the other half of the lesson: the expectation has to stand still while the variance moves"],
+      // The ratio is a property of p alone -- n divides both sides -- so it has to survive n.
+      [{ bvMode: "ledger", bvN: "16", bvP: "0.75", bvBaseline: "mean", bvCompare: "mean" },
+        '<strong data-bv-ratio="4">4.000000×</strong>',
+        "the ratio may not move with n, or the reader would read the sample count as part of the finding"],
+      [{ bvMode: "ledger", bvN: "16", bvP: "0.75", bvBaseline: "mean", bvCompare: "mean" },
+        '<strong data-bv-varn="0.0029296875">0.0029296875</strong>',
+        "while the variance beside it does divide by n -- one cell without the other teaches the wrong rule"],
+      // The variance-optimal baseline: both outcomes collapse onto the same number, so the
+      // estimator is deterministic. This is the answer to question 2 of the quick check.
+      [{ bvMode: "ledger", bvN: "1", bvP: "0.75", bvBaseline: "optimal", bvCompare: "mean" },
+        '<strong data-bv-outcome1="0.1875">0.187500</strong>',
+        "at b = 1 - p the two outcomes have to print the same value, or the zero variance is unexplained"],
+      [{ bvMode: "ledger", bvN: "1", bvP: "0.75", bvBaseline: "optimal", bvCompare: "mean" },
+        '<strong data-bv-outcome0="0.1875">0.187500</strong>',
+        "and the second of the two, since a single cell does not show the collapse"],
+      [{ bvMode: "ledger", bvN: "1", bvP: "0.75", bvBaseline: "optimal", bvCompare: "mean" },
+        '<strong data-bv-var1="0">0.0000000000</strong>',
+        "the minimum of the variance over b is exactly zero, and that has to be on the screen"],
+      // Mode B: four baselines, four different answers to "does a baseline reduce variance".
+      [{ bvMode: "crossover", bvN: "1", bvP: "0.5", bvBaseline: "none", bvCompare: "mean" },
+        '<strong data-bv-crossover="0.6666666666666666">0.666667</strong>',
+        "p = 2/3 is the threshold the lab card names and the sweep has to print it"],
+      [{ bvMode: "crossover", bvN: "1", bvP: "0.5", bvBaseline: "none", bvCompare: "mean" },
+        '<strong data-bv-worse="2">2 von 6</strong>',
+        "the count of harmful rows has to agree with the threshold beside it"],
+      [{ bvMode: "crossover", bvN: "1", bvP: "0.5", bvBaseline: "none", bvCompare: "mean" },
+        'gleich · Δ = 0.0000000000',
+        "exactly at the threshold the baseline is a wash, and rounding that to \"better\" would be the wrong lesson"],
+      [{ bvMode: "crossover", bvN: "1", bvP: "0.5", bvBaseline: "none", bvCompare: "optimal" },
+        '<strong data-bv-worse="0">0 von 6</strong>',
+        "the variance-optimal baseline is the only one that is never worse, which is what makes the other three a warning"],
+      [{ bvMode: "crossover", bvN: "1", bvP: "0.5", bvBaseline: "none", bvCompare: "half" },
+        '<strong data-bv-crossover="0.75">0.750000</strong>',
+        "a fixed baseline has its own threshold -- three different numbers is the point of the mode"],
+      [{ bvMode: "crossover", bvN: "1", bvP: "0.5", bvBaseline: "none", bvCompare: "max" },
+        '<strong data-bv-crossover="0.5">0.500000</strong>',
+        "and the maximum-reward baseline a third one"],
+      // Two columns of the same row, and the mutation that swapped one of them survived every
+      // ledger anchor: the sweep recomputing its reference column from the selected baseline
+      // prints Delta = 0 in every row, and the threshold beside it is a declared field, so it
+      // does not move either. Both numbers of the row that decides are read back.
+      [{ bvMode: "crossover", bvN: "1", bvP: "0.5", bvBaseline: "none", bvCompare: "mean" },
+        "Var(b=0) = 0.0009000000 · Var(b) = 0.0576000000",
+        "the row where the population mean costs the most has to print both of its numbers, not only their difference"],
+      [{ bvMode: "crossover", bvN: "1", bvP: "0.5", bvBaseline: "none", bvCompare: "mean" },
+        '<strong data-bv-gain="-0.0567">schlechter · Δ = -0.0567000000</strong>',
+        "and the signed gap beside them, or a sweep of zeroes would read as agreement"]
+    ]
+  },
 ];
 
 let renderStates = 0, renderChecks = 0, renderNaN = 0;
@@ -7891,6 +7976,226 @@ for (const lab of renderLabs) {
   }
 }
 console.log(`render coverage OK: ${renderStates} states across ${renderLabs.length} labs render without a DOM, ${renderChecks} checks -- every mode's own controls move it, every hidden one leaves it alone, and NaN reaches the screen in exactly the ${renderNaN} states whose denominator is zero`);
+
+// ---- baseline variance: assignment 5, problem (baseline_calcs) -----------------------
+// The handout fixes a policy over A in {0,1} with pi_theta(A=1) = p = sigma(theta) and
+// r(A) = 1{A=1}, then asks three things: (a) the variance of (1/n) sum_i r(A_i) grad log
+// pi(A_i), (b) the variance once a baseline b is subtracted, and (c) what the "population
+// mean" baseline b = p does to that variance compared with no baseline at all. Lectures 15
+// and 16 say only that policy-gradient "variances are too high", and lecture 17's own summary
+// says baselines reduce it -- until this lab, nothing in the app computed a variance, so the
+// unqualified sentence stood unchecked. Everything below is derived here from the handout's
+// statement and then held against the app; the only things imported are the functions
+// under test.
+const bvApi = renderApi(renderLabs.find(lab => lab.id === "baseline-variance").names, {});
+// Typed from the handout, not reused: a single sigmoid gives d/dtheta log pi(A=1) = 1 - p and
+// d/dtheta log pi(A=0) = -p, so the summand is a two-point random variable and both its mean
+// and its variance are sums of two terms.
+const bvRefValues = (p, b) => [
+  { prob: p, value: (1 - b) * (1 - p) },
+  { prob: 1 - p, value: (0 - b) * (-p) }
+];
+const bvRefMean = (p, b) => bvRefValues(p, b).reduce((sum, o) => sum + o.prob * o.value, 0);
+const bvRefVar = (p, b, n) => {
+  const mean = bvRefMean(p, b);
+  return bvRefValues(p, b).reduce((sum, o) => sum + o.prob * (o.value - mean) ** 2, 0) / n;
+};
+// The three expressions the deliverables ask for, transcribed from the derivation rather than
+// from the app's own bvClosed* -- so a drift in either one shows up as a disagreement.
+const bvRefClosedMean = p => p * (1 - p);
+const bvRefClosedPlain = (p, n) => p * (1 - p) ** 3 / n;
+const bvRefClosedBaseline = (p, b, n) => (p * (1 - p) * ((1 - b) ** 2 * (1 - p) + b * b * p) - p * p * (1 - p) ** 2) / n;
+const bvRefGainMean = (p, n) => p * p * (1 - p) * (2 - 3 * p) / n;
+
+const bvClose = (a, b, tol = 1e-12) => Math.abs(a - b) <= tol * Math.max(1, Math.abs(a), Math.abs(b));
+let bvChecks = 0;
+const bvBaselines = bvApi.BV_BASELINES;
+if (bvBaselines.length !== 5 || JSON.stringify(bvBaselines.map(entry => entry.key)) !== JSON.stringify(["none", "mean", "optimal", "half", "max"]))
+  throw new Error("baseline variance: the five baselines the lab offers are part of its argument and may not change silently");
+if (JSON.stringify(bvApi.BV_P_LADDER) !== JSON.stringify([0.1, 0.25, 0.5, 2 / 3, 0.75, 0.9]))
+  throw new Error("baseline variance: the p ladder has to contain the three crossovers 0.5, 2/3 and 0.75 exactly, or the sweep cannot show them");
+if (JSON.stringify(bvApi.BV_N_LADDER) !== JSON.stringify([1, 4, 16, 64]))
+  throw new Error("baseline variance: the n ladder is pinned so the ratio-is-independent-of-n property stays visible");
+
+// 1. The app's enumeration, the handout recomputation and the closed forms agree everywhere --
+//    on a fine grid of p, on every baseline the lab offers plus free values of b, and on every n.
+for (let i = 1; i < 200; i++) {
+  const p = i / 200;
+  for (const b of [...bvBaselines.map(entry => entry.value(p)), -0.5, 0.25, 1.5, 2]) {
+    for (const n of bvApi.BV_N_LADDER) {
+      if (!bvClose(bvApi.bvVar(p, b, n), bvRefVar(p, b, n)))
+        throw new Error(`baseline variance: the app disagrees with the handout recomputation at p=${p}, b=${b}, n=${n}`);
+      if (!bvClose(bvRefVar(p, b, n), bvRefClosedBaseline(p, b, n)))
+        throw new Error(`baseline variance: the closed form of deliverable (b) is not the enumeration at p=${p}, b=${b}`);
+      if (!bvClose(bvApi.bvClosedVarBaseline(p, b, n), bvRefClosedBaseline(p, b, n)))
+        throw new Error(`baseline variance: the app's printed closed form drifted from the deliverable at p=${p}, b=${b}`);
+      bvChecks += 3;
+    }
+    // (b)'s discussion: every action-independent baseline leaves the expectation alone. This is
+    // the whole licence for subtracting one, and it is the half the folk wisdom gets right.
+    if (!bvClose(bvApi.bvMean(p, b), bvRefClosedMean(p)))
+      throw new Error(`baseline variance: b=${b} moves the expectation at p=${p} -- the estimator would be biased`);
+    bvChecks++;
+  }
+  // (a): with no baseline the variance is p(1-p)^3.
+  if (!bvClose(bvApi.bvVar(p, 0, 1), bvRefClosedPlain(p, 1)) || !bvClose(bvApi.bvClosedVarPlain(p, 1), bvRefClosedPlain(p, 1)))
+    throw new Error(`baseline variance: deliverable (a) does not come out as p(1-p)^3 at p=${p}`);
+  // (c): Var(b=0) - Var(b=p) = p^2 (1-p) (2-3p).
+  if (!bvClose(bvApi.bvVar(p, 0, 1) - bvApi.bvVar(p, p, 1), bvRefGainMean(p, 1)) || !bvClose(bvApi.bvClosedGainMean(p, 1), bvRefGainMean(p, 1)))
+    throw new Error(`baseline variance: deliverable (c) does not come out as p^2(1-p)(2-3p) at p=${p}`);
+  bvChecks += 2;
+}
+
+// 2. The variance-optimal baseline is 1 - p and not the mean reward, and there the variance is
+//    exactly zero -- both outcomes collapse onto the true gradient p(1-p). This is the claim the
+//    lab card makes and the answer to question 2 of its quick check, so it is measured rather
+//    than asserted: a fine scan over b has its minimum at 1 - p in every state.
+let bvZeroStates = 0;
+for (let i = 1; i < 200; i++) {
+  const p = i / 200;
+  let best = null;
+  for (let k = -400; k <= 400; k++) {
+    const b = k / 200, value = bvRefVar(p, b, 1);
+    if (best === null || value < best.value) best = { b, value };
+  }
+  if (Math.abs(best.b - (1 - p)) > 1 / 200 + 1e-9)
+    throw new Error(`baseline variance: the variance minimum at p=${p} is at b=${best.b}, not at 1-p`);
+  if (bvRefVar(p, 1 - p, 1) > 1e-24) throw new Error(`baseline variance: b = 1-p does not drive the variance to zero at p=${p}`);
+  const outcomes = bvApi.bvOutcomes(p, 1 - p);
+  if (!bvClose(outcomes[0].value, outcomes[1].value) || !bvClose(outcomes[0].value, bvRefClosedMean(p)))
+    throw new Error(`baseline variance: at b = 1-p the two outcomes must both equal the true gradient at p=${p}`);
+  bvZeroStates++;
+  bvChecks += 3;
+}
+// The mean reward is optimal at exactly one p, and the lab card names it.
+const bvMeanOptimalAt = [...Array(199).keys()].map(i => (i + 1) / 200).filter(p => bvRefVar(p, p, 1) <= 1e-24);
+if (JSON.stringify(bvMeanOptimalAt) !== JSON.stringify([0.5]))
+  throw new Error(`baseline variance: the population mean reaches the minimum at ${bvMeanOptimalAt.join(", ")}, but the card says p = 0.5`);
+
+// 3. Each baseline's declared crossover is the p where it really stops helping, measured by
+//    scanning the sign of Var(b=0) - Var(b) rather than by trusting the field. A null crossover
+//    has to mean the difference never turns negative anywhere.
+for (const entry of bvBaselines) {
+  const harmful = [...Array(999).keys()].map(i => (i + 1) / 1000)
+    .filter(p => bvRefVar(p, 0, 1) - bvRefVar(p, entry.value(p), 1) < -1e-15);
+  if (entry.crossover === null) {
+    if (harmful.length) throw new Error(`baseline variance: ${entry.key} is declared never harmful but costs variance at p=${harmful[0]}`);
+  } else {
+    const first = Math.min(...harmful), last = Math.max(...harmful);
+    if (!harmful.length || Math.abs(first - entry.crossover) > 2 / 1000 || Math.abs(last - 0.999) > 1e-9)
+      throw new Error(`baseline variance: ${entry.key} declares its crossover at ${entry.crossover} but turns harmful from ${first} to ${last}`);
+    if (bvRefVar(entry.crossover, 0, 1) - bvRefVar(entry.crossover, entry.value(entry.crossover), 1) > 1e-12)
+      throw new Error(`baseline variance: ${entry.key} is not a wash at its own declared crossover ${entry.crossover}`);
+  }
+  bvChecks += 2;
+}
+
+// 4. The numbers the two language cards print are the computed ones. renderer i18n proves an
+//    English entry exists and english render proves no German is left, but neither looks at what
+//    the numbers in either card say -- a card may quote a figure the app never computes.
+const bvLab = base.labs.find(lab => lab.id === "baseline-variance");
+if (!bvLab) throw new Error("baseline variance: the lab is gone");
+const bvEnglish = pack.labs?.["baseline-variance"];
+if (!bvEnglish) throw new Error("baseline variance: the English card is gone");
+const bvRatioAtNine = bvRefVar(0.9, 0.9, 1) / bvRefVar(0.9, 0, 1);
+if (Math.round(bvRatioAtNine) !== 64 || Math.abs(bvRatioAtNine - 64) > 1e-9)
+  throw new Error(`baseline variance: the cards quote 64 times, the computation says ${bvRatioAtNine}`);
+const bvMeanCrossover = bvBaselines.find(entry => entry.key === "mean").crossover;
+if (Math.abs(bvMeanCrossover - 2 / 3) > 1e-12) throw new Error("baseline variance: the cards quote 2/3 as the threshold");
+for (const [where, text, ratio, threshold, optimal] of [
+  ["de.transferAnswer", bvLab.transferAnswer, "64-Fache", "2/3", "b = 1 − p"],
+  ["en.transferAnswer", bvEnglish.transferAnswer, "64 times", "2/3", "b = 1 − p"],
+  ["de.misconception", bvLab.misconception, null, "p = 2/3", "b = 1 − p"],
+  ["en.misconception", bvEnglish.misconception, null, "p = 2/3", "b = 1 − p"]
+]) {
+  if (ratio && !text.includes(ratio)) throw new Error(`baseline variance: ${where} no longer names the computed ratio (${ratio})`);
+  if (!text.includes(threshold)) throw new Error(`baseline variance: ${where} no longer names the computed threshold (${threshold})`);
+  if (!text.includes(optimal)) throw new Error(`baseline variance: ${where} no longer names the variance-optimal baseline`);
+  bvChecks += 3;
+}
+for (const [where, text, mark] of [["de.misconception", bvLab.misconception, "p = 0,5"], ["en.misconception", bvEnglish.misconception, "p = 0.5"]])
+  if (!text.includes(mark)) throw new Error(`baseline variance: ${where} no longer names the one p at which the population mean is optimal`);
+// b = 1-p and the zero variance are properties of this two-point model; the rule that carries
+// beyond it is that the optimal baseline is the score-squared-weighted mean reward. That
+// sentence holds no number, so no number binds it -- the one claim of the card that
+// generalises is pinned by name instead ([[cs336-mutation-test-blind-spots]] point 19).
+for (const [where, text, rule] of [["de.misconception", bvLab.misconception, "Quadrat des Scores"], ["en.misconception", bvEnglish.misconception, "square of the score"]]) {
+  if (!text.includes(rule)) throw new Error(`baseline variance: ${where} must keep naming the rule that survives outside the two-point model -- without it the card teaches b = 1-p as a general answer`);
+  bvChecks++;
+}
+
+// 5. Placement. The lab answers a five-point problem of A5 and corrects an unqualified sentence
+//    on lecture 17's own page, so it has to be reachable from both -- and from the module that
+//    carries the concept. A lab that only the assignment page offers arrives at the problem
+//    instead of before it.
+const bvGuide = base.lectureGuides.l17;
+if (!(bvGuide.labs || []).includes("baseline-variance"))
+  throw new Error("baseline variance: lecture 17 teaches policy-gradient and its summary says baselines reduce variance -- the lab that qualifies that belongs on its page");
+if (!(bvGuide.concepts || []).includes("policy-gradient"))
+  throw new Error("baseline variance: lecture 17 no longer curates policy-gradient, so the placement has to be decided again");
+if (!(base.modules.find(module => module.id === "rlvr")?.labs || []).includes("baseline-variance"))
+  throw new Error("baseline variance: the rlvr module must offer the lab");
+const bvMission = base.assignments.find(item => item.id === "a5")?.missions.find(mission => mission.id === "pg-math");
+if (!bvMission || bvMission.scope !== "baseline_calcs")
+  throw new Error("baseline variance: the pg-math block of A5 is the home of problem baseline_calcs");
+if (!(bvMission.labs || []).includes("baseline-variance"))
+  throw new Error("baseline variance: the block whose evidence line promises variances computed by hand must offer the lab that computes them");
+if (!(pack.assignments?.a5?.missions?.find(mission => mission.id === "pg-math")?.labs || []).includes("baseline-variance"))
+  throw new Error("baseline variance: the English block lists different labs than the German one");
+
+// 6. The claim this lab exists to qualify. The concept page used to say a baseline lowers the
+//    variance "drastisch", full stop; both languages now carry the condition, and the condition
+//    is the computed one.
+const bvConcept = base.concepts.find(concept => concept.id === "policy-gradient");
+const bvTerm = (bvConcept.terms || []).find(term => /Baseline-Subtraktion/.test(term[0]));
+const bvTermEn = (pack.concepts?.["policy-gradient"]?.terms || []).find(term => /Baseline subtraction/.test(term[0]));
+if (!bvTerm || !bvTermEn) throw new Error("baseline variance: the baseline term of the policy-gradient concept is gone");
+if (/drastisch senkt/.test(bvTerm[1]) || /while reducing variance\./.test(bvTermEn[1]))
+  throw new Error("baseline variance: the concept page states the unconditional variance claim again -- A5 (c) refutes it above p = 2/3");
+for (const [where, text] of [["de", bvTerm[1]], ["en", bvTermEn[1]]])
+  if (!text.includes("2/3") || !text.includes("1 − p"))
+    throw new Error(`baseline variance: the ${where} concept term must name the computed threshold and the variance-optimal baseline`);
+bvChecks += 6;
+
+// 7. Two places the render can go wrong without any printed number moving, both found by the
+//    mutation run rather than by reasoning.
+//    (a) The row labelled "the same number from the closed form" agrees with the enumeration by
+//        construction -- that is its whole point -- so a renderer that quietly prints the
+//        enumeration twice is invisible on screen. The value is guarded above; what is left is
+//        the call site, which is the shape of [[cs336-mutation-test-blind-spots]] point 4.
+const bvLedgerSource = sliceDeclaration(source, "bvLedgerStage");
+if (!/bvCell\("closed",\s*bvClosedVarBaseline\(p,\s*b,\s*n\),\s*10\)/.test(bvLedgerSource))
+  throw new Error("baseline variance: the row that claims to come from the closed form has to be rendered from bvClosedVarBaseline(p,b,n) -- it agrees with the enumeration by construction, so no printed value can catch this");
+if (!/bvCell\("var1",\s*varSingle,\s*10\)/.test(bvLedgerSource) || !/bvCell\("varn",\s*varN,\s*10\)/.test(bvLedgerSource))
+  throw new Error("baseline variance: the two variance cells have to keep reading the enumeration, or the comparison with the closed form is a comparison of one number with itself");
+//    (b) The sweep's reference column is Var(b=0) and must not depend on the selected baseline.
+//        Recomputing it from that baseline prints Delta = 0 in every row -- and the threshold
+//        beside it is a declared field, so it stands still. Read the column back across all
+//        four baselines instead of trusting the difference.
+const bvSweepRows = (compare, n) => [...bvApi.bvStageMarkup({ bvMode: "crossover", bvN: n, bvP: "0.5", bvBaseline: "none", bvCompare: compare })
+  .matchAll(/Var\(b=0\) = ([\d.]+) · Var\(b\) = ([\d.]+)/g)].map(hit => [hit[1], hit[2]]);
+for (const n of bvApi.BV_N_LADDER) {
+  const columns = ["mean", "optimal", "half", "max"].map(compare => bvSweepRows(compare, String(n)));
+  for (const rows of columns) {
+    if (rows.length !== bvApi.BV_P_LADDER.length) throw new Error(`baseline variance: the sweep prints ${rows.length} rows, not one per probability`);
+    rows.forEach(([plain], index) => {
+      const expected = bvApi.bvNumber(bvRefVar(bvApi.BV_P_LADDER[index], 0, n), 10);
+      if (plain !== expected) throw new Error(`baseline variance: the sweep's reference column reads ${plain} at p=${bvApi.BV_P_LADDER[index]}, n=${n}, but Var(b=0) is ${expected}`);
+    });
+  }
+  const reference = JSON.stringify(columns[0].map(row => row[0]));
+  for (const rows of columns)
+    if (JSON.stringify(rows.map(row => row[0])) !== reference)
+      throw new Error(`baseline variance: the sweep's reference column moves with the selected baseline at n=${n} -- then every row would read a difference of zero`);
+  // and the two columns really are two: the population mean differs from no baseline in five
+  // of the six rows (they coincide only at the crossover).
+  const differing = columns[0].filter(([plain, adjusted]) => plain !== adjusted).length;
+  if (differing !== bvApi.BV_P_LADDER.length - 1)
+    throw new Error(`baseline variance: the two sweep columns agree in ${bvApi.BV_P_LADDER.length - differing} rows, but only the crossover row may agree`);
+  bvChecks += 3;
+}
+
+console.log(`baseline variance OK: ${bvChecks} checks, A5 (baseline_calcs) made computable -- the app's enumeration, the handout recomputation and the three closed forms agree over 199 probabilities and 9 baselines, every action-independent baseline leaves E[g] at p(1-p) while the variance runs from 0 to 64x that of no baseline at p = 0.9, the variance minimum sits at b = 1-p with an exact zero in all ${bvZeroStates} probabilities (the population mean reaches it only at p = 0.5), and the four offered baselines stop helping at measured thresholds of 2/3, 3/4, 1/2 and never`);
 
 // ---- panel i18n: the German a lab panel prints straight into the DOM -----------------
 // The renderer guard above holds every string a lab hands to tr(). A lab panel is the
