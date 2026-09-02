@@ -8948,3 +8948,208 @@ console.log(`english render OK: ${englishStates} states across ${englishLabs} la
   const lecturePageOnly = [...reachable].filter(([, where]) => where.every(entry => !entry.includes(":"))).map(([id]) => id);
   console.log(`lecture formulas OK: ${reachable.size} of ${base.formulas.length} cards reachable by walking Lecture 1 to 17 (${unreachable.length} declared off-path: ${unreachable.join(", ")}), ${restored.length} of them curated by v89 onto the lecture whose own source derives them, ${lecturePageOnly.length} carried by a lecture page alone (${lecturePageOnly.join(", ")}), and 6 worked-example primers pinned`);
 }
+
+// ---- assignment prerequisites: the promised link actually exists ------------------------------
+// The assignment page has always told the reader to "open the linked concept", and for eighteen
+// versions not one of its eighteen prerequisite cards carried a link -- while all 45 lecture
+// prerequisites did. This block holds the repaired half in both directions: every link declared
+// here exists in the app and every link in the app is declared here, each one anchored on a term
+// its card and its concept genuinely share, and each one really printed by the real renderer in
+// both languages with the right home label beside it.
+{
+  // esc is a one-line arrow whose character class carries a quote, which sliceDeclaration's quote
+  // tracking cannot follow -- so take its line, the same way the lab transfer guard does.
+  const apEscStart = source.indexOf("const esc = value =>");
+  const apEscLine = source.slice(apEscStart, source.indexOf("\n", apEscStart));
+  if (!apEscLine.endsWith(";") || !apEscLine.includes("&quot;"))
+    throw new Error("assignment prerequisites: esc is no longer the one-line arrow the buttons are escaped with");
+  const apApi = runInNewContext(
+    `let CONCEPTS = [], MODULES = [], currentLanguage = "de";
+     ${apEscLine}
+     ${["byId", "localeValue", "lectureNumber", "LECTURE_GUIDES", "ASSIGNMENT_PREREQUISITE_GUIDES", "prerequisiteConceptHome", "assignmentPrerequisitesMarkup"]
+       .map(name => sliceDeclaration(source, name)).join("\n")}
+     const LECTURE_IDS = Object.keys(LECTURE_GUIDES);
+     const load = (concepts, modules, language) => { CONCEPTS = concepts; MODULES = modules; currentLanguage = language; };
+     ({GUIDES: ASSIGNMENT_PREREQUISITE_GUIDES,
+       render: (assignment, concepts, modules, language) => { load(concepts, modules, language); return assignmentPrerequisitesMarkup(assignment); },
+       home: (conceptId, concepts, modules, language) => { load(concepts, modules, language); return prerequisiteConceptHome(conceptId); },
+       escape: value => esc(value)})`, {});
+
+  // The shared detector opens with an umlaut class, and these cards legitimately quote "ä" as the
+  // worked example of a character that costs two UTF-8 bytes -- an English card carrying it is
+  // correct, not untranslated. Only the umlaut signal is dropped; the function words stay, taken
+  // from the same source so the two lists can never drift apart, and the control render below
+  // proves what is left still sees German.
+  if (!GERMAN_WORDS.source.startsWith("[\u00e4\u00f6\u00fc\u00c4\u00d6\u00dc\u00df]|"))
+    throw new Error("assignment prerequisites: the shared German detector no longer starts with its umlaut class, so dropping that branch is no longer a safe edit");
+  const AP_GERMAN_WORDS = new RegExp(GERMAN_WORDS.source.slice("[\u00e4\u00f6\u00fc\u00c4\u00d6\u00dc\u00df]|".length), GERMAN_WORDS.flags);
+
+  // Retyped independently of index.html: card position, the concepts it may open, and the word the
+  // card and the concept have to share. A wrong id passes a bare "does this concept exist?" test;
+  // it does not pass a shared term.
+  const AP_LINKS = [
+    ["a1", 0, "Text, Bytes und Dateien", [["python-engineering", "Bytes"], ["unicode", "UTF-8"]]],
+    ["a1", 1, "Tensoren und PyTorch-Zustand", [["shapes", "Shape"], ["pytorch-tensors", "Broadcasting"], ["pytorch-state", "state_dict"]]],
+    ["a1", 2, "Vier Rechenideen", [["matmul", "Matrixmultiplikation"], ["logs", "Softmax"], ["gradients", "Kettenregel"]]],
+    ["a2", 0, "Datenfluss des A1-Modells", [["embeddings", "Embedding"], ["attention", "Attention"], ["transformer-block", "Feed-Forward"]]],
+    ["a2", 1, "GPU-Zeit, Speicher und Arbeit", [["gpu-model", "Speicherhierarchie"], ["roofline", "FLOPs"], ["profiling", "Synchronisation"]]],
+    ["a2", 2, "Zahlenformate und gespeicherte Aktivierungen", [["pytorch-tensors", "FP16"], ["checkpointing", "Aktivierung"], ["resource-accounting", "Speicher"]]],
+    ["a2", 3, "Prozesse und gemeinsame Kommunikation", [["collectives", "All-Reduce"], ["distributed-runtime", "World Size"]]],
+    ["a3", 0, "Potenzgesetze und Log-Log-Diagramme", [["power-laws", "Potenzgesetz"]]],
+    ["a3", 1, "Fit, Fehler und unabhängige Prüfung", [["power-laws", "Residu"], ["scaling-optima", "Unsicherheit"]]],
+    ["a3", 2, "Kosten zählen und Vergleiche fair halten", [["resource-accounting", "FLOPs"], ["scaling-practice", "Skalierung"]]],
+    ["a4", 0, "Dokumente schrittweise lesen", [["data-pipeline", "HTML"], ["python-engineering", "Streaming"]]],
+    ["a4", 1, "Filterfehler zählen", [["quality-filtering", "Recall"], ["filtering-mechanics", "Confusion"]]],
+    ["a4", 2, "Mengen, Hashes und Ähnlichkeit", [["dedup", "MinHash"], ["bloom-filters", "Hash"]]],
+    ["a4", 3, "Parallelität ohne verlorene Herkunft", [["data-pipeline", "Pipeline"], ["training-loop", "Seed"]]],
+    ["a5", 0, "Durchschnitt, Streuung und Bedingung", [["probability", "Erwartungswert"]]],
+    ["a5", 1, "Antwortwahrscheinlichkeit und Sampling", [["sampling", "Sampling"], ["logs", "Lograum"]]],
+    ["a5", 2, "Masken und mehrere kleine Batches", [["rlvr-systems", "Response"], ["training-loop", "Microbatch"]]],
+    ["a5", 3, "Mehrere Zufallsstarts", [["probability", "Streuung"], ["training-loop", "Seed"]]]
+  ];
+
+  const apConceptText = id => {
+    const concept = base.concepts.find(item => item.id === id);
+    if (!concept) return null;
+    return JSON.stringify(concept) + JSON.stringify(conceptOrientationsDe[id] || {});
+  };
+  const apGermanConcepts = base.concepts;
+  const apEnglishConcepts = base.concepts.map(concept => ({ ...concept, ...(pack.concepts[concept.id] || {}) }));
+  const apGermanModules = base.modules;
+  const apEnglishModules = base.modules.map(module => ({ ...module, ...(pack.modules[module.id] || {}) }));
+  const apFoundations = base.modules.find(module => module.id === "foundations");
+  if (!apFoundations) throw new Error("assignment prerequisites: the prerequisite sprint module is gone, so the home label cannot be derived");
+  const apLectureConcepts = new Set(Object.values(base.lectureGuides).flatMap(guide => guide.concepts || []));
+
+  // Direction one: every declared link exists in the app, in the declared order.
+  let apChecks = 0, apLinkCount = 0;
+  const apKinds = { lecture: 0, foundations: 0, "self-study": 0 };
+  for (const [assignmentId, index, germanLabel, links] of AP_LINKS) {
+    const card = (apApi.GUIDES[assignmentId] || [])[index];
+    if (!card) throw new Error(`assignment prerequisites: ${assignmentId}[${index}] has no card any more`);
+    if (card.label.de !== germanLabel)
+      throw new Error(`assignment prerequisites: ${assignmentId}[${index}] is "${card.label.de}", not the declared "${germanLabel}" -- the table is describing a different card`);
+    const declared = links.map(([conceptId]) => conceptId);
+    if (JSON.stringify(card.concepts) !== JSON.stringify(declared))
+      throw new Error(`assignment prerequisites: ${assignmentId}[${index}] links ${JSON.stringify(card.concepts)}, declared ${JSON.stringify(declared)}`);
+    if (new Set(declared).size !== declared.length)
+      throw new Error(`assignment prerequisites: ${assignmentId}[${index}] opens the same concept twice`);
+    // A digit run or a written-out tensor shape in the German card that the English one does not
+    // repeat would only ever be shown to the English reader, and no other guard reads these inline
+    // bilingual fields (v84, point 20). Numbers spelled as words ("zwei Bytes" against "two bytes")
+    // are deliberately outside this model, the same way the thousands grouping is: a word list
+    // would be a translation dictionary, not a check.
+    const apTokens = text => [...(String(text).match(/\[[^\]]*\]|\d+/gu) || [])].sort();
+    for (const field of ["label", "explain"]) {
+      const german = apTokens(card[field].de), english = apTokens(card[field].en);
+      if (JSON.stringify(german) !== JSON.stringify(english))
+        throw new Error(`assignment prerequisites: ${assignmentId}[${index}].${field} names ${JSON.stringify(german)} in German and ${JSON.stringify(english)} in English`);
+      apChecks++;
+    }
+    const cardText = `${card.label.de} ${card.explain.de}`;
+    for (const [conceptId, anchor] of links) {
+      const conceptText = apConceptText(conceptId);
+      if (!conceptText) throw new Error(`assignment prerequisites: ${assignmentId}[${index}] points at "${conceptId}", which is not a concept -- the button would be dead`);
+      if (!cardText.includes(anchor))
+        throw new Error(`assignment prerequisites: ${assignmentId}[${index}] no longer says "${anchor}", so its link to ${conceptId} has lost the term the two shared`);
+      if (!conceptText.includes(anchor))
+        throw new Error(`assignment prerequisites: concept ${conceptId} no longer says "${anchor}", so it is not the page ${assignmentId}[${index}] promises`);
+      apChecks += 2;
+      apLinkCount++;
+      apKinds[apApi.home(conceptId, apGermanConcepts, apGermanModules, "de").kind]++;
+    }
+  }
+  // Direction two: no link in the app is missing from the table. The half that already exists always
+  // feels like the whole one (v89), so both are written out.
+  for (const [assignmentId, cards] of Object.entries(apApi.GUIDES)) {
+    cards.forEach((card, index) => {
+      if (!Array.isArray(card.concepts) || !card.concepts.length)
+        throw new Error(`assignment prerequisites: ${assignmentId}[${index}] carries no concept, so the reader is told to open a link that is not there`);
+      if (!AP_LINKS.some(row => row[0] === assignmentId && row[1] === index))
+        throw new Error(`assignment prerequisites: ${assignmentId}[${index}] is not in the table, so its links are unanchored`);
+    });
+  }
+  if (apLinkCount !== AP_LINKS.reduce((sum, row) => sum + row[3].length, 0)) throw new Error("assignment prerequisites: link count disagrees with the table");
+  // All three homes have to occur, or a renderer collapsed to one branch would still pass.
+  for (const [kind, count] of Object.entries(apKinds))
+    if (!count) throw new Error(`assignment prerequisites: no link is at home in "${kind}", so that branch of the home label is never exercised`);
+
+  // The home label, derived a second way and compared against the app's own function.
+  for (const concept of base.concepts) {
+    const lectureId = Object.keys(base.lectureGuides).find(id => (base.lectureGuides[id].concepts || []).includes(concept.id));
+    const expected = lectureId ? `Lecture ${Number(lectureId.slice(1))}`
+      : apFoundations.concepts.includes(concept.id) ? "Modul 00" : "Selbststudium";
+    const got = apApi.home(concept.id, apGermanConcepts, apGermanModules, "de");
+    if (got.label !== expected)
+      throw new Error(`assignment prerequisites: ${concept.id} is labelled "${got.label}", expected "${expected}"`);
+    apChecks++;
+  }
+
+  // The section stays where a prerequisite belongs, and keeps saying what it now delivers.
+  const apTemplate = source.slice(source.indexOf("function renderAssignmentDetail"), source.indexOf("function copyText"));
+  if (!apTemplate.includes("${assignmentPrerequisitesMarkup(a)}")) throw new Error("assignment prerequisites: the assignment page no longer renders the section");
+  if (!(apTemplate.indexOf("assignmentPrerequisitesMarkup(a)") < apTemplate.indexOf('"What is required?"')))
+    throw new Error("assignment prerequisites: the section belongs above the topic blocks");
+  for (const promise of ["Öffne ein verknüpftes Konzept nur, wenn du mehr Details brauchst", "Open a linked concept only when you need more detail"])
+    if (!apTemplate.includes(promise)) throw new Error(`assignment prerequisites: the page stopped promising the link ("${promise.slice(0, 40)}")`);
+
+  // The render is the test (v82): the buttons are read back out of the real markup, in both
+  // languages, rather than out of the source that produces it.
+  let apButtons = 0;
+  for (const assignment of base.assignments) {
+    for (const language of ["de", "en"]) {
+      const concepts = language === "en" ? apEnglishConcepts : apGermanConcepts;
+      const modules = language === "en" ? apEnglishModules : apGermanModules;
+      const markup = apApi.render(assignment, concepts, modules, language);
+      const cards = apApi.GUIDES[assignment.id];
+      const rendered = [...markup.matchAll(/data-open-concept="([a-z0-9-]+)"/gu)].map(hit => hit[1]);
+      const wanted = cards.flatMap(card => card.concepts);
+      if (JSON.stringify(rendered) !== JSON.stringify(wanted))
+        throw new Error(`assignment prerequisites: ${assignment.id}/${language} renders ${JSON.stringify(rendered)}, expected ${JSON.stringify(wanted)}`);
+      for (const card of cards) {
+        for (const field of ["label", "explain"]) {
+          const text = apApi.escape(card[field][language]);
+          if (!markup.includes(text))
+            throw new Error(`assignment prerequisites: ${assignment.id}/${language} does not print the ${field} of "${card.label.de}"`);
+        }
+        for (const conceptId of card.concepts) {
+          const concept = concepts.find(item => item.id === conceptId);
+          const home = apApi.home(conceptId, concepts, modules, language);
+          const button = `<button class="button ghost small" data-open-concept="${conceptId}">${apApi.escape(concept.title)} · ${apApi.escape(home.label)}</button>`;
+          if (!markup.includes(button))
+            throw new Error(`assignment prerequisites: ${assignment.id}/${language} does not print the whole button for ${conceptId} (${button.slice(0, 120)})`);
+          apButtons++;
+          apChecks++;
+        }
+      }
+      // The buttons have to sit in the actions row the rest of the app styles, not loose in the
+      // card body -- a whole-fragment button check is blind to the box around it.
+      const rows = (markup.match(/<div class="accordion-actions">/gu) || []).length;
+      if (rows !== cards.filter(card => card.concepts.length).length)
+        throw new Error(`assignment prerequisites: ${assignment.id}/${language} puts its links in ${rows} action rows, expected one per card`);
+      for (const conceptId of cards.flatMap(card => card.concepts))
+        if (!new RegExp(`<div class="accordion-actions">(?:(?!</div>).)*data-open-concept="${conceptId}"`, "u").test(markup))
+          throw new Error(`assignment prerequisites: ${assignment.id}/${language} renders ${conceptId} outside the action row`);
+      const opens = (markup.match(/<article/gu) || []).length, closes = (markup.match(/<\/article>/gu) || []).length;
+      if (opens !== cards.length || closes !== cards.length)
+        throw new Error(`assignment prerequisites: ${assignment.id}/${language} renders ${opens}/${closes} cards for ${cards.length} prerequisites`);
+      if (markup.includes("undefined") || markup.includes("${"))
+        throw new Error(`assignment prerequisites: ${assignment.id}/${language} leaves an undefined value or an uninterpolated placeholder on the screen`);
+      if (language === "en") {
+        const residue = markup.replace(/<[^>]*>/gu, " ").split(/\s{2,}/u).map(part => part.trim()).filter(part => part && AP_GERMAN_WORDS.test(part));
+        if (residue.length) throw new Error(`assignment prerequisites: ${assignment.id}/en still shows German -- ${residue[0].slice(0, 90)}`);
+      }
+      apChecks += 3;
+    }
+  }
+  // A control the other way round: with the German pack the English render must fail the same
+  // scan, or the scan is blind and every "no German left" above means nothing.
+  {
+    const germanMarkup = apApi.render(base.assignments[0], apGermanConcepts, apGermanModules, "de");
+    const germanResidue = germanMarkup.replace(/<[^>]*>/gu, " ").split(/\s{2,}/u).map(part => part.trim()).filter(part => part && AP_GERMAN_WORDS.test(part));
+    if (!germanResidue.length) throw new Error("assignment prerequisites: the German detector sees nothing in the German render, so it cannot be trusted on the English one");
+    apChecks++;
+  }
+  const apHomes = Object.entries(apKinds).map(([kind, count]) => `${count} ${kind}`).join(", ");
+  console.log(`assignment prerequisites OK: ${apChecks} checks -- ${apLinkCount} concept links across ${AP_LINKS.length} cards, each anchored on a term its card and its concept share, all ${apButtons} buttons read back out of the real markup in both languages (${apHomes}), where before this the page told the reader to open a link that no card carried`);
+}
