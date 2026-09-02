@@ -84,9 +84,11 @@ const numberPrelude = `const localeCode = () => "en-US";\n${sliceDeclaration(sou
 {
   const decl = sliceDeclaration(source, "fixedNum");
   if (!decl.includes("toLocaleString(localeCode()")) throw new Error("fixedNum: the separator has to follow the locale, otherwise the German render drifts from its own prose again");
-  // Grouping stays off so the English render is byte-identical to what toFixed produced; the
-  // seven older locale-aware helpers group, which only shows on values with a thousands part.
-  if (!decl.includes("useGrouping:false")) throw new Error("fixedNum: grouping stays off, so the English render matches what toFixed printed");
+  // Grouping is on since v92, and that is the whole point of the helper: the app's own German
+  // prose writes grouped thousands 349 times ("1.000.000 Elemente", "2.147.483.648 FLOPs"), so a
+  // ledger printing 43200 beside prose saying 43.200 was the same prose-against-table mismatch
+  // the decimal comma fixed. Every displayed number now groups, in both languages.
+  if (decl.includes("useGrouping:false")) throw new Error("fixedNum: grouping stays on, or a lab ledger prints 43200 beside prose that writes 43.200");
   if (decl.includes("digits===undefined")) throw new Error("fixedNum: every caller names its digit count, so a default would be unreachable code");
   // Comparisons and keys keep toFixed: they must not depend on the display language. rcSame
   // is the only place that needs it, and it compares two learning rates to twelve decimals.
@@ -1666,7 +1668,12 @@ if (!ckptLab) throw new Error("checkpoint-segments: lab entry missing");
 if (ckptLab.module !== "gpu") throw new Error("checkpoint-segments: the lab belongs to the gpu module, where the checkpointing concept lives");
 for (const [label, lab] of [["de", ckptLab], ["en", pack.labs["checkpoint-segments"]]]) {
   if (!/√\(N·c\/r\)/.test(lab.formula)) throw new Error(`checkpoint-segments ${label}: the formula line must state k* = √(N·c/r), the generalisation is the lesson`);
-  if (!/3651[.,]31/.test(lab.misconception)) throw new Error(`checkpoint-segments ${label}: the misconception must pin the argument to the handout's block figure`);
+  // Since v92 every displayed number groups its thousands, so the prose has to as well: the
+  // German card writes 3.651,31 and the English one 3,651.31. The locale-exact form is required,
+  // not a loose "3651 with any separator" -- that would accept the ungrouped string the ledger
+  // beside it no longer prints.
+  const ckptBlockFigure = label === "de" ? "3.651,31" : "3,651.31";
+  if (!lab.misconception.includes(ckptBlockFigure)) throw new Error(`checkpoint-segments ${label}: the misconception must pin the argument to the handout's block figure as ${ckptBlockFigure}`);
   if (!/3\.60|3,60/.test(lab.misconception)) throw new Error(`checkpoint-segments ${label}: the misconception must name how far off the √N answer is`);
   if (!/97[.,]7/.test(lab.misconception)) throw new Error(`checkpoint-segments ${label}: the misconception must name the share one level already captures, otherwise the nesting half is only asserted`);
   if (!/0[.,]0219/.test(lab.transferAnswer)) throw new Error(`checkpoint-segments ${label}: the transfer answer must name ρ, the one number that decides the question without a measurement`);
@@ -3962,7 +3969,7 @@ if (abApi.abParams(abTs, "silu") - abApi.abParams(abTs, "base") !== 131072)
   throw new Error("ablation-controls: the transfer answer quotes +131,072 parameters in total at d_model 512");
 if (abApi.abNumber(100 * (abApi.abParams(abTs, "silu") - abApi.abParams(abTs, "base")) / abApi.abParams(abTs, "base"), 2) !== "0.58")
   throw new Error("ablation-controls: the transfer answer quotes +0.58 % for the FFN_SiLU model at d_model 512");
-if (abApi.abNumber(abApi.abIdealFf(abTs), 2) !== "1365.33" || abApi.abNumber(abApi.abResidue(abTs), 2) !== "-21.33")
+if (abApi.abNumber(abApi.abIdealFf(abTs), 2) !== "1,365.33" || abApi.abNumber(abApi.abResidue(abTs), 2) !== "-21.33")
   throw new Error("ablation-controls: the transfer answer quotes 8/3*512 = 1365.33 and a remainder of -21.33");
 
 // --- the residual path -------------------------------------------------------
@@ -4010,7 +4017,7 @@ const abOne = abApi.AB_GAINS.find(entry => entry.c === 1), abTwo = abApi.AB_GAIN
 if (!abOne || !abTwo) throw new Error("ablation-controls: c = 1 and c = 2 must stay selectable, the quick check quotes both");
 if (abApi.abNumber(Math.pow(abApi.abLambda(1), abApi.AB_DEPTH), 0) !== "729")
   throw new Error("ablation-controls: the quick check quotes 729 for c = 1 across twelve blocks");
-if (abApi.abNumber(Math.pow(abApi.abLambda(2), abApi.AB_DEPTH), 0) !== "117649")
+if (abApi.abNumber(Math.pow(abApi.abLambda(2), abApi.AB_DEPTH), 0) !== "117,649")
   throw new Error("ablation-controls: the quick check quotes 117,649 for c = 2 across twelve blocks");
 // The observe text names the smallest gain by value, so it has to stay selectable at that value.
 const abQuarterGain = abApi.AB_GAINS.find(entry => entry.key === "g025");
@@ -7297,10 +7304,10 @@ const renderLabs = [
       // The whole lab rests on every plan costing the same. Two plans as different as the
       // grid allows have to print the identical second count, and it has to be on screen.
       [{ rpMode: "ladder", rpSpan: "s64", rpTiers: "t4", rpPer: "p5", rpStep: "g110", rpFactor: "f200" },
-        '<strong data-rpcost="1">4 × 5 Runs = 43200.0000 s</strong>',
+        '<strong data-rpcost="1">4 × 5 Runs = 43,200.0000 s</strong>',
         "the budget line is what makes the comparison fair and has to be read, not assumed"],
       [{ rpMode: "ladder", rpSpan: "s4", rpTiers: "t6", rpPer: "p7", rpStep: "g125", rpFactor: "f200" },
-        '<strong data-rpcost="1">6 × 7 Runs = 43200.0000 s</strong>',
+        '<strong data-rpcost="1">6 × 7 Runs = 43,200.0000 s</strong>',
         "and the worst plan in the lab has to print the same cost as the best one"],
       // Mode A's fitted exponent, at the setting the lab's own observe text names.
       [{ rpMode: "ladder", rpSpan: "s64", rpTiers: "t4", rpPer: "p5", rpStep: "g110", rpFactor: "f200" },
@@ -7530,7 +7537,7 @@ const renderLabs = [
     },
     anchors: [
       [{ tcMode: "shape", tcTarget: "n850", tcRho: "r128", tcHeadDim: "h64", tcPick: "near", tcRule: "keep", tcThroughput: "t5" },
-        '<strong data-tccont="1">d_model = (128 · 850,000,000 / 12)^(1/3) = 2085.207 · n_layer = 2085.207 / 128 = 16.291</strong>',
+        '<strong data-tccont="1">d_model = (128 · 850,000,000 / 12)^(1/3) = 2,085.207 · n_layer = 2,085.207 / 128 = 16.291</strong>',
         "the continuous solution is the whole subject of mode A and has to be on the screen, not just used"],
       [{ tcMode: "shape", tcTarget: "n850", tcRho: "r128", tcHeadDim: "h64", tcPick: "near", tcRule: "keep", tcThroughput: "t5" },
         '<td data-tcparams="2048-17">855,638,016</td>',
@@ -9152,4 +9159,177 @@ console.log(`english render OK: ${englishStates} states across ${englishLabs} la
   }
   const apHomes = Object.entries(apKinds).map(([kind, count]) => `${count} ${kind}`).join(", ");
   console.log(`assignment prerequisites OK: ${apChecks} checks -- ${apLinkCount} concept links across ${AP_LINKS.length} cards, each anchored on a term its card and its concept share, all ${apButtons} buttons read back out of the real markup in both languages (${apHomes}), where before this the page told the reader to open a link that no card carried`);
+}
+
+// ---- number helpers: a default digit count only where a caller omits it ----------------------
+// Sixteen lab helpers took (value, digits) and nine of them resolved `digits===undefined?N:digits`
+// although no call site ever omitted the argument. A default nobody reaches is not harmless: it
+// reads like a documented precision, so the next reader trusts a number that the branch never
+// produces. This block holds the invariant in both directions -- a helper carries a default
+// exactly when some caller relies on it -- and it forbids handing such a helper to a callback,
+// where an array index would silently arrive as the digit count.
+{
+  const nhPattern = /function (\w+)\(value,\s*digits\)\{([^\n]*?)\}\n/gu;
+  const nhHelpers = [];
+  for (const hit of source.matchAll(nhPattern)) {
+    const [, name, body] = hit;
+    if (!/fixedNum\(|Number\(value\)|toLocaleString/u.test(body) && !nhHelpers.some(helper => body.includes(`${helper.name}(`))) continue;
+    nhHelpers.push({ name, body, hasDefault: /digits===undefined\?\d+:digits/u.test(body) });
+  }
+  if (nhHelpers.length < 12) throw new Error(`number helpers: only ${nhHelpers.length} (value, digits) helpers found, which is too few to be the real set`);
+  // One grouping rule for every displayed number. Before v92 fixedNum suppressed the thousands
+  // separator while the eleven integer helpers and the seven older locale-aware ones kept it, so a
+  // single German ledger could read "43.200 s" one row above "43200,0000 s". No formatter may opt
+  // out any more -- and the app's own prose groups its thousands 349 times, so this is the side
+  // the mismatch had to be resolved to.
+  const nhOptOut = (source.match(/useGrouping\s*:\s*false/gu) || []).length;
+  if (nhOptOut) throw new Error(`number helpers: ${nhOptOut} formatter(s) still switch the thousands separator off, so one table would group and the next would not`);
+  // One call site's argument count, read by walking the parentheses rather than by splitting on
+  // commas -- a template literal argument carries commas of its own.
+  const nhArgCount = (text, open) => {
+    let index = open, depth = 1, quote = "", escaped = false, commas = 0, empty = true;
+    for (; index < text.length && depth; index++) {
+      const char = text[index];
+      if (quote) { if (escaped) escaped = false; else if (char === "\\") escaped = true; else if (char === quote) quote = ""; continue; }
+      if (char === '"' || char === "'" || char === "`") { quote = char; empty = false; continue; }
+      if ("[({".includes(char)) depth++;
+      else if ("])}".includes(char)) { depth--; if (!depth) break; }
+      else if (char === "," && depth === 1) commas++;
+      if (!/\s/u.test(char)) empty = false;
+    }
+    return empty ? 0 : commas + 1;
+  };
+  let nhChecks = 0, nhWithDefault = 0, nhCalls = 0;
+  for (const helper of nhHelpers) {
+    let oneArg = 0, total = 0;
+    for (const hit of source.matchAll(new RegExp(`(?<![\\w.$])${helper.name}\\(`, "gu"))) {
+      if (source.slice(Math.max(0, hit.index - 9), hit.index).includes("function")) continue;
+      total++;
+      if (nhArgCount(source, hit.index + hit[0].length) === 1) oneArg++;
+    }
+    if (!total) throw new Error(`number helpers: ${helper.name} is never called, so it is dead code`);
+    if (helper.hasDefault && !oneArg)
+      throw new Error(`number helpers: ${helper.name} resolves a default digit count that no caller reaches -- it documents a precision the branch never produces`);
+    if (!helper.hasDefault && oneArg)
+      throw new Error(`number helpers: ${helper.name} is called with one argument ${oneArg} time(s) but has no default, so it would format with undefined digits`);
+    const bare = [...source.matchAll(new RegExp(`(?<![\\w.$])${helper.name}(?!\\s*\\()`, "gu"))].length;
+    if (bare) throw new Error(`number helpers: ${helper.name} appears ${bare} time(s) without a call -- handed to a callback, an array index arrives as the digit count`);
+    nhWithDefault += helper.hasDefault ? 1 : 0;
+    nhCalls += total;
+    nhChecks += 3;
+  }
+  console.log(`number helpers OK: ${nhChecks} checks -- ${nhHelpers.length} (value, digits) helpers over ${nhCalls} call sites, ${nhWithDefault} carry a default digit count and every one of them is reached by a one-argument caller, the other ${nhHelpers.length - nhWithDefault} carry none and are never called with one argument, and none is ever passed as a callback`);
+}
+
+// ---- attribute i18n: what a screen reader hears in English ----------------------------------
+// The language walker translates text nodes and, since it was extended, the six attributes in
+// I18N_ATTRIBUTES too -- but only by looking the value up in the same ui pack. A German
+// aria-label with no entry therefore survives the switch to English, silently: nothing on the
+// visible page changes, and only a screen-reader user notices. Twelve lab stages announced
+// themselves in German that way ("Interaktive Rechnung zur Kompressionsrate"). This block reads
+// the attributes out of the markup, pushes them through the app's own translator, and requires
+// English on the other side.
+{
+  // Written without spaces around "=", which readConstant cannot find; sliceDeclaration can.
+  const atAttributes = runInNewContext(`${sliceDeclaration(source, "I18N_ATTRIBUTES")}; I18N_ATTRIBUTES`, {});
+  if (!Array.isArray(atAttributes) || !atAttributes.includes("aria-label") || !atAttributes.includes("placeholder"))
+    throw new Error("attribute i18n: I18N_ATTRIBUTES no longer covers the attributes a reader actually hears");
+  // The walker has to run over attributes at all, and the observer has to keep doing it for
+  // markup rendered after the switch -- both are what makes an entry reach the screen.
+  const atLocalize = sliceDeclaration(source, "localizeElementAttributes");
+  if (!atLocalize.includes("I18N_ATTRIBUTES.forEach") || !atLocalize.includes("element.setAttribute(attribute,next)"))
+    throw new Error("attribute i18n: localizeElementAttributes no longer writes the translated value back");
+  if (!sliceDeclaration(source, "localizeSubtree").includes("localizeElementAttributes(node,reverse)"))
+    throw new Error("attribute i18n: the subtree walker no longer localizes attributes, so only the first element would be reached");
+  if (!sliceDeclaration(source, "startI18nObserver").includes("attributeFilter:I18N_ATTRIBUTES"))
+    throw new Error("attribute i18n: the observer no longer watches the localized attributes");
+  // Only static values can be read here; a value carrying ${...} is built at render time and is
+  // held by `renderer i18n` and `english render` instead. Both halves are named so neither is
+  // mistaken for the whole.
+  const atStatic = new Map(), atDynamic = new Set();
+  for (const attribute of atAttributes) {
+    for (const hit of source.matchAll(new RegExp(`${attribute}="([^"]*)"`, "gu"))) {
+      const value = hit[1].trim();
+      if (!value) continue;
+      if (value.includes("${")) { atDynamic.add(value); continue; }
+      if (!/\p{L}/u.test(value)) continue;
+      if (!atStatic.has(value)) atStatic.set(value, attribute);
+    }
+  }
+  if (atStatic.size < 30) throw new Error(`attribute i18n: only ${atStatic.size} static attribute values found, so this guard would pass vacuously`);
+  const atGerman = [...atStatic].filter(([value]) => GERMAN_WORDS.test(value));
+  if (!atGerman.length) throw new Error("attribute i18n: no German attribute value found at all, which means the detector stopped seeing them");
+  const atLeft = [];
+  for (const [value, attribute] of atGerman) {
+    const english = panelTranslator(value);
+    if (english === value || GERMAN_WORDS.test(english)) atLeft.push(`[${attribute}] ${value}`);
+  }
+  if (atLeft.length)
+    throw new Error(`attribute i18n: ${atLeft.length} attribute value(s) stay German for an English reader -- ${atLeft.slice(0, 3).join(" · ")}`);
+  // And the control: the translator has to be seeing these strings at all, not returning
+  // everything unchanged for some unrelated reason.
+  if (panelTranslator("Interaktive Rechnung zur Kompressionsrate") === "Interaktive Rechnung zur Kompressionsrate")
+    throw new Error("attribute i18n: the translator returns a known lab-stage label unchanged, so the pass above proves nothing");
+  console.log(`attribute i18n OK: ${atStatic.size} static values across ${atAttributes.length} localized attributes, ${atGerman.length} of them German and every one translated by the app's own translator (${atDynamic.size} more are built at render time and held by renderer i18n / english render)`);
+}
+
+// ---- formula sources: a card may only name a lecture that carries it ------------------------
+// v89 closed one direction ("a lecture that curates a card must be cited by it") and named the
+// other as open. This is the other: a card's sources field is a claim about where the equation
+// comes from, and five cards claimed a lecture that neither shows nor mentions them --
+// cross-entropy and transformer-params pointed at Lecture 2 (0 hits for "cross entropy"; L2
+// counts parameters exactly, never 12 L d^2), embedding-params at Lecture 3 (whose twenty
+// "embedding" hits are all position embeddings), logistic at Lecture 14 (0 hits for "logistic"
+// and "sigmoid"), and speedup at Lecture 7 (0 hits for "speedup" or "Amdahl"). Only
+// memory-state's claim on Lecture 2 was real, and Lecture 2 now curates it.
+{
+  const fsFormulas = base.formulas;
+  const fsGuides = base.lectureGuides;
+  const fsConceptsOf = id => base.concepts.filter(concept => (concept.formulas || []).includes(id)).map(concept => concept.id);
+  // Two citations are carried by the lecture's own slides rather than by its curated list or a
+  // shared concept. Each is written down with what the slides actually say, so the exception is
+  // a decision on record instead of a hole.
+  const fsProseBacked = new Map([
+    ["linear-map:l03", 'Lecture 3: "Linear layers (and layernorm) have no bias" and "More generally: dropping bias terms"'],
+    ["compute-optimal-predictions:l09", 'Lecture 9 is the compute-optimal lecture itself ("Picking optimal data mixture", "selecting the optimal batch")']
+  ]);
+  let fsBacked = 0, fsProse = 0, fsCited = 0;
+  const fsUnbacked = [];
+  for (const formula of fsFormulas) {
+    for (const sourceId of formula.sources || []) {
+      if (!/^l\d+$/u.test(sourceId)) continue;
+      fsCited++;
+      const guide = fsGuides[sourceId];
+      if (!guide) throw new Error(`formula sources: ${formula.id} cites ${sourceId}, which is not a lecture`);
+      const curates = (guide.formulas || []).includes(formula.id);
+      const teaches = fsConceptsOf(formula.id).some(conceptId => (guide.concepts || []).includes(conceptId));
+      if (curates || teaches) { fsBacked++; continue; }
+      const key = `${formula.id}:${sourceId}`;
+      if (fsProseBacked.has(key)) { fsProse++; continue; }
+      fsUnbacked.push(key);
+    }
+  }
+  if (fsUnbacked.length)
+    throw new Error(`formula sources: ${fsUnbacked.length} card(s) name a lecture that neither curates them nor teaches a concept that links them, and that is not on the recorded prose list -- ${fsUnbacked.join(", ")}`);
+  // Both directions, so the exception list cannot outlive what it excuses.
+  for (const key of fsProseBacked.keys()) {
+    const [formulaId, lectureId] = key.split(":");
+    const formula = fsFormulas.find(entry => entry.id === formulaId);
+    if (!formula) throw new Error(`formula sources: the recorded exception ${key} names a card that no longer exists`);
+    if (!(formula.sources || []).includes(lectureId)) throw new Error(`formula sources: ${formulaId} no longer cites ${lectureId}, so the recorded exception is stale`);
+    if ((fsGuides[lectureId].formulas || []).includes(formulaId)) throw new Error(`formula sources: ${lectureId} now curates ${formulaId}, so the prose exception should be dropped`);
+  }
+  // And the five repaired cards stay repaired: none of them may cite a lecture again without
+  // that lecture carrying them, which the rule above already enforces -- pinned by name here so
+  // a reintroduced claim reads as a regression rather than a new decision.
+  for (const [formulaId, forbidden] of [["cross-entropy", "l02"], ["embedding-params", "l03"],
+    ["transformer-params", "l02"], ["logistic", "l14"], ["speedup", "l07"]]) {
+    const formula = fsFormulas.find(entry => entry.id === formulaId);
+    if (!formula) throw new Error(`formula sources: ${formulaId} is gone`);
+    if ((formula.sources || []).includes(forbidden))
+      throw new Error(`formula sources: ${formulaId} cites ${forbidden} again, although that lecture's own slides never derive it`);
+  }
+  if (!(fsGuides.l02.formulas || []).includes("memory-state"))
+    throw new Error("formula sources: Lecture 2 must curate memory-state -- its trace computes 4 * (params + activations + gradients + optimizer states), which is exactly that card");
+  console.log(`formula sources OK: ${fsCited} lecture citations across ${fsFormulas.length} cards -- ${fsBacked} carried by the lecture's curated list or by a concept it teaches, ${fsProse} by the lecture's own slides on a recorded list, 0 unbacked, and the five repaired claims stay repaired while Lecture 2 now shows memory-state`);
 }
