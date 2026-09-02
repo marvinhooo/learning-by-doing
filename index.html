@@ -6322,6 +6322,15 @@
       const guide=LECTURE_GUIDES[lectureId],position=guide?.concepts.indexOf(c.id)??-1,source=SOURCES[lectureId],terms=conceptPrimerTerms(c),location=lectureId?(position>=0?(currentLanguage==="en"?`Core concept ${position+1} of ${guide.concepts.length} in Lecture ${lectureNumber(lectureId)}`:`Kernkonzept ${position+1} von ${guide.concepts.length} in Lecture ${lectureNumber(lectureId)}`):(currentLanguage==="en"?`Prerequisite or refresher for Lecture ${lectureNumber(lectureId)}`:`Voraussetzung oder Vertiefung für Lecture ${lectureNumber(lectureId)}`)):"";
       return `<section class="reading-section detail-section concept-orientation"><p class="eyebrow">Bevor du einsteigst</p><h2>Orientierung</h2><div class="concept-orientation-grid"><article class="concept-orientation-card"><h3>Worum geht es?</h3><p>${esc(c.summary)}</p></article><article class="concept-orientation-card"><h3>Wo ordnet sich das ein?</h3><p>${esc(c.context)}</p>${location?`<p class="concept-position">${esc(location)} · ${esc(source?.label||"")}</p>`:""}</article><article class="concept-orientation-card"><h3>Warum ist das wichtig?</h3><p>${esc(c.why)}</p></article></div>${terms.length?`<div class="concept-terms"><h3>Begriffe vor dem ersten Schritt</h3><dl>${terms.map(item=>`<dt>${esc(item.term)}</dt><dd>${esc(item.definition)}</dd>`).join("")}</dl></div>`:""}</section>`;
     }
+    // Step 2 of the method on the front page is "do that lecture's lab", and until v92 a concept
+    // page was the one surface that never offered one: 75 pages ended at the self-check. The
+    // self-study section had to grow its own practice button for exactly this reason. A concept
+    // with no lab says so instead of pretending, because eleven of the 75 genuinely have none.
+    function conceptLabsMarkup(c){
+      const labs=conceptLabs(c.id),english=currentLanguage==="en";
+      if(!labs.length)return "";
+      return `<section class="reading-section detail-section"><p class="eyebrow">${english?"From reading to doing":"Vom Lesen zum Können"}</p><h2>${english?"Experiments that compute this concept":"Experimente, die dieses Konzept ausrechnen"}</h2><p class="muted">${english?"An experiment is not an illustration: it really computes the equation above and is built so that a plausible-looking wrong version is exposed on some inputs and stays invisible on others. State your expectation first, then change a single parameter.":"Ein Experiment ist keine Illustration: Es rechnet die Gleichung von oben wirklich aus und ist so gebaut, dass eine plausibel aussehende falsche Variante bei manchen Eingaben auffliegt und bei anderen unsichtbar bleibt. Erst die eigene Erwartung formulieren, dann genau einen Parameter ändern."}</p><div class="collection-list">${labs.map(labCard).join("")}</div></section>`;
+    }
     function conceptFormulaIds(c,lectureId=""){
       if(!lectureId)return [...c.formulas];
       const curated=LECTURE_GUIDES[lectureId]?.formulas||[];
@@ -6802,7 +6811,7 @@
     function renderConceptDetail(el,c){
       if(!c)return;
       const lectureId=lectureForConcept(c.id,appState.detail?.lectureId),lecture=LECTURE_GUIDES[lectureId],source=SOURCES[lectureId],lecturePages=lectureLearningPages(lectureId),conceptIndex=lecturePages.indexOf(c.id),conceptPosition=conceptIndex>=0?(currentLanguage==="en"?`Page ${conceptIndex+1} / ${lecturePages.length}`:`Seite ${conceptIndex+1} / ${lecturePages.length}`):(currentLanguage==="en"?"Prerequisite or refresher":"Voraussetzung oder Vertiefung"),formulaIds=conceptFormulaIds(c,lectureId),hasWorkedPrimer=Boolean(formulaIds.length||(c.checks?.[0]&&c.answers?.[0]));
-      el.innerHTML=`${backButton("path",currentLanguage==="en"?"Lectures":"Lectures")}<div class="view-header" style="margin-top:1rem"><p class="eyebrow">${lectureId?`Lecture ${lectureNumber(lectureId)} · ${esc(conceptPosition)} · `:""}${esc(c.level)}</p><h1>${esc(c.title)}</h1><p class="lede">${esc(c.summary)}</p>${conceptLecturePositionMarkup(c,lectureId)}</div><div class="detail-layout"><div class="detail-body">${conceptOrientationMarkup(c,lectureId)}<section class="reading-section detail-section"><h2>${currentLanguage==="en"?"How to picture it":"So kannst du dir das vorstellen"}</h2><div class="callout accent">${esc(c.mental)}</div></section>${conceptExamplePrimer(c,lectureId)}<section class="reading-section detail-section"><p class="eyebrow">${hasWorkedPrimer?(currentLanguage==="en"?"After the worked example":"Nach dem gerechneten Beispiel"):(currentLanguage==="en"?"Step by step":"Schritt für Schritt")}</p><h2>${hasWorkedPrimer?(currentLanguage==="en"?"The exact rules":"Die genauen Regeln"):(currentLanguage==="en"?"How it works, step by step":"So funktioniert es, Schritt für Schritt")}</h2>${c.details.map(paragraph=>`<p>${esc(paragraph)}</p>`).join("")}</section><section class="reading-section detail-section"><h2>${currentLanguage==="en"?"Common misconceptions":"Typische Fehlannahmen"}</h2><ul class="check-list">${c.pitfalls.map(pitfall=>`<li>${esc(pitfall)}</li>`).join("")}</ul></section><section class="reading-section detail-section"><h2>${currentLanguage==="en"?"Self-check with model answers":"Selbstcheck mit Musterantworten"}</h2><p class="muted">${currentLanguage==="en"?"Think first, then reveal the explanation. Nothing needs to be typed and no answer changes a readiness score.":"Denke zuerst selbst nach und öffne dann die Erklärung. Du musst nichts eintippen, und keine Antwort verändert eine Readiness-Wertung."}</p>${selfCheckMarkup(c.checks,c.answers)}</section>${formulaIds.length?`<section class="reading-section detail-section"><h2>${currentLanguage==="en"?"Curated formula lessons for this lecture":"Kuratierte Formelerklärungen dieser Lecture"}</h2><p class="muted">${currentLanguage==="en"?"Each card begins with the question, names, and a worked small case. The equation comes last.":"Jede Karte beginnt mit Frage, Namen und einem gerechneten kleinen Fall. Die Gleichung kommt zuletzt."}</p><div class="accordion-list">${formulaIds.map(id=>byId(FORMULAS,id)).filter(Boolean).map(formulaAccordion).join("")}</div></section>`:""}</div><aside class="detail-aside">${lectureId?`<div class="panel"><h3>${currentLanguage==="en"?"Used in":"Verwendet in"}</h3><button class="button primary small" data-open-lecture="${lectureId}">Lecture ${lectureNumber(lectureId)} · ${esc(source.label.replace(/^Lecture \d+ - /,""))}</button><p class="small muted" style="margin-top:.7rem">${esc(localeValue(lecture.why))}</p></div>`:""}<div class="panel"><h3>${currentLanguage==="en"?"Sources":"Quellen"}</h3><div style="display:grid;gap:.5rem">${c.sources.map(id=>sourceAnchor(id)).join("")}</div></div><div class="panel"><button class="button ${isBookmarked("concept",c.id)?"primary":""}" id="bookmarkConcept">${isBookmarked("concept",c.id)?"★ Gespeichert":"☆ Speichern"}</button><button class="button ghost" id="openNotes" style="margin-top:.5rem">${currentLanguage==="en"?"Optional notes":"Optionale Notizen"}</button></div></aside></div>${conceptContinuation(c,lectureId)}`;
+      el.innerHTML=`${backButton("path",currentLanguage==="en"?"Lectures":"Lectures")}<div class="view-header" style="margin-top:1rem"><p class="eyebrow">${lectureId?`Lecture ${lectureNumber(lectureId)} · ${esc(conceptPosition)} · `:""}${esc(c.level)}</p><h1>${esc(c.title)}</h1><p class="lede">${esc(c.summary)}</p>${conceptLecturePositionMarkup(c,lectureId)}</div><div class="detail-layout"><div class="detail-body">${conceptOrientationMarkup(c,lectureId)}<section class="reading-section detail-section"><h2>${currentLanguage==="en"?"How to picture it":"So kannst du dir das vorstellen"}</h2><div class="callout accent">${esc(c.mental)}</div></section>${conceptExamplePrimer(c,lectureId)}<section class="reading-section detail-section"><p class="eyebrow">${hasWorkedPrimer?(currentLanguage==="en"?"After the worked example":"Nach dem gerechneten Beispiel"):(currentLanguage==="en"?"Step by step":"Schritt für Schritt")}</p><h2>${hasWorkedPrimer?(currentLanguage==="en"?"The exact rules":"Die genauen Regeln"):(currentLanguage==="en"?"How it works, step by step":"So funktioniert es, Schritt für Schritt")}</h2>${c.details.map(paragraph=>`<p>${esc(paragraph)}</p>`).join("")}</section><section class="reading-section detail-section"><h2>${currentLanguage==="en"?"Common misconceptions":"Typische Fehlannahmen"}</h2><ul class="check-list">${c.pitfalls.map(pitfall=>`<li>${esc(pitfall)}</li>`).join("")}</ul></section>${conceptLabsMarkup(c)}<section class="reading-section detail-section"><h2>${currentLanguage==="en"?"Self-check with model answers":"Selbstcheck mit Musterantworten"}</h2><p class="muted">${currentLanguage==="en"?"Think first, then reveal the explanation. Nothing needs to be typed and no answer changes a readiness score.":"Denke zuerst selbst nach und öffne dann die Erklärung. Du musst nichts eintippen, und keine Antwort verändert eine Readiness-Wertung."}</p>${selfCheckMarkup(c.checks,c.answers)}</section>${formulaIds.length?`<section class="reading-section detail-section"><h2>${currentLanguage==="en"?"Curated formula lessons for this lecture":"Kuratierte Formelerklärungen dieser Lecture"}</h2><p class="muted">${currentLanguage==="en"?"Each card begins with the question, names, and a worked small case. The equation comes last.":"Jede Karte beginnt mit Frage, Namen und einem gerechneten kleinen Fall. Die Gleichung kommt zuletzt."}</p><div class="accordion-list">${formulaIds.map(id=>byId(FORMULAS,id)).filter(Boolean).map(formulaAccordion).join("")}</div></section>`:""}</div><aside class="detail-aside">${lectureId?`<div class="panel"><h3>${currentLanguage==="en"?"Used in":"Verwendet in"}</h3><button class="button primary small" data-open-lecture="${lectureId}">Lecture ${lectureNumber(lectureId)} · ${esc(source.label.replace(/^Lecture \d+ - /,""))}</button><p class="small muted" style="margin-top:.7rem">${esc(localeValue(lecture.why))}</p></div>`:""}<div class="panel"><h3>${currentLanguage==="en"?"Sources":"Quellen"}</h3><div style="display:grid;gap:.5rem">${c.sources.map(id=>sourceAnchor(id)).join("")}</div></div><div class="panel"><button class="button ${isBookmarked("concept",c.id)?"primary":""}" id="bookmarkConcept">${isBookmarked("concept",c.id)?"★ Gespeichert":"☆ Speichern"}</button><button class="button ghost" id="openNotes" style="margin-top:.5rem">${currentLanguage==="en"?"Optional notes":"Optionale Notizen"}</button></div></aside></div>${conceptContinuation(c,lectureId)}`;
       bindBack(el);bindDisclosureState(el,"[data-formula-disclosure]",appState.openFormulaIds,"formulaDisclosure");bindOpeners(el);el.querySelector("[data-path-overview]")?.addEventListener("click",()=>navigate("path"));document.getElementById("bookmarkConcept").onclick=()=>toggleBookmark("concept",c.id,"#bookmarkConcept");document.getElementById("openNotes").onclick=()=>navigate("notes")
     }
     function renderFormulaDetail(el,f){
@@ -6823,7 +6832,78 @@
     // also steht die Zuordnung hier ausdrücklich: sie ist eine Entscheidung und kein Nebenprodukt.
     // Ein Konzept ohne Eintrag rendert seine Zeile ohne Übungsknopf — lieber sichtbar leer als
     // stillschweigend auf ein Lab verlinkt, das etwas anderes übt.
-    const SELF_STUDY_LABS={"adamw":"optimizer","clipping":"loss-and-clip","cross-entropy":"loss-and-clip","sampling":"decode-sampling","causal-mask":"causal-invariance"};
+    // Which concept a lab actually computes. Labs carry no concept list of their own, and the
+    // containers that hold both (a lecture, a module, a mission) hold many of each, so a concept
+    // page had no way to name its experiment -- and for 75 pages it named none. Every pair here
+    // also co-occurs in at least one of those containers, which is what a guard checks: this table
+    // may narrow the app's existing structure, never invent a link outside it.
+    const LAB_CONCEPTS = {
+      "shapes":["shapes"],
+      "einsum-pattern":["einsum-notation","matmul"],
+      "pytorch-debugger":["pytorch-state","pytorch-tensors","gradients"],
+      "bpe":["bpe"],
+      "bpe-encode":["bpe","unicode","python-engineering"],
+      "attention":["attention"],
+      "rope-rotation":["rope"],
+      "norm-and-ffn":["rmsnorm","swiglu"],
+      "comm-crossover":["collectives","model-parallelism"],
+      "optimizer":["adamw","schedules"],
+      "loss-and-clip":["cross-entropy","clipping"],
+      "batch-windows":["token-array-loading"],
+      "mixed-precision":["pytorch-tensors"],
+      "checkpoint-segments":["checkpointing"],
+      "shard-ledger":["ddp-zero-fsdp"],
+      "resources":["resource-accounting"],
+      "triton-tile":["triton-kernels"],
+      "online-softmax-kata":["flash-attention","fusion-tiling"],
+      "roofline":["roofline","gpu-model","profiling"],
+      "parallelism":["model-parallelism","ddp-zero-fsdp"],
+      "scaling":["isoflops"],
+      "scaling-fit":["power-laws"],
+      "filtering-mechanics":["filtering-mechanics"],
+      "bloom-filter":["bloom-filters"],
+      "data-pipeline":["data-pipeline"],
+      "dedup-pipeline":["dedup"],
+      "evaluation":["benchmark-validity","perplexity-eval"],
+      "winrate-lc":["benchmark-validity"],
+      "answer-parsing":["benchmark-validity"],
+      "decode-sampling":["sampling"],
+      "inference-budget":["inference-workload","kv-serving","attention-variants","serving-optimizations"],
+      "dpo-loss":["dpo","reward-models"],
+      "policy-loss-tracer":["rl-setup"],
+      "grpo":["grpo"],
+      "transformer-ledger":["transformer-ledger","embeddings"],
+      "kernel-contracts":["kernel-contracts"],
+      "distributed-runtime":["distributed-runtime"],
+      "scaling-transfer":["scaling-practice"],
+      "moe-routing":["moe-routing-capacity","moe"],
+      "rlvr-system-transfer":["rlvr-systems"],
+      "offpolicy-clip":["off-policy","rlhf"],
+      "advantage-normalizers":["grpo-variants"],
+      "microbatch-denominator":["grpo-variants"],
+      "baseline-variance":["policy-gradient","probability"],
+      "lsh-bands":["dedup"],
+      "quality-threshold":["quality-filtering"],
+      "resume-contract":["training-loop"],
+      "stability-edge":["schedules"],
+      "pipeline-yield":["data-pipeline"],
+      "decay-horizon":["schedules"],
+      "position-signal":["rope"],
+      "causal-invariance":["causal-mask"],
+      "ablation-controls":["pre-post-norm","architecture-stability-shapes","transformer-block"],
+      "target-config":["scaling-practice"],
+      "run-plan":["isoflops"],
+      "run-budget-ledger":["scaling-practice"],
+      "chain-carry":["scaling-optima"],
+      "compression-ratio":["tokenizer-tradeoffs"]
+    };
+    // The inverse, which is the direction a concept page needs. Order follows LABS, so the page
+    // offers the experiments in the same sequence the lab list uses everywhere else.
+    function conceptLabs(conceptId){
+      return LABS.filter(lab=>(LAB_CONCEPTS[lab.id]||[]).includes(conceptId));
+    }
+    // Was a second, hand-kept copy of the same relation until v92; it now reads LAB_CONCEPTS,
+    // so a concept and its experiment can never disagree between the two surfaces.
     function assignmentSelfStudyConcepts(a){
       const taught=new Set((byId(MODULES,"foundations")?.concepts)||[]);
       LECTURE_IDS.forEach(lectureId=>(LECTURE_GUIDES[lectureId].concepts||[]).forEach(conceptId=>taught.add(conceptId)));
@@ -6833,7 +6913,7 @@
         if(!gaps.has(conceptId))gaps.set(conceptId,[]);
         if(!gaps.get(conceptId).includes(problem.id))gaps.get(conceptId).push(problem.id);
       })));
-      return [...gaps].map(([conceptId,problems])=>({concept:byId(CONCEPTS,conceptId),problems,lab:byId(LABS,SELF_STUDY_LABS[conceptId])})).filter(entry=>entry.concept);
+      return [...gaps].map(([conceptId,problems])=>({concept:byId(CONCEPTS,conceptId),problems,lab:conceptLabs(conceptId)[0]})).filter(entry=>entry.concept);
     }
     function assignmentSelfStudyMarkup(a){
       const gaps=assignmentSelfStudyConcepts(a),english=currentLanguage==="en";

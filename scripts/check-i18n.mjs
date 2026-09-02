@@ -2687,32 +2687,42 @@ const surfaced = new Set([...selfStudyByAssignment.values()].flatMap(ids => [...
 if (!surfaced.size) throw new Error("assignment self-study: no assignment surfaces a self-study concept any more, so the section renders nowhere");
 for (const id of surfaced) if (!selfStudyConcepts.includes(id)) throw new Error(`assignment self-study: ${id} is needed by a problem but missing from the assignment-only list`);
 console.log(`assignment self-study OK: ${surfaced.size} concepts no lecture teaches, surfaced on ${selfStudyByAssignment.size} assignment pages`);
-// The practice link beside a self-study concept. The map is hand-written because labs carry no
-// concept list, so it is exactly the kind of table that rots silently: a renamed lab would turn
-// into a dead button, and a concept that quietly leaves the self-study set would keep a link
-// that belongs on a lecture page instead. Both are checked, and so is the one concept that has
-// no lab -- if a lab ever covers it, this fails and the decision gets taken deliberately.
+// The practice link beside a self-study concept. Until v92 this was a second hand-kept table
+// (SELF_STUDY_LABS, five pairs) describing the same relation as LAB_CONCEPTS, and two tables of
+// the same fact drift. It now reads the shared map, so what the concept page offers and what the
+// self-study section offers can never disagree -- and the one concept with no experiment stays a
+// recorded decision rather than a gap that appeared quietly.
 {
-  const mapText = source.slice(source.indexOf("const SELF_STUDY_LABS="), source.indexOf("\n", source.indexOf("const SELF_STUDY_LABS=")));
-  if (!mapText) throw new Error("assignment self-study: the concept-to-lab map is gone");
-  const pairs = [...mapText.matchAll(/"([a-z0-9-]+)":"([a-z0-9-]+)"/g)].map(hit => [hit[1], hit[2]]);
-  if (!pairs.length) throw new Error("assignment self-study: the concept-to-lab map is empty");
+  const practiceApi = runInNewContext(
+    `${sliceDeclaration(source, "LAB_CONCEPTS")}
+     const LABS = ${JSON.stringify(base.labs.map(lab => ({ id: lab.id })))};
+     ${sliceDeclaration(source, "conceptLabs")}
+     ({LAB_CONCEPTS, conceptLabs})`, {});
   const labIds = new Set(base.labs.map(lab => lab.id));
-  for (const [conceptId, labId] of pairs) {
-    if (!selfStudyConcepts.includes(conceptId))
-      throw new Error(`assignment self-study: ${conceptId} has a practice lab but is not a self-study concept -- it belongs on a lecture page now`);
-    if (!labIds.has(labId))
-      throw new Error(`assignment self-study: ${conceptId} points at ${labId}, which is not a lab -- the button would be dead`);
+  const conceptIds = new Set(base.concepts.map(concept => concept.id));
+  for (const [labId, concepts] of Object.entries(practiceApi.LAB_CONCEPTS)) {
+    if (!labIds.has(labId)) throw new Error(`lab concepts: ${labId} is not a lab, so its entry points nowhere`);
+    if (!Array.isArray(concepts) || !concepts.length) throw new Error(`lab concepts: ${labId} names no concept`);
+    for (const conceptId of concepts) if (!conceptIds.has(conceptId)) throw new Error(`lab concepts: ${labId} names ${conceptId}, which is not a concept`);
+    if (new Set(concepts).size !== concepts.length) throw new Error(`lab concepts: ${labId} names the same concept twice`);
   }
-  const withoutLab = selfStudyConcepts.filter(id => !pairs.some(pair => pair[0] === id));
+  for (const lab of base.labs) if (!practiceApi.LAB_CONCEPTS[lab.id]) throw new Error(`lab concepts: ${lab.id} has no entry, so no concept page can offer it`);
+  const withLab = selfStudyConcepts.filter(id => practiceApi.conceptLabs(id).length);
+  const withoutLab = selfStudyConcepts.filter(id => !practiceApi.conceptLabs(id).length);
+  for (const conceptId of withLab) {
+    const first = practiceApi.conceptLabs(conceptId)[0];
+    if (!labIds.has(first.id)) throw new Error(`assignment self-study: ${conceptId} points at ${first.id}, which is not a lab -- the button would be dead`);
+  }
   if (withoutLab.length !== 1 || withoutLab[0] !== "lm-objective")
     throw new Error(`assignment self-study: the concepts with no practice lab are ${JSON.stringify(withoutLab)}, which is not the documented state -- decide the placement rather than letting the list drift`);
-  // and the renderer has to actually use the map, or the table above proves nothing
+  // and the renderer has to actually use the derivation, or the table above proves nothing
   const renderer = source.slice(source.indexOf("function assignmentSelfStudyConcepts"), source.indexOf("function renderAssignmentDetail"));
-  for (const required of ["SELF_STUDY_LABS[conceptId]", "data-open-lab", "entry.lab"])
+  for (const required of ["conceptLabs(conceptId)[0]", "data-open-lab", "entry.lab"])
     if (!renderer.includes(required))
-      throw new Error(`assignment self-study: the practice link must stay data-driven (missing ${required})`);
-  console.log(`assignment self-study practice OK: ${pairs.length} of ${selfStudyConcepts.length} concepts no lecture teaches now offer the lab that computes them, ${withoutLab.length} deliberately without one`);
+      throw new Error(`assignment self-study: the practice link must stay derived from LAB_CONCEPTS (missing ${required})`);
+  if (source.includes("SELF_STUDY_LABS"))
+    throw new Error("assignment self-study: the replaced five-pair table is back, so the same relation is written down twice again");
+  console.log(`assignment self-study practice OK: ${withLab.length} of ${selfStudyConcepts.length} concepts no lecture teaches now offer the lab that computes them, ${withoutLab.length} deliberately without one, all of it derived from the one LAB_CONCEPTS map`);
 }
 
 const transformerModule = base.modules.find(module => module.id === "transformer");
@@ -9332,4 +9342,102 @@ console.log(`english render OK: ${englishStates} states across ${englishLabs} la
   if (!(fsGuides.l02.formulas || []).includes("memory-state"))
     throw new Error("formula sources: Lecture 2 must curate memory-state -- its trace computes 4 * (params + activations + gradients + optimizer states), which is exactly that card");
   console.log(`formula sources OK: ${fsCited} lecture citations across ${fsFormulas.length} cards -- ${fsBacked} carried by the lecture's curated list or by a concept it teaches, ${fsProse} by the lecture's own slides on a recorded list, 0 unbacked, and the five repaired claims stay repaired while Lecture 2 now shows memory-state`);
+}
+
+// ---- concept experiments: the page where reading turns into doing ---------------------------
+// The method on the front page is five steps, and step 2 is "do that lecture's lab". A concept
+// page was the one surface that offered none: `data-open-lab` appeared four times in the whole
+// markup and renderConceptDetail was not one of them, so every route that ends on a concept --
+// a prerequisite card, the basics check's refresher, the self-study section -- ended in reading.
+// The reason was a data gap: labs carry no concept list, and the containers that hold both hold
+// many of each. LAB_CONCEPTS closes it, and this block holds three things: the table may only
+// narrow what the app's own structure already says, the concept page really renders it, and the
+// concepts still without an experiment are counted rather than hidden.
+{
+  const clApi = runInNewContext(
+    `${sliceDeclaration(source, "LAB_CONCEPTS")}
+     const LABS = ${JSON.stringify(base.labs.map(lab => ({ id: lab.id, title: lab.title, desc: lab.desc, time: lab.time })))};
+     ${sliceDeclaration(source, "conceptLabs")}
+     ({LAB_CONCEPTS, conceptLabs})`, {});
+
+  // An independent witness (v89, point 24): every pair has to co-occur in a lecture guide, a
+  // module or an assignment mission. The table is allowed to say which of a container's concepts
+  // a lab computes; it is not allowed to invent a pairing the app never made.
+  const clContainers = [];
+  for (const [lectureId, guide] of Object.entries(base.lectureGuides)) clContainers.push([`lecture ${lectureId}`, guide.labs || [], guide.concepts || []]);
+  for (const module of base.modules) clContainers.push([`module ${module.id}`, module.labs || [], module.concepts || []]);
+  for (const assignment of base.assignments) for (const mission of assignment.missions || []) clContainers.push([`${assignment.id}:${mission.id}`, mission.labs || [], mission.concepts || []]);
+  if (clContainers.length < 30) throw new Error("concept experiments: too few containers found to check co-location against");
+  let clPairs = 0;
+  for (const [labId, concepts] of Object.entries(clApi.LAB_CONCEPTS)) {
+    for (const conceptId of concepts) {
+      clPairs++;
+      const where = clContainers.find(([, labs, list]) => labs.includes(labId) && list.includes(conceptId));
+      if (!where) throw new Error(`concept experiments: ${labId} claims to compute ${conceptId}, but no lecture, module or mission puts the two together -- the table may narrow the app's structure, not invent a link`);
+    }
+  }
+
+  // The render, in both languages, for all 75 concepts.
+  const clEsc = source.slice(source.indexOf("const esc = value =>"), source.indexOf("\n", source.indexOf("const esc = value =>")));
+  const clRender = runInNewContext(
+    `let currentLanguage = "de";
+     ${clEsc}
+     ${sliceDeclaration(source, "LAB_CONCEPTS")}
+     ${sliceDeclaration(source, "conceptLabs")}
+     const LAB_OBJECTIVES = ${JSON.stringify(labObjectives)};
+     ${sliceDeclaration(source, "OBJECTIVE_LAB_IDS")}
+     ${sliceDeclaration(source, "labHasObjectiveCheck")}
+     ${sliceDeclaration(source, "labCheckPassed")}
+     ${sliceDeclaration(source, "labCard")}
+     ${sliceDeclaration(source, "conceptLabsMarkup")}
+     let LABS = [], user = { labChecks: {} };
+     ({set:(labs,language)=>{LABS=labs;currentLanguage=language;},markup:concept=>conceptLabsMarkup(concept)})`,
+    {});
+  const clGermanLabs = base.labs;
+  const clEnglishLabs = base.labs.map(lab => ({ ...lab, ...(pack.labs[lab.id] || {}) }));
+  let clWith = 0, clWithout = 0, clButtons = 0, clChecks = 0;
+  for (const concept of base.concepts) {
+    const expected = base.labs.filter(lab => (clApi.LAB_CONCEPTS[lab.id] || []).includes(concept.id)).map(lab => lab.id);
+    if (expected.length) clWith++; else clWithout++;
+    for (const language of ["de", "en"]) {
+      clRender.set(language === "en" ? clEnglishLabs : clGermanLabs, language);
+      const markup = clRender.markup(concept);
+      const rendered = [...markup.matchAll(/data-open-lab="([a-z0-9-]+)"/gu)].map(hit => hit[1]);
+      if (JSON.stringify(rendered) !== JSON.stringify(expected))
+        throw new Error(`concept experiments: ${concept.id}/${language} renders ${JSON.stringify(rendered)}, expected ${JSON.stringify(expected)}`);
+      if (!expected.length && markup !== "")
+        throw new Error(`concept experiments: ${concept.id}/${language} has no experiment but still prints a section`);
+      if (expected.length) {
+        const labs = language === "en" ? clEnglishLabs : clGermanLabs;
+        for (const labId of expected) {
+          const lab = labs.find(entry => entry.id === labId);
+          if (!markup.includes(`<span class="compact-row-title">${clRender.markup && ""}${lab.title.replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]))}</span>`))
+            throw new Error(`concept experiments: ${concept.id}/${language} does not print the title of ${labId}`);
+          clButtons++;
+        }
+        if (markup.includes("undefined") || markup.includes("${"))
+          throw new Error(`concept experiments: ${concept.id}/${language} leaves an undefined value or an uninterpolated placeholder on the screen`);
+        if (language === "en") {
+          const residue = markup.replace(/<[^>]*>/gu, " ").split(/\s{2,}/u).map(part => part.trim()).filter(part => part && GERMAN_WORDS.test(part));
+          if (residue.length) throw new Error(`concept experiments: ${concept.id}/en still shows German -- ${residue[0].slice(0, 80)}`);
+        }
+      }
+      clChecks += 2;
+    }
+  }
+  // The call site, not only the function (v78's lesson): a correct markup helper nobody calls
+  // renders nothing.
+  const clConceptPage = sliceDeclaration(source, "renderConceptDetail");
+  if (!clConceptPage.includes("${conceptLabsMarkup(c)}"))
+    throw new Error("concept experiments: the concept page does not call conceptLabsMarkup, so the section exists but is never rendered");
+  if (!(clConceptPage.indexOf("conceptLabsMarkup(c)") > clConceptPage.indexOf("Common misconceptions")))
+    throw new Error("concept experiments: the experiments belong after the misconceptions, where the reading ends");
+  // Every lab stays reachable from at least one concept, so the map cannot quietly orphan one.
+  const clReached = new Set(Object.entries(clApi.LAB_CONCEPTS).filter(([, list]) => list.length).map(([labId]) => labId));
+  if (clReached.size !== base.labs.length)
+    throw new Error(`concept experiments: only ${clReached.size} of ${base.labs.length} labs are reachable from a concept page`);
+  const clOrphans = base.concepts.filter(concept => !base.labs.some(lab => (clApi.LAB_CONCEPTS[lab.id] || []).includes(concept.id))).map(concept => concept.id);
+  if (clWithout !== clOrphans.length) throw new Error("concept experiments: the two counts of concepts without an experiment disagree");
+  if (clWith < 50) throw new Error(`concept experiments: only ${clWith} concepts offer an experiment, which is below what the map is supposed to deliver`);
+  console.log(`concept experiments OK: ${clChecks} checks -- ${clPairs} lab/concept pairs, every one of them co-located by a lecture, module or mission rather than invented, ${clWith} of ${base.concepts.length} concept pages now offer the experiment that computes them (${clButtons} buttons read back out of the real markup in both languages), all ${base.labs.length} labs reachable from a concept, and the remaining ${clWithout} concepts print no section at all rather than an empty one (${clOrphans.slice(0, 6).join(", ")}${clOrphans.length > 6 ? ", …" : ""})`);
 }
