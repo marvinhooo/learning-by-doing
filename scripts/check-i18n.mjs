@@ -7218,6 +7218,85 @@ function panelGroupControls(group) {
 
 const renderLabs = [
   {
+    id: "sft-packing", entry: "spStageMarkup", mode: "spMode", update: "updateSftPacking",
+    names: ["SP_TEMPLATES", "SP_CORPORA", "SP_SEQS", "SP_TRIMS", "spTemplateOf", "spCorpusOf",
+      "spSeqOf", "spDocuments", "spLossLedger", "spStream", "spPackStats", "SP_HANDOUT",
+      "spRuleRow", "spNum", "spPct", "spShare", "spRead",
+      "renderSftPackingLoss", "renderSftPackingChunks", "spStageMarkup"],
+    options: {
+      spMode: ["loss", "pack"], spCorpus: "SP_CORPORA", spTemplate: "SP_TEMPLATES",
+      spCorpusB: "SP_CORPORA", spTemplateB: "SP_TEMPLATES", spSeq: "SP_SEQS", spTrim: "SP_TRIMS"
+    },
+    // Mode A prices one document against the mask and never cuts a block; mode B cuts blocks
+    // and never mentions the mask. Each mode carries its own corpus and template control, so a
+    // renderer reaching across would show up here as a control leaking into the other panel.
+    controls: {
+      spCorpus: ["loss"], spTemplate: ["loss"],
+      spCorpusB: ["pack"], spTemplateB: ["pack"], spSeq: ["pack"], spTrim: ["pack"]
+    },
+    // A trimmed single-document stream can produce zero complete blocks, and a zero denominator
+    // there would be a division by zero rather than a finding. spShare says so in words instead,
+    // which is why no state of this lab may show a NaN.
+    nan: () => false,
+    anchors: [
+      // The finding of mode A, in the concept page's own example: A5's loader puts five sixths
+      // of the target positions on template and prompt, and the masked loss the concept page
+      // describes would run over 101 of the 633.
+      [{ spMode: "loss", spCorpus: "concept", spTemplate: "t32", spCorpusB: "ultra", spTemplateB: "t32", spSeq: "m512", spTrim: "raw" },
+        '<strong data-spheadshare="1">532 · 84.0442 %</strong>',
+        "the concept page's own example has to print its head share, not merely compute it"],
+      [{ spMode: "loss", spCorpus: "concept", spTemplate: "t32", spCorpusB: "ultra", spTemplateB: "t32", spSeq: "m512", spTrim: "raw" },
+        '<strong data-spfactor="1">5.2673 ×</strong>',
+        "and the ratio beside it, which is the entire argument for the mask"],
+      [{ spMode: "loss", spCorpus: "concept", spTemplate: "t32", spCorpusB: "ultra", spTemplateB: "t32", spSeq: "m512", spTrim: "raw" },
+        '<strong data-spmasked="1">101</strong>',
+        "the masked alternative has to stand next to it as a number, or the comparison is prose"],
+      // The structural half of mode A: no field, and no token marking the boundary a mask needs.
+      [{ spMode: "loss", spCorpus: "concept", spTemplate: "t32", spCorpusB: "ultra", spTemplateB: "t32", spSeq: "m512", spTrim: "raw" },
+        '<strong data-spmaskfield="1">keines</strong>',
+        "the reason there is no mask is a missing field, and the ledger has to say so"],
+      // The share is a property of the corpus, not of the method -- a second corpus proves it.
+      [{ spMode: "loss", spCorpus: "ultra", spTemplate: "t32", spCorpusB: "ultra", spTemplateB: "t32", spSeq: "m512", spTrim: "raw" },
+        '<strong data-spheadshare="1">1996 · 41.1207 %</strong>',
+        "a corpus with longer responses has to move the head share, or it would read as a constant"],
+      // Mode B: the handout's own example cannot tell the two length rules apart.
+      [{ spMode: "pack", spCorpus: "concept", spTemplate: "t32", spCorpusB: "ultra", spTemplateB: "t32", spSeq: "m512", spTrim: "raw" },
+        '<strong data-sphandoutnaive="1">2</strong>',
+        "the handout's example under the naive rule"],
+      [{ spMode: "pack", spCorpus: "concept", spTemplate: "t32", spCorpusB: "ultra", spTemplateB: "t32", spSeq: "m512", spTrim: "raw" },
+        '<strong data-sphandoutcorrect="1">2</strong>',
+        "and under the correct one -- the same number, which is why the example settles nothing"],
+      // The trim control is the whole point of mode B: it turns an invisible bug visible.
+      [{ spMode: "pack", spCorpus: "concept", spTemplate: "t32", spCorpusB: "ultra", spTemplateB: "t32", spSeq: "m512", spTrim: "raw" },
+        '<td data-spraw="ultra-m512">9 / 9 · ✓</td>',
+        "untrimmed, the two rules agree and the table has to show them agreeing"],
+      [{ spMode: "pack", spCorpus: "concept", spTemplate: "t32", spCorpusB: "ultra", spTemplateB: "t32", spSeq: "m512", spTrim: "raw" },
+        '<td data-spcut="ultra-m512">9 / 8 · ✗</td>',
+        "and trimmed they part -- both halves of the row, or the finding is half read"],
+      [{ spMode: "pack", spCorpus: "concept", spTemplate: "t32", spCorpusB: "ultra", spTemplateB: "t32", spSeq: "m512", spTrim: "cut" },
+        '<strong data-sprulediffers="1">ja — der letzte Block der naiven Regel bräuchte Token n, und den gibt es nicht</strong>',
+        "the verdict line has to follow the trim control, not only the table"],
+      // The three context classes at the length A5 recommends, all three read back: they sum to
+      // the target positions, and the third is the smallest.
+      [{ spMode: "pack", spCorpus: "concept", spTemplate: "t32", spCorpusB: "ultra", spTemplateB: "t32", spSeq: "m512", spTrim: "raw" },
+        '<strong data-spforeign="1">2220 · 48.1771 %</strong>',
+        "at m = 512 nearly half the targets carry a foreign document in their context"],
+      [{ spMode: "pack", spCorpus: "concept", spTemplate: "t32", spCorpusB: "ultra", spTemplateB: "t32", spSeq: "m512", spTrim: "raw" },
+        '<strong data-spheadless="1">1876 · 40.7118 %</strong>',
+        "and the second class beside it, or the trade-off has only one side on screen"],
+      [{ spMode: "pack", spCorpus: "concept", spTemplate: "t32", spCorpusB: "ultra", spTemplateB: "t32", spSeq: "m512", spTrim: "raw" },
+        '<strong data-spclean="1">512 · 11.1111 %</strong>',
+        "the third class is the one the whole mode is about and has to be printed, not implied"],
+      // The trade-off itself: shortening the block moves the two classes in opposite directions.
+      [{ spMode: "pack", spCorpus: "concept", spTemplate: "t32", spCorpusB: "ultra", spTemplateB: "t32", spSeq: "m512", spTrim: "raw" },
+        '<td data-sptradeforeign="m64">4.9167 %</td>',
+        "short blocks buy their way out of foreign context"],
+      [{ spMode: "pack", spCorpus: "concept", spTemplate: "t32", spCorpusB: "ultra", spTemplateB: "t32", spSeq: "m512", spTrim: "raw" },
+        '<td data-sptradeheadless="m64">92.4167 %</td>',
+        "and pay for it in the next column -- both cells of the row, or the trade is invisible"]
+    ]
+  },
+  {
     id: "causal-invariance", entry: "cmStageMarkup", mode: "cmMode", update: "updateCausalInvariance",
     names: ["CM_VOCAB", "CM_HEAD_DIM", "CM_LOGIT_SCALE", "CM_SENTINEL", "CM_SEQUENCE",
       "CM_LENGTHS", "CM_VARIANTS", "CM_DEPTHS", "cmLengthOf", "cmVariantOf", "cmDepthOf",
@@ -9440,4 +9519,272 @@ console.log(`english render OK: ${englishStates} states across ${englishLabs} la
   if (clWithout !== clOrphans.length) throw new Error("concept experiments: the two counts of concepts without an experiment disagree");
   if (clWith < 50) throw new Error(`concept experiments: only ${clWith} concepts offer an experiment, which is below what the map is supposed to deliver`);
   console.log(`concept experiments OK: ${clChecks} checks -- ${clPairs} lab/concept pairs, every one of them co-located by a lecture, module or mission rather than invented, ${clWith} of ${base.concepts.length} concept pages now offer the experiment that computes them (${clButtons} buttons read back out of the real markup in both languages), all ${base.labs.length} labs reachable from a concept, and the remaining ${clWithout} concepts print no section at all rather than an empty one (${clOrphans.slice(0, 6).join(", ")}${clOrphans.length > 6 ? ", …" : ""})`);
+}
+
+// ---- sft packing: the loader A5 §4.2.1 asks for, against the recipe the page describes ----
+// The lab's whole point is that two loaders sit in the same assignment and are not the same
+// thing, so this block re-derives both sides from the definitions instead of calling the app:
+// document lengths, the two candidate __len__ rules and the three context classes are typed
+// out again here, and only then compared against what the app computes and prints.
+{
+  const spApi = renderApi(renderLabs.find(lab => lab.id === "sft-packing").names, {});
+  let spChecks = 0;
+  const spFail = message => { throw new Error(`sft packing: ${message}`); };
+
+  // --- the model, retyped ------------------------------------------------------------------
+  // A serialised document is template + prompt + response + exactly one separator token.
+  const ownDocs = (corpusKey, templateTokens) =>
+    spApi.SP_CORPORA.find(entry => entry.key === corpusKey).docs
+      .map(([prompt, response]) => templateTokens + prompt + response + 1);
+  // Chunk j takes inputs [j*m, j*m+m) and labels one further, so the last complete example is
+  // the one whose labels still fit: ⌊(n-1)/m⌋, not ⌊n/m⌋.
+  const ownChunks = (n, m) => Math.floor((n - 1) / m);
+  // Walk the stream position by position and give every target position its class, by the
+  // definitions rather than by the app's early-exit bookkeeping.
+  const ownClasses = (lengths, m) => {
+    const owner = [];
+    lengths.forEach((length, index) => { for (let step = 0; step < length; step++) owner.push(index); });
+    const firstOf = new Map();
+    owner.forEach((document, position) => { if (!firstOf.has(document)) firstOf.set(document, position); });
+    const chunks = ownChunks(owner.length, m);
+    let foreign = 0, headless = 0, clean = 0, aligned = 0;
+    for (let chunk = 0; chunk < chunks; chunk++) {
+      const from = chunk * m;
+      if (firstOf.get(owner[from]) === from) aligned++;
+      for (let position = from; position < from + m; position++) {
+        const crossed = owner.slice(from, position + 1).some(document => document !== owner[from]);
+        if (crossed) foreign++;
+        else if (firstOf.get(owner[position]) < from) headless++;
+        else clean++;
+      }
+    }
+    return { chunks, positions: chunks * m, foreign, headless, clean, aligned, n: owner.length };
+  };
+
+  const spTemplates = spApi.SP_TEMPLATES, spCorpora = spApi.SP_CORPORA, spSeqs = spApi.SP_SEQS;
+  const spTrimKeys = spApi.SP_TRIMS.map(entry => entry.key);
+
+  // --- 1. the panel offers exactly the options the constants define, in both directions -----
+  // The panel fills each select by mapping over a constant, so what has to be checked is that
+  // it maps over the right one -- and that the constant still carries distinct, non-empty keys.
+  for (const [id, name, constant] of [["spCorpus", "SP_CORPORA", spCorpora], ["spCorpusB", "SP_CORPORA", spCorpora],
+    ["spTemplate", "SP_TEMPLATES", spTemplates], ["spTemplateB", "SP_TEMPLATES", spTemplates],
+    ["spSeq", "SP_SEQS", spSeqs], ["spTrim", "SP_TRIMS", spApi.SP_TRIMS]]) {
+    const marker = source.indexOf(`id="${id}"`);
+    if (marker < 0) spFail(`the panel has no control ${id}`);
+    const block = source.slice(marker, source.indexOf("</select>", marker));
+    if (!block.includes(`${name}.map(`)) spFail(`${id} is not filled from ${name}`);
+    const keys = constant.map(entry => entry.key);
+    if (new Set(keys).size !== keys.length || keys.some(key => !key)) spFail(`${name} no longer carries distinct keys`);
+    spChecks++;
+  }
+
+  // --- 2. loss mass, recomputed --------------------------------------------------------------
+  let spHeadShares = [];
+  for (const corpus of spCorpora) for (const template of spTemplates) {
+    const mine = ownDocs(corpus.key, template.tokens);
+    const theirs = spApi.spDocuments(corpus.key, template.key);
+    if (theirs.length !== mine.length) spFail(`${corpus.key}/${template.key}: document count disagrees`);
+    theirs.forEach((doc, index) => {
+      if (doc.total !== mine[index]) spFail(`${corpus.key}/${template.key}: document ${index} length ${doc.total} against ${mine[index]}`);
+      if (doc.head + doc.tail !== doc.total) spFail(`${corpus.key}/${template.key}: head and tail do not add up to the document`);
+      if (doc.head !== doc.template + doc.prompt) spFail(`${corpus.key}/${template.key}: the head is not template plus prompt`);
+      if (doc.tail !== doc.response + 1) spFail(`${corpus.key}/${template.key}: the tail forgets the separator token`);
+      spChecks++;
+    });
+    const ledger = spApi.spLossLedger(corpus.key, template.key);
+    const total = mine.reduce((sum, value) => sum + value, 0);
+    if (ledger.total !== total) spFail(`${corpus.key}/${template.key}: stream length ${ledger.total} against ${total}`);
+    if (Math.abs(ledger.headShare + ledger.tailShare - 1) > 1e-12) spFail(`${corpus.key}/${template.key}: the two shares do not add up to one`);
+    if (Math.abs(ledger.factor - ledger.head / ledger.tail) > 1e-12) spFail(`${corpus.key}/${template.key}: the ratio disagrees with its own two numbers`);
+    spHeadShares.push({ corpus: corpus.key, template: template.key, share: ledger.headShare });
+    spChecks += 3;
+  }
+  // The head share is a property of the corpus, not of the template: across the three template
+  // sizes one corpus moves by less than two points, while the corpora are more than forty apart.
+  let spTemplateSpread = 0;
+  for (const corpus of spCorpora) {
+    const shares = spHeadShares.filter(row => row.corpus === corpus.key).map(row => row.share);
+    spTemplateSpread = Math.max(spTemplateSpread, Math.max(...shares) - Math.min(...shares));
+    spChecks++;
+  }
+  const spConceptShare = spHeadShares.find(row => row.corpus === "concept" && row.template === "t32").share;
+  const spUltraShare = spHeadShares.find(row => row.corpus === "ultra" && row.template === "t32").share;
+  const spCorpusSpread = spConceptShare - spUltraShare;
+  if (!(spCorpusSpread > 0.4))
+    spFail("the two corpora have to be more than forty points apart, or the share would read as a constant of the method");
+  // "a few percentage points" against "more than forty": the claim is the ratio, so guard it.
+  if (spTemplateSpread > 0.05)
+    spFail(`the template size moves the head share by ${(spTemplateSpread * 100).toFixed(4)} points, which is no longer "a few"`);
+  if (!(spCorpusSpread > 10 * spTemplateSpread))
+    spFail("the corpus no longer dominates the template, so the lab's claim about where the share comes from is wrong");
+  spChecks += 3;
+
+  // --- 3. the corpus quotes the concept page, and the page still says it --------------------
+  const spConcept = readConstant("CONCEPTS").find(entry => entry.id === "sft");
+  if (!spConcept) spFail("the sft concept is gone");
+  const spConceptText = JSON.stringify(spConcept);
+  for (const needle of ["500-Token-Prompt", "100 Antwort-Tokens"])
+    if (!spConceptText.includes(needle)) spFail(`the concept page no longer contains "${needle}", so the lab quotes a sentence that is not there any more`);
+  // and the other direction: the corpus the lab labels as that quote really carries 500/100.
+  const spQuoted = spCorpora.find(entry => entry.key === "concept");
+  if (spQuoted.docs.length !== 1 || spQuoted.docs[0][0] !== 500 || spQuoted.docs[0][1] !== 100)
+    spFail("the corpus that claims to be the concept page's example is not 500/100 any more");
+  // The note says it quotes the page verbatim, so the quotation marks have to hold a sentence
+  // the page really contains -- otherwise the lab could drift while the page stands still.
+  const spQuote = spQuoted.note.match(/„([^“]+)“/);
+  if (!spQuote) spFail("the corpus note no longer carries a quotation from the concept page");
+  if (!spConceptText.includes(spQuote[1]))
+    spFail(`the lab quotes "${spQuote[1].slice(0, 60)}", which the concept page does not say`);
+  // The page has to make the difference the lab computes, in both directions and in both
+  // languages: the mask is what decides, A5 asks for none, and the claim the lab refutes --
+  // that packed conversations do not influence each other -- must not be back.
+  for (const needle of ["A5 §4.2.1", "entscheidet allein die Attention-Maske", "keine blockdiagonale Maske"])
+    if (!spConceptText.includes(needle)) spFail(`the concept page no longer says "${needle}", so it would describe a packing A5 does not ask for`);
+  if (spConceptText.includes("ohne dass sich die Gespräche gegenseitig beeinflussen"))
+    spFail("the concept page claims packed conversations do not influence each other again, which is exactly what the lab computes to be false for this loader");
+  const spConceptEnglish = JSON.stringify(pack.concepts.sft);
+  for (const needle of ["A5 §4.2.1", "decided by the attention mask alone", "no block-diagonal mask"])
+    if (!spConceptEnglish.includes(needle)) spFail(`the English concept page no longer says "${needle}", so the default reader would get the recipe A5 does not ask for`);
+  if (spConceptEnglish.includes("without cross-dialogue attention leakage"))
+    spFail("the English concept page claims packed dialogues do not leak into each other again");
+  spChecks += 9;
+
+  // --- 4. the two length rules ---------------------------------------------------------------
+  // The derived statement first: they differ exactly when m divides n. Brute force, both ways.
+  let spDividers = 0;
+  for (let m = 2; m <= 40; m++) for (let n = 1; n <= 400; n++) {
+    const differs = Math.floor(n / m) !== ownChunks(n, m);
+    if (differs !== (n % m === 0)) spFail(`the rules differ at n=${n}, m=${m} but n is ${n % m === 0 ? "" : "not "}a multiple of m`);
+    if (differs) spDividers++;
+    spChecks++;
+  }
+  if (!spDividers) spFail("no pair of n and m separated the two rules, so the sweep proves nothing");
+  // The handout's own illustration cannot separate them -- that is the finding.
+  if (spApi.SP_HANDOUT.n !== 11 || spApi.SP_HANDOUT.m !== 4) spFail("the handout example is no longer token_ids [0 … 10] at seq_length 4");
+  const spHandout = spApi.spRuleRow(spApi.SP_HANDOUT.n, spApi.SP_HANDOUT.m);
+  if (spHandout.naive !== 2 || spHandout.correct !== 2 || spHandout.differs)
+    spFail("the handout example no longer returns two blocks under both rules, which is the whole reason it settles nothing");
+  if (Math.floor(12 / 4) === ownChunks(12, 4)) spFail("n = 12 at m = 4 has to be the first case beyond the handout example where the rules part");
+  spChecks += 3;
+  // And over the nine settings the panel offers: none untrimmed separates them, all nine trimmed do.
+  let spAgree = 0, spPart = 0;
+  for (const corpus of spCorpora) for (const seq of spSeqs) {
+    const raw = spApi.spRuleRow(spApi.spStream(corpus.key, "t32", seq.key, "raw").n, seq.m);
+    const cut = spApi.spStream(corpus.key, "t32", seq.key, "cut");
+    const cutRule = spApi.spRuleRow(cut.n, seq.m);
+    if (raw.differs) spFail(`${corpus.key}/${seq.key}: an untrimmed stream separated the rules, so the lab's "none of the nine" is wrong`);
+    if (!cutRule.differs) spFail(`${corpus.key}/${seq.key}: a trimmed stream did not separate the rules, so the trim control proves nothing`);
+    if (cut.n % seq.m !== 0) spFail(`${corpus.key}/${seq.key}: trimming did not land on a multiple of m`);
+    if (cut.cut < 0 || cut.cut >= seq.m) spFail(`${corpus.key}/${seq.key}: the trim removed ${cut.cut} tokens, which is not a remainder`);
+    spAgree++; spPart++; spChecks += 4;
+  }
+  if (spAgree !== 9 || spPart !== 9) spFail(`the panel no longer offers nine settings (${spAgree})`);
+
+  // --- 5. the three context classes ----------------------------------------------------------
+  let spSettings = 0, spCleanMax = 0, spDegenerate = 0;
+  const spMono = [];
+  for (const corpus of spCorpora) for (const template of spTemplates) for (const trim of spTrimKeys) {
+    const row = [];
+    for (const seq of spSeqs) {
+      const stream = spApi.spStream(corpus.key, template.key, seq.key, trim);
+      const theirs = spApi.spPackStats(stream.lengths, stream.m);
+      const mine = ownClasses(stream.lengths, seq.m);
+      for (const field of ["chunks", "positions", "foreign", "headless", "clean"])
+        if (theirs[field] !== mine[field])
+          spFail(`${corpus.key}/${template.key}/${seq.key}/${trim}: ${field} is ${theirs[field]} in the app and ${mine[field]} when recomputed`);
+      if (theirs.foreign + theirs.headless + theirs.clean !== theirs.positions)
+        spFail(`${corpus.key}/${template.key}/${seq.key}/${trim}: the three classes do not partition the target positions`);
+      // clean positions exist only inside blocks whose boundary falls on a document start
+      if ((theirs.clean > 0) !== (mine.aligned > 0))
+        spFail(`${corpus.key}/${template.key}/${seq.key}/${trim}: clean positions appear without a block aligned to a document start`);
+      if (theirs.positions) {
+        if (corpus.docs.length > 1) spCleanMax = Math.max(spCleanMax, theirs.clean / theirs.positions);
+        row.push({ m: seq.m, foreign: theirs.foreign / theirs.positions, headless: theirs.headless / theirs.positions });
+      } else spDegenerate++;
+      spSettings++; spChecks += 7;
+    }
+    if (corpus.docs.length > 1 && row.length === spSeqs.length) spMono.push({ corpus: corpus.key, template: template.key, trim, row });
+  }
+  if (spSettings !== spCorpora.length * spTemplates.length * spSeqs.length * spTrimKeys.length)
+    spFail(`the class sweep covered ${spSettings} settings instead of the full grid`);
+  if (!spDegenerate) spFail("no setting produced zero complete blocks, so the guard against dividing by zero is never exercised");
+  // The trade-off the lab claims: with more than one document, shortening the block trades
+  // foreign context for a missing start. Both directions, strictly, in every such setting.
+  for (const entry of spMono) {
+    for (let index = 1; index < entry.row.length; index++) {
+      if (!(entry.row[index].foreign > entry.row[index - 1].foreign))
+        spFail(`${entry.corpus}/${entry.template}/${entry.trim}: foreign context does not rise with m, so the trade-off the lab describes is not there`);
+      if (!(entry.row[index].headless < entry.row[index - 1].headless))
+        spFail(`${entry.corpus}/${entry.template}/${entry.trim}: the missing-start share does not fall with m`);
+      spChecks += 2;
+    }
+  }
+  // The eight-document corpus is the one the prose bounds, and the bound has to be tight.
+  let spUltraMax = 0;
+  for (const template of spTemplates) for (const seq of spSeqs) for (const trim of spTrimKeys) {
+    const stream = spApi.spStream("ultra", template.key, seq.key, trim);
+    const stats = spApi.spPackStats(stream.lengths, stream.m);
+    spUltraMax = Math.max(spUltraMax, stats.clean / stats.positions);
+    spChecks++;
+  }
+  if (spUltraMax > 0.125 + 1e-12) spFail(`the eight-document corpus reaches ${(spUltraMax * 100).toFixed(4)} % clean positions, above the 12.5000 % the lab prints`);
+  if (spUltraMax < 0.125 - 1e-12) spFail(`the eight-document corpus tops out at ${(spUltraMax * 100).toFixed(4)} %, so printing 12.5000 % overstates the bound`);
+  if (!(spCleanMax < 0.5)) spFail("a multi-document setting sees more than half its positions cleanly, which the lab's argument denies");
+
+  // --- 6. the lab is where the reader needs it ------------------------------------------------
+  const spLabConcepts = readConstant("LAB_CONCEPTS")["sft-packing"];
+  if (!spLabConcepts || !spLabConcepts.includes("sft")) spFail("the lab is not attached to the sft concept");
+  const spProblemConcepts = readConstant("PROBLEM_CONCEPTS");
+  const spOwners = Object.entries(spProblemConcepts).filter(([, list]) => list.includes("sft")).map(([id]) => id);
+  if (!spOwners.length) spFail("no handout problem is decided by the sft concept any more");
+  // The two loaders of A5 have to be two problems, or the lab's premise is gone.
+  for (const problem of ["a5:data_loading", "a5:tokenize_prompt_and_output"])
+    if (!handoutProblems[problem]) spFail(`${problem} is gone from the handout list, and the lab's premise is that both loaders exist`);
+  const spCheckAnswer = sliceDeclaration(source, "checkSftPacking");
+  for (const key of ["nofield", "multiple", "aligned"])
+    if (!spCheckAnswer.includes(`"${key}"`)) spFail(`the short check no longer accepts ${key}`);
+  if (!source.includes('id="spCheckContext"')) spFail("the third short check is gone");
+  spChecks += 5;
+
+  console.log(`sft packing OK: ${spChecks} checks -- A5 §4.2.1's loader recomputed against the recipe the concept page describes: the page's own 500/100 example puts ${(spConceptShare * 100).toFixed(4)} % of the target positions on template and prompt where a masked loss would train on ${spApi.spLossLedger("concept", "t32").tail}, and the share is a property of the corpus (${(spUltraShare * 100).toFixed(4)} % at UltraChat lengths) rather than of the template (${(spTemplateSpread * 100).toFixed(4)} points at worst across all three sizes, against ${(spCorpusSpread * 100).toFixed(4)} between the corpora); ⌊n/m⌋ and ⌊(n − 1)/m⌋ differ exactly when m divides n -- proven over ${spDividers} separating pairs in a sweep of 15,561, missed by the handout's own token_ids [0 … 10] at seq_length 4, and by all nine untrimmed settings the panel offers while all nine trimmed ones catch it; and over ${spSettings} settings the three context classes partition every target position, clean ones appear only in blocks aligned to a document start (at most ${(spUltraMax * 100).toFixed(4)} % in the eight-document corpus), and shortening the block trades foreign context for a missing start in every multi-document setting`);
+}
+
+// ---- content numerals: the same rule, applied to the structured packs --------------------
+// `english numerals` covers every string that reaches the screen through tr(), which is the
+// renderer's own prose. It does not see the content packs -- a lab's desc, mental model,
+// symbol table, transfer answer, a concept's details, a formula's worked example. Those are
+// the strings that carry the numbers a claim actually rests on, and a figure invented there
+// would be shown to the English reader and to no one else. Same comparison as above: digit
+// runs with separators dropped, so a locale swap is invisible and a changed figure is not.
+{
+  // Both locales group and point differently -- 3.000 against 3,000, 0,5 against 0.5 -- so
+  // every separator standing between two digits is dropped before the runs are read. What
+  // survives is the digit sequence itself. Single digits are left out: a lone 0 or 4 is
+  // routinely spelled out in one language and written in the other ("auf 0" against "zero
+  // out"), and a dictionary of number words is not a guard. Two digits and up cannot be a
+  // spelled-out word, which is where invented figures actually live.
+  const joinDigits = text => { let value = String(text), previous; do { previous = value; value = value.replace(/(\d)[.,\u00a0\u202f\u2009'](\d)/g, "$1$2"); } while (value !== previous); return value; };
+  const digitRuns = text => [...new Set(joinDigits(text).match(/\d\d+/g) || [])].sort();
+  const flatten = value => Array.isArray(value) ? value.flatMap(flatten) : (typeof value === "string" ? [value] : []);
+  let cnFields = 0, cnRuns = 0, cnNumeric = 0;
+  for (const [kind, fields] of Object.entries(requiredFields)) {
+    const sourceItems = keyed(base[kind]);
+    for (const [id, translated] of Object.entries(pack[kind])) {
+      for (const field of [...fields, "terms"]) {
+        const original = sourceItems[id]?.[field], english = translated[field];
+        if (original === undefined || english === undefined) continue;
+        const want = flatten(original).join(" "), got = flatten(english).join(" ");
+        cnFields++;
+        if (!/\d/.test(want) && !/\d/.test(got)) continue;
+        cnNumeric++;
+        const wantRuns = digitRuns(want), gotRuns = digitRuns(got);
+        if (JSON.stringify(wantRuns) !== JSON.stringify(gotRuns))
+          throw new Error(`content numerals: ${kind}.${id}.${field} prints ${JSON.stringify(gotRuns.slice(0, 12))} where the German prints ${JSON.stringify(wantRuns.slice(0, 12))} -- an English reader would be shown a figure the app never computed`);
+        cnRuns += wantRuns.length;
+      }
+    }
+  }
+  if (cnNumeric < 200) throw new Error(`content numerals: only ${cnNumeric} numeric fields found, the walk is not seeing the packs any more`);
+  console.log(`content numerals OK: ${cnRuns} digit runs identical on both sides across ${cnNumeric} numeric fields of ${cnFields} translated content fields -- the packs the renderer guard never looked inside`);
 }
