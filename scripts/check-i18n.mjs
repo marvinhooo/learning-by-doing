@@ -7375,19 +7375,24 @@ const renderLabs = [
     anchors: [
       // The finding itself: the rule that learns nothing prints the best loss on the screen.
       [{ tsMode: "rules", tsCorpus: "mixed", tsRule: "next", tsSize: "n10k", tsBlock: "m256", tsDraws: "d1000" },
-        '<strong data-tsrule="same">0.000000 · 4/4 · 0, 0, 0, 0, 0, 0, 0, 0</strong>',
+        '<strong data-tsrule="same">0.000000 · 0.440664 · 4/4 · 0, 0, 0, 0, 0, 0, 0, 0</strong>',
         "the zero loss and the constant generation have to stand in the same row, or the row proves nothing"],
       [{ tsMode: "rules", tsCorpus: "mixed", tsRule: "next", tsSize: "n10k", tsBlock: "m256", tsDraws: "d1000" },
-        '<strong data-tsrule="next">0.440664 · 1/4 · 1, 2, 3, 1, 2, 3, 1, 2</strong>',
+        '<strong data-tsrule="next">0.440664 · — · 1/4 · 1, 2, 3, 1, 2, 3, 1, 2</strong>',
         "and the correct rule beside it has to print a loss above zero"],
       // The quiet rule: close enough to the correct one that a loss curve does not separate them.
       [{ tsMode: "rules", tsCorpus: "mixed", tsRule: "prev", tsSize: "n10k", tsBlock: "m256", tsDraws: "d1000" },
-        '<strong data-tsrule="prev">0.466802 · 1/4 · 2, 1, 0, 2, 1, 0, 2, 1</strong>',
+        '<strong data-tsrule="prev">0.466802 · 0.026138 · 1/4 · 2, 1, 0, 2, 1, 0, 2, 1</strong>',
         "the backward shift's loss is the lab's second claim and has to be readable, not merely computed"],
       // The repetition share, in the state that makes the point.
       [{ tsMode: "rules", tsCorpus: "mixed", tsRule: "same", tsSize: "n10k", tsBlock: "m256", tsDraws: "d1000" },
         '<strong data-tsrepeat="1">100.0000 %</strong>',
         "a loss of zero without the repetition beside it is only half the finding"],
+      // The gap column: the second claim rests on this number, and until v99 it stood only in
+      // the prose. On the doubling corpus the skip rule is the one that hides.
+      [{ tsMode: "rules", tsCorpus: "rep", tsRule: "next", tsSize: "n10k", tsBlock: "m256", tsDraws: "d1000" },
+        '<strong data-tsrule="skip">0.606843 · 0.001330 · 3/4 · 1, 1, 1, 1, 1, 1, 1, 1</strong>',
+        "the gap the prose quotes has to be the gap the row prints, in the text where it is smallest"],
       // Mode B: exactly one broken start, and the miss share the transfer answer quotes.
       [{ tsMode: "bounds", tsCorpus: "mixed", tsRule: "next", tsSize: "n10k", tsBlock: "m256", tsDraws: "d1000" },
         '<strong data-tsbroken="1">1</strong>',
@@ -9727,6 +9732,39 @@ console.log(`english render OK: ${englishStates} states across ${englishLabs} la
   const lrDe = lrSandbox("de"), lrEn = lrSandbox("en");
   let lrLabs = 0, lrStates = 0, lrMoving = 0, lrControls = 0;
   const lrDead = new Set();
+
+  // ---- the anchor half: a figure a claim rests on has to be on the screen ----------------
+  // `render coverage` reads the load-bearing number back out of the real markup, but only for
+  // the 16 labs whose stage functions take an injected binding. For the other 45 nothing tied
+  // the prose to the render: a lab card could tell the reader to look for "20,4545 % in that
+  // column" while the column printed something else, and every guard stayed green. That is not
+  // hypothetical -- v92 fixed exactly that mismatch once, by hand, for the numbers the app
+  // computes; the hard-coded prose was never swept.
+  //
+  // Converting 45 stage functions is a large change to the app that would only repeat what
+  // this sweep already proves structurally. This is the narrower cut: every figure of three or
+  // more digits that a lab's own card prints must appear in at least one state that lab can
+  // reach. Two digits are deliberately out -- "12 Schichten" is prose, not a claim resting on
+  // a computed value, and a two-digit rule would drown in false alarms.
+  const lrJoinDigits = text => { let value = String(text), previous; do { previous = value; value = value.replace(/(\d)[.,\u00a0\u202f\u2009'](\d)/g, "$1$2"); } while (value !== previous); return value; };
+  const lrFigures = text => [...new Set(lrJoinDigits(String(text)).match(/\d\d\d+/gu) || [])];
+  const LR_PROSE_FIELDS = ["desc", "mental", "observe", "misconception", "transferAnswer"];
+  // Figures that are references rather than screen values. Each one was checked by hand; the
+  // list is held in both directions below, so an entry that becomes reachable has to be
+  // removed rather than left standing.
+  const LR_OFF_SCREEN = [
+    ["bpe", "mental", "256", "the 256 possible byte values are a fact about bytes, not a number the panel computes"],
+    ["decay-horizon", "transferAnswer", "583333", "the answer substitutes into (3.000-200)/(5.000-200) in place; the table prints the share at N, not at the reader's abort step"],
+    ["position-signal", "transferAnswer", "8192", "an explicit counterfactual -- 'at 8192 almost nothing of this channel would be left' -- and the lab deliberately runs at 256"],
+    ["checkpoint-segments", "observe", "566", "sqrt(32) is where the rule of thumb sits, and the point of the sentence is that the plateau *contains* it; the table prints integer k, not the root"],
+    ["winrate-lc", "transferAnswer", "218", "the difference of two figures the same sentence quotes from the screen (+279 against +61), worked out in place rather than read off"],
+    ["run-budget-ledger", "transferAnswer", "24000", "the total the fellow student's arithmetic charges, summed inside the argument; the ledger prints the reservations it is made of, not the sum"],
+    ["chain-carry", "transferAnswer", "11629", "an extreme over all 378 grid-locked combinations, which no single state shows -- the panel prints one combination at a time"],
+    ["chain-carry", "transferAnswer", "14536", "the other end of that same range over all combinations; the nearest reachable state prints 1,453582"]
+  ];
+  const lrUnanchored = [], lrStaleExceptions = [];
+  let lrAnchored = 0, lrProductLabs = 0, lrProductStates = 0;
+  let lrSeen = "";
   for (const lab of lrDe.api.LABS) {
     const markup = lrDe.api.labMarkup(lab.id);
     if (typeof markup !== "string" || !markup.trim()) throw new Error(`lab render sweep: ${lab.id} has no control markup`);
@@ -9738,6 +9776,7 @@ console.log(`english render OK: ${englishStates} states across ${englishLabs} la
     }
     if (LR_NO_STAGE.includes(lab.id)) throw new Error(`lab render sweep: ${lab.id} is on the no-stage list but now has one (${stageId}) -- sweep it instead of excusing it`);
     lrLabs++;
+    lrSeen = "";
     // A lab's stage controls are the ones its own initLab branch wires up. The <select>s of an
     // objective short check are controls too but are not supposed to move the stage -- all five
     // of scaling-fit's are answer pickers, and its branch wires none of them.
@@ -9759,6 +9798,7 @@ console.log(`english render OK: ${englishStates} states across ${englishLabs} la
       return out;
     };
     const check = (out, state) => {
+      lrSeen += lrJoinDigits(out.de) + " ";
       lrStates += 2;
       for (const language of ["de", "en"]) {
         const markupOut = out[language];
@@ -9824,7 +9864,72 @@ console.log(`english render OK: ${englishStates} states across ${englishLabs} la
     // dead knob, and the reader who turns it learns the wrong thing about what the lab depends on.
     if (selects.length && !moved) lrDead.add(lab.id);
     lrMoving += moved;
+
+    // --- the anchor check for this lab ---------------------------------------------------
+    // Everything the sweep already rendered counts first, so the common case costs nothing.
+    // Only a lab that still has an unaccounted figure pays for a wider search -- its sliders
+    // at three positions, then the product of its selects, stopping the moment the last
+    // figure turns up. Measured: 8 of 53 labs need the wider search at all.
+    const labFigures = [];
+    for (const field of LR_PROSE_FIELDS)
+      for (const figure of lrFigures(lab[field] ?? "")) labFigures.push({ field, figure });
+    let outstanding = labFigures.filter(entry => !lrSeen.includes(entry.figure));
+    if (outstanding.length) {
+      lrProductLabs++;
+      const record = () => {
+        lrProductStates++;
+        try { lrDe.api.initLab(lab.id); } catch { return; }
+        lrSeen += lrJoinDigits(lrDe.doc.getElementById(stageId).innerHTML) + " ";
+        outstanding = outstanding.filter(entry => !lrSeen.includes(entry.figure));
+      };
+      const ranges = [...markup.matchAll(/<input[^>]*id="(\w+)"[^>]*>/gu)]
+        .filter(hit => /type="range"/u.test(hit[0]) && wiredIds.has(hit[1]))
+        .map(hit => {
+          const min = Number((hit[0].match(/min="(-?[\d.]+)"/u) || [, "0"])[1]);
+          const max = Number((hit[0].match(/max="(-?[\d.]+)"/u) || [, "10"])[1]);
+          const value = (hit[0].match(/value="(-?[\d.]+)"/u) || [, String(min)])[1];
+          return { id: hit[1], values: [...new Set([String(min), String(Math.round((min + max) / 2)), String(max), value])] };
+        });
+      for (const range of ranges) {
+        for (const value of range.values) { if (!outstanding.length) break; lrDe.doc.getElementById(range.id).value = value; record(); }
+        lrDe.doc.getElementById(range.id).value = range.values[range.values.length - 1];
+      }
+      if (outstanding.length) {
+        let combos = [[]];
+        for (const select of selects) {
+          const next = [];
+          for (const prefix of combos) for (const option of select.options) { if (next.length >= 4000) break; next.push([...prefix, option]); }
+          combos = next;
+          if (combos.length >= 4000) break;
+        }
+        for (const combo of combos) {
+          if (!outstanding.length) break;
+          combo.forEach((value, index) => { lrDe.doc.getElementById(selects[index].id).value = value; });
+          record();
+        }
+      }
+      for (const select of selects) for (const box of [lrDe, lrEn]) box.doc.getElementById(select.id).value = select.initial;
+      renderBoth();
+    }
+    for (const entry of labFigures) {
+      const excused = LR_OFF_SCREEN.find(row => row[0] === lab.id && row[1] === entry.field && row[2] === entry.figure);
+      const onScreen = lrSeen.includes(entry.figure);
+      if (excused && onScreen) lrStaleExceptions.push(`${lab.id}.${entry.field} ${entry.figure}`);
+      else if (!excused && !onScreen) lrUnanchored.push(`${lab.id}.${entry.field} ${entry.figure}`);
+      else if (!excused) lrAnchored++;
+    }
   }
+  if (lrUnanchored.length)
+    throw new Error(`lab prose anchors: ${lrUnanchored.length} figure(s) a lab card prints never reach that lab's screen in any state it can reach -- ${lrUnanchored.join(", ")} -- either the prose quotes a number the lab does not compute, or the number moved and the prose did not`);
+  if (lrStaleExceptions.length)
+    throw new Error(`lab prose anchors: ${lrStaleExceptions.length} recorded off-screen figure(s) are on the screen after all -- ${lrStaleExceptions.join(", ")} -- take them off the list rather than leaving it to rot`);
+  for (const [labId, field, figure] of LR_OFF_SCREEN) {
+    const lab = base.labs.find(entry => entry.id === labId);
+    if (!lab) throw new Error(`lab prose anchors: the off-screen list names ${labId}, which is not a lab`);
+    if (!lrFigures(lab[field] ?? "").includes(figure))
+      throw new Error(`lab prose anchors: ${labId}.${field} no longer prints ${figure}, so its entry on the off-screen list is dead`);
+  }
+  console.log(`lab prose anchors OK: ${lrAnchored} figures of three digits or more, printed on ${base.labs.length - LR_NO_STAGE.length} lab cards, each read back out of a state that lab can actually reach -- ${lrProductLabs} of them needed a wider search than the sweep's own states (${lrProductStates} extra renders), and ${LR_OFF_SCREEN.length} figures are recorded by name as references rather than screen values, checked in both directions`);
   if (lrDead.size) throw new Error(`lab render sweep: ${lrDead.size} lab(s) bind a select that changes nothing on their stage -- ${[...lrDead].join(", ")}`);
   if (lrLabs + LR_NO_STAGE.length !== base.labs.length)
     throw new Error(`lab render sweep: ${lrLabs} swept plus ${LR_NO_STAGE.length} excused is not ${base.labs.length} labs`);
