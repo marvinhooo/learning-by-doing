@@ -2713,8 +2713,13 @@ console.log(`assignment self-study OK: ${surfaced.size} concepts no lecture teac
     const first = practiceApi.conceptLabs(conceptId)[0];
     if (!labIds.has(first.id)) throw new Error(`assignment self-study: ${conceptId} points at ${first.id}, which is not a lab -- the button would be dead`);
   }
-  if (withoutLab.length !== 1 || withoutLab[0] !== "lm-objective")
-    throw new Error(`assignment self-study: the concepts with no practice lab are ${JSON.stringify(withoutLab)}, which is not the documented state -- decide the placement rather than letting the list drift`);
+  // v96 closed the last one: `lm-objective` now has `target-shift`. All six self-study
+  // concepts offer the lab that computes them, and that is the documented state -- a
+  // concept dropping back out of it is a regression, not a decision that quietly drifted.
+  if (withoutLab.length)
+    throw new Error(`assignment self-study: the concepts with no practice lab are ${JSON.stringify(withoutLab)}, and since v96 every one of them has one -- decide the placement rather than letting the list drift`);
+  if (withLab.length !== selfStudyConcepts.length)
+    throw new Error(`assignment self-study: ${withLab.length} of ${selfStudyConcepts.length} self-study concepts offer a lab, which is fewer than the documented state`);
   // and the renderer has to actually use the derivation, or the table above proves nothing
   const renderer = source.slice(source.indexOf("function assignmentSelfStudyConcepts"), source.indexOf("function renderAssignmentDetail"));
   for (const required of ["conceptLabs(conceptId)[0]", "data-open-lab", "entry.lab"])
@@ -2722,7 +2727,7 @@ console.log(`assignment self-study OK: ${surfaced.size} concepts no lecture teac
       throw new Error(`assignment self-study: the practice link must stay derived from LAB_CONCEPTS (missing ${required})`);
   if (source.includes("SELF_STUDY_LABS"))
     throw new Error("assignment self-study: the replaced five-pair table is back, so the same relation is written down twice again");
-  console.log(`assignment self-study practice OK: ${withLab.length} of ${selfStudyConcepts.length} concepts no lecture teaches now offer the lab that computes them, ${withoutLab.length} deliberately without one, all of it derived from the one LAB_CONCEPTS map`);
+  console.log(`assignment self-study practice OK: all ${withLab.length} of ${selfStudyConcepts.length} concepts no lecture teaches offer the lab that computes them, none left without one, all of it derived from the one LAB_CONCEPTS map`);
 }
 
 const transformerModule = base.modules.find(module => module.id === "transformer");
@@ -6725,11 +6730,21 @@ for (const entry of ccApi.CC_PLANS) for (const rule of ccApi.CC_RULES) {
 // to reappear in its English entry, and no number may be invented on either side. German
 // writes the decimal separator as a comma and English as a point; nothing else differs,
 // because none of these strings groups thousands.
+// Where one lab's code block ends: at the next lab header, not at a hard-coded distant one.
+// Both number-parity guards below used to slice from their own header all the way to
+// `ablation-controls`, which meant they silently covered every lab that happened to be
+// written between the two -- three of them by v96. That passed only as long as those labs
+// obeyed a rule they were never asked about; the first lab to group a thousand in German
+// broke a guard that has nothing to do with it.
+function labCodeBlock(name) {
+  const start = source.indexOf(`    // ---- Lab: ${name} `);
+  if (start < 0) throw new Error(`${name}: the lab's code block is gone`);
+  const next = source.indexOf("    // ---- Lab: ", start + 1);
+  return source.slice(start, next < 0 ? source.length : next);
+}
+
 {
-  const labStart = source.indexOf("    // ---- Lab: chain-carry ");
-  const labEnd = source.indexOf("    // ---- Lab: ablation-controls ");
-  if (labStart < 0 || labEnd < 0) throw new Error("chain-carry: the lab's code block is gone");
-  const labCode = source.slice(labStart, labEnd);
+  const labCode = labCodeBlock("chain-carry");
 
   const germanStrings = new Set();
   for (const hit of labCode.matchAll(/tr\("((?:[^"\\]|\\.)*)"\)/g)) germanStrings.add(hit[1]);
@@ -7068,10 +7083,7 @@ cmValues++;
 // Neither looks at the figures inside the English text, so a translated sentence could quote
 // a number the app never computes and both stay green.
 {
-  const labStart = source.indexOf("    // ---- Lab: causal-invariance ");
-  const labEnd = source.indexOf("    // ---- Lab: ablation-controls ");
-  if (labStart < 0 || labEnd < 0) throw new Error("causal-invariance: the lab's code block is gone");
-  const labCode = source.slice(labStart, labEnd);
+  const labCode = labCodeBlock("causal-invariance");
   const germanStrings = new Set();
   for (const hit of labCode.matchAll(/tr\("((?:[^"\\]|\\.)*)"\)/g)) germanStrings.add(hit[1]);
   for (const hit of labCode.matchAll(/(?:label|note):"((?:[^"\\]|\\.)*)"/g)) germanStrings.add(hit[1]);
@@ -7294,6 +7306,55 @@ const renderLabs = [
       [{ spMode: "pack", spCorpus: "concept", spTemplate: "t32", spCorpusB: "ultra", spTemplateB: "t32", spSeq: "m512", spTrim: "raw" },
         '<td data-sptradeheadless="m64">92.4167 %</td>',
         "and pay for it in the next column -- both cells of the row, or the trade is invisible"]
+    ]
+  },
+  {
+    id: "target-shift", entry: "tsStageMarkup", mode: "tsMode", update: "updateTargetShift",
+    names: ["TS_CORPORA", "TS_RULES", "TS_SIZES", "TS_BLOCKS", "TS_DRAWS", "tsCorpusOf",
+      "tsRuleOf", "tsSizeOf", "tsBlockOf", "tsDrawsOf", "tsPairs", "tsFit", "tsLoss",
+      "tsDeterministic", "tsGenerate", "tsRepeatShare", "tsRow", "tsBounds", "tsMissShare",
+      "tsRead", "tsStageMarkup"],
+    options: {
+      tsMode: ["rules", "bounds"], tsCorpus: "TS_CORPORA", tsRule: "TS_RULES",
+      tsSize: "TS_SIZES", tsBlock: "TS_BLOCKS", tsDraws: "TS_DRAWS"
+    },
+    // Mode A knows nothing about shard sizes and mode B nothing about the pairing rule.
+    // A control leaking across the two would let the index arithmetic depend on which text
+    // the reader happened to leave selected.
+    controls: {
+      tsCorpus: ["rules"], tsRule: ["rules"],
+      tsSize: ["bounds"], tsBlock: ["bounds"], tsDraws: ["bounds"]
+    },
+    // One NaN is real and on screen: the backward rule on the doubling corpus has no context
+    // for its own seed token, so the repetition share of an empty generation is undefined.
+    // The lab prints that in words rather than as NaN, so no state may show a bare NaN.
+    nan: () => false,
+    anchors: [
+      // The finding itself: the rule that learns nothing prints the best loss on the screen.
+      [{ tsMode: "rules", tsCorpus: "mixed", tsRule: "next", tsSize: "n10k", tsBlock: "m256", tsDraws: "d1000" },
+        '<strong data-tsrule="same">0.000000 · 4/4 · 0, 0, 0, 0, 0, 0, 0, 0</strong>',
+        "the zero loss and the constant generation have to stand in the same row, or the row proves nothing"],
+      [{ tsMode: "rules", tsCorpus: "mixed", tsRule: "next", tsSize: "n10k", tsBlock: "m256", tsDraws: "d1000" },
+        '<strong data-tsrule="next">0.440664 · 1/4 · 1, 2, 3, 1, 2, 3, 1, 2</strong>',
+        "and the correct rule beside it has to print a loss above zero"],
+      // The quiet rule: close enough to the correct one that a loss curve does not separate them.
+      [{ tsMode: "rules", tsCorpus: "mixed", tsRule: "prev", tsSize: "n10k", tsBlock: "m256", tsDraws: "d1000" },
+        '<strong data-tsrule="prev">0.466802 · 1/4 · 2, 1, 0, 2, 1, 0, 2, 1</strong>',
+        "the backward shift's loss is the lab's second claim and has to be readable, not merely computed"],
+      // The repetition share, in the state that makes the point.
+      [{ tsMode: "rules", tsCorpus: "mixed", tsRule: "same", tsSize: "n10k", tsBlock: "m256", tsDraws: "d1000" },
+        '<strong data-tsrepeat="1">100.0000 %</strong>',
+        "a loss of zero without the repetition beside it is only half the finding"],
+      // Mode B: exactly one broken start, and the miss share the transfer answer quotes.
+      [{ tsMode: "bounds", tsCorpus: "mixed", tsRule: "next", tsSize: "n10k", tsBlock: "m256", tsDraws: "d1000" },
+        '<strong data-tsbroken="1">1</strong>',
+        "the whole index argument rests on this being one, so it has to be on the screen"],
+      [{ tsMode: "bounds", tsCorpus: "mixed", tsRule: "next", tsSize: "n10k", tsBlock: "m256", tsDraws: "d1000" },
+        '<strong data-tsmiss="1">90.2468 %</strong>',
+        "the figure the transfer answer quotes has to be the figure the panel prints"],
+      [{ tsMode: "bounds", tsCorpus: "mixed", tsRule: "next", tsSize: "n100k", tsBlock: "m256", tsDraws: "d1000" },
+        '<strong data-tsmiss="1">99.0024 %</strong>',
+        "and the larger shard has to print the worse number, which is the counterintuitive half"]
     ]
   },
   {
@@ -10069,4 +10130,247 @@ console.log(`english render OK: ${englishStates} states across ${englishLabs} la
   if (wsWorked < 300) throw new Error(`worked steps: only ${wsWorked} leaves carry a computed step, the walk is not reaching the packs any more`);
   if (wsSkipped) throw new Error(`worked steps: ${wsSkipped} field(s) could not be walked in parallel, so their worked examples are unchecked`);
   console.log(`worked steps OK: ${wsPairs} leaf strings walked side by side, ${wsWorked} of them carrying ${wsTotal} computed steps -- every step present in both languages, and ${wsFigures} figures compared per entry rather than per field, where a sibling term used to hide a dropped one`);
+}
+
+// ---- cache version: four places name it, and nothing held them together --------------------
+// The shell cache name, the two `?v=` query strings and the README sentence all carry the same
+// number, and it is bumped by hand on every pass that touches `i18n-en.js`. Twice now the
+// README ran a version behind (v74 against sw.js v75, and again at v76). A stale README is
+// harmless; a stale `?v=` is not -- the browser then keeps serving yesterday's translations
+// against today's markup, which is exactly the failure the query string exists to prevent.
+{
+  const swSource = await readFile(path.join(root, "sw.js"), "utf8");
+  const readmeSource = await readFile(path.join(root, "README.md"), "utf8");
+  const cacheName = swSource.match(/const CACHE_NAME = "cs336-shell-v(\d+)"/);
+  if (!cacheName) throw new Error("cache version: sw.js no longer declares a cs336-shell-v<n> cache name");
+  const version = cacheName[1];
+  const queries = [
+    ["sw.js", [...swSource.matchAll(/i18n-en\.js\?v=(\d+)/g)].map(hit => hit[1])],
+    ["index.html", [...source.matchAll(/i18n-en\.js\?v=(\d+)/g)].map(hit => hit[1])]
+  ];
+  let pinned = 0;
+  for (const [file, found] of queries) {
+    if (!found.length) throw new Error(`cache version: ${file} loads i18n-en.js without a ?v= query, so a stale bundle would survive the bump`);
+    for (const seen of found) {
+      if (seen !== version) throw new Error(`cache version: ${file} asks for i18n-en.js?v=${seen} while the shell cache is v${version} -- one of the two is stale and the browser decides which`);
+      pinned++;
+    }
+  }
+  const readme = readmeSource.match(/Service-Worker-Cache und Sprachbundle verwenden aktuell Version (\d+)\./);
+  if (!readme) throw new Error("cache version: the README sentence naming the version is gone, so nothing states it in prose any more");
+  if (readme[1] !== version) throw new Error(`cache version: the README says version ${readme[1]} while sw.js is at v${version}`);
+  // The bump has to be monotone against what is published, or a returning visitor keeps the
+  // cached shell. origin/main is not readable here, so the floor is the one thing this file
+  // can know: the version never goes back below the highest one this repo has ever named.
+  const everNamed = [...(await readFile(path.join(root, "activity.md"), "utf8")).matchAll(/Cache-Bump auf v(\d+)/g)].map(hit => Number(hit[1]));
+  const highest = Math.max(0, ...everNamed);
+  if (Number(version) < highest) throw new Error(`cache version: sw.js is at v${version} while activity.md already records a bump to v${highest} -- a version that goes backwards leaves the old shell cached`);
+  console.log(`cache version OK: v${version} named identically in ${pinned + 2} places (the shell cache name, ${pinned} bundle queries and the README sentence), and never below the v${highest} activity.md already records`);
+}
+
+// ---- target shift: the pairing rule, recomputed from the definition ----------------------
+// `lm-objective` was the last self-study concept without a lab. Its page names the pitfall
+// -- "not shifting input and target: the model then learns to copy the visible current
+// token" -- and names no figure. The figure is the whole point, because it is zero: the
+// broken pairing has the best loss of the four.
+//
+// Everything below is typed a second time from the definition rather than read out of the
+// app: the pairs, the counted conditional, its cross-entropy, the greedy roll-out and the
+// index bound. Where the two disagree, one of them is wrong and the guard says which value.
+{
+  const tsApi = runInNewContext(`${numberPrelude}
+${sliceDeclaration(source, "TS_CORPORA")}
+${sliceDeclaration(source, "TS_RULES")}
+${sliceDeclaration(source, "TS_SIZES")}
+${sliceDeclaration(source, "TS_BLOCKS")}
+${sliceDeclaration(source, "TS_DRAWS")}
+${sliceDeclaration(source, "tsPairs")}
+${sliceDeclaration(source, "tsFit")}
+${sliceDeclaration(source, "tsLoss")}
+${sliceDeclaration(source, "tsDeterministic")}
+${sliceDeclaration(source, "tsGenerate")}
+${sliceDeclaration(source, "tsRepeatShare")}
+${sliceDeclaration(source, "tsRow")}
+${sliceDeclaration(source, "tsBounds")}
+${sliceDeclaration(source, "tsMissShare")}
+({TS_CORPORA,TS_RULES,TS_SIZES,TS_BLOCKS,TS_DRAWS,tsPairs,tsLoss,tsDeterministic,tsGenerate,tsRepeatShare,tsRow,tsBounds,tsMissShare})`, {});
+  const tsFail = message => { throw new Error(`target shift: ${message}`); };
+  // This lab keeps its transfer answer inline on the card rather than in the shared pack;
+  // `lab transfer answers` holds that both homes never name the same lab, so reading one is
+  // enough -- but reading the wrong one silently returns an empty string and every quote
+  // check below would pass vacuously. Hence the explicit failure.
+  const tsAnswerText = () => {
+    const inline = base.labs.find(lab => lab.id === "target-shift")?.transferAnswer;
+    const shared = readConstant("LAB_TRANSFER_ANSWERS")["target-shift"];
+    const text = inline || shared;
+    if (!text) tsFail("the lab has no transfer answer in either home");
+    return text;
+  };
+  let tsChecks = 0;
+
+  // --- 1. the loss, typed again --------------------------------------------------------
+  // The smallest training loss a pairing admits is the empirical conditional entropy of the
+  // target given the context. Counted here with plain objects and summed in a different
+  // order than the app does it, so an agreement is evidence rather than a shared bug.
+  const retypedLoss = (tokens, offset) => {
+    const rows = {};
+    let n = 0;
+    for (let t = 0; t < tokens.length; t++) {
+      const u = t + offset;
+      if (u < 0 || u >= tokens.length) continue;
+      const context = tokens[t], target = tokens[u];
+      rows[context] = rows[context] || {};
+      rows[context][target] = (rows[context][target] || 0) + 1;
+      n++;
+    }
+    if (!n) return NaN;
+    // Σ_c Σ_y count(c,y) · −log(count(c,y)/count(c)), i.e. grouped by context rather than
+    // walked pair by pair. Same number, different summation order.
+    let total = 0;
+    for (const row of Object.values(rows)) {
+      const counts = Object.values(row), mass = counts.reduce((a, b) => a + b, 0);
+      for (const count of counts) total += count * -Math.log(count / mass);
+    }
+    return total / n;
+  };
+  for (const corpus of tsApi.TS_CORPORA) for (const rule of tsApi.TS_RULES) {
+    const mine = retypedLoss(corpus.tokens, rule.offset), theirs = tsApi.tsLoss(tsApi.tsPairs(corpus.tokens, rule.offset));
+    if (!(Math.abs(mine - theirs) < 1e-12)) tsFail(`${corpus.key}/${rule.key}: the app computes ${theirs} where the definition gives ${mine}`);
+    tsChecks++;
+  }
+
+  // --- 2. the finding: the copy rule is exactly zero, everywhere ------------------------
+  // Not "small". Exactly zero, in every corpus, because the map x[t] -> x[t] is a function.
+  // If this ever became merely tiny, the lab's claim that it holds at every model size and
+  // in every text would be a rhetorical flourish rather than an identity.
+  for (const corpus of tsApi.TS_CORPORA) {
+    const row = tsApi.tsRow(corpus.tokens, tsApi.TS_RULES.find(rule => rule.key === "same"));
+    if (row.loss !== 0) tsFail(`${corpus.key}: the unshifted rule computes ${row.loss} rather than an exact zero`);
+    if (row.sharp.sharp !== row.sharp.contexts) tsFail(`${corpus.key}: the unshifted rule leaves ${row.sharp.contexts - row.sharp.sharp} ambiguous context(s), which cannot happen for a copy`);
+    if (row.repeat !== 1) tsFail(`${corpus.key}: the unshifted rule generates a repetition share of ${row.repeat} rather than 1`);
+    // and every other rule has to be strictly above it, or "best loss" means nothing
+    for (const rule of tsApi.TS_RULES.filter(entry => entry.key !== "same")) {
+      const other = tsApi.tsRow(corpus.tokens, rule);
+      if (!(other.loss > 0)) tsFail(`${corpus.key}/${rule.key}: a rule that is not the copy reaches ${other.loss}`);
+    }
+    tsChecks += 3 + tsApi.TS_RULES.length - 1;
+  }
+
+  // --- 3. the ranking the lab prints ---------------------------------------------------
+  // The first draft of the short check asked which wrong rule is "hardest to spot from the
+  // loss" and answered "the backward shift". The sweep said no: on the doubling corpus the
+  // skip rule sits 0.001330 from the correct one, closer than the backward shift ever gets.
+  // So the claim that survives is the weaker and more useful one -- *which* rule hides is a
+  // property of the text, not of the rule -- and the guard pins the map corpus by corpus so
+  // the answer cannot quietly become universal again.
+  const tsClosest = { mixed: "prev", tiny: "prev", rep: "skip" };
+  for (const corpus of tsApi.TS_CORPORA) {
+    const rows = tsApi.TS_RULES.map(rule => tsApi.tsRow(corpus.tokens, rule));
+    const best = rows.reduce((a, b) => b.loss < a.loss ? b : a);
+    if (best.rule.key !== "same") tsFail(`${corpus.key}: the lowest loss belongs to ${best.rule.key}, so the lab's headline claim does not hold here`);
+    const correct = rows.find(row => row.rule.key === "next").loss;
+    const gaps = rows.filter(row => row.rule.key !== "next")
+      .map(row => [row.rule.key, Math.abs(row.loss - correct)]).sort((a, b) => a[1] - b[1]);
+    if (gaps[0][0] !== tsClosest[corpus.key])
+      tsFail(`${corpus.key}: the wrong rule closest to the correct one is ${gaps[0][0]}, not the ${tsClosest[corpus.key]} the lab names`);
+    // the copy is never the closest -- that is the half of the claim that does hold everywhere
+    if (gaps[gaps.length - 1][0] !== "same")
+      tsFail(`${corpus.key}: the unshifted rule is not the furthest from the correct one, so "furthest and yet best" is no longer true`);
+    tsChecks += 3;
+  }
+  // and the map has to have both answers in it, or naming a corpus proves nothing
+  if (new Set(Object.values(tsClosest)).size < 2)
+    tsFail("every corpus names the same closest rule, so the lab's \"it depends on the text\" is untestable here");
+  // the number the prose quotes, measured rather than trusted
+  const tsRepRows = tsApi.TS_RULES.map(rule => tsApi.tsRow(tsApi.TS_CORPORA.find(entry => entry.key === "rep").tokens, rule));
+  const tsRepCorrect = tsRepRows.find(row => row.rule.key === "next").loss;
+  const tsRepGap = Math.abs(tsRepRows.find(row => row.rule.key === "skip").loss - tsRepCorrect);
+  const tsRepPrinted = tsRepGap.toFixed(6).replace(".", ",");
+  if (tsRepPrinted !== "0,001330") tsFail(`the skip rule sits ${tsRepPrinted} from the correct one on the doubling corpus, not the 0,001330 the prose quotes`);
+  if (!tsAnswerText().includes("0,001330")) tsFail("the transfer answer no longer quotes the gap the claim rests on");
+  tsChecks += 2;
+
+  // --- 4. the honest edge, kept honest -------------------------------------------------
+  // One state has no generation at all: on the doubling corpus the backward rule never sees
+  // the seed token as a context. The lab prints that in words. A guard that did not name the
+  // case would let it silently turn into a NaN on the screen.
+  const tsDoubling = tsApi.TS_CORPORA.find(corpus => corpus.key === "rep");
+  const tsStalled = tsApi.tsRow(tsDoubling.tokens, tsApi.TS_RULES.find(rule => rule.key === "prev"));
+  if (tsStalled.generated.tokens.length) tsFail("the doubling corpus no longer produces the stalled generation the lab describes in words");
+  if (Number.isFinite(tsStalled.repeat)) tsFail("a stalled generation has to leave the repetition share undefined rather than inventing one");
+  tsChecks += 2;
+
+  // --- 5. the index bound, as integers -------------------------------------------------
+  // A1's get_batch returns x[i:i+m] and x[i+1:i+m+1]. The target therefore reaches x[i+m],
+  // so i + m <= n - 1. The naive bound i <= n - m admits exactly one more start, and it is
+  // always exactly one -- that is what makes the hit probability fall as the shard grows.
+  // The step matters more than the range. A first draft walked n in steps of 7, so every n
+  // it visited had the same residue mod 7 -- and a paired mutation that broke the bound only
+  // at n % 7 === 3 walked straight through it. A sweep whose step shares a factor with the
+  // property under test covers one residue class and calls it a range. Step 1 has none.
+  let tsSweep = 0;
+  for (let n = 20; n <= 260; n += 1) for (let m = 2; m < n; m += 3) {
+    const bounds = tsApi.tsBounds(n, m);
+    if (bounds.valid !== n - m) tsFail(`n=${n} m=${m}: ${bounds.valid} valid starts where i + m <= n - 1 gives ${n - m}`);
+    if (bounds.broken !== 1) tsFail(`n=${n} m=${m}: ${bounds.broken} broken starts -- the argument rests on it always being one`);
+    if (bounds.lastStart + m !== bounds.readIndex) tsFail(`n=${n} m=${m}: the broken start's target does not read x[n]`);
+    // brute force, the other direction: exactly one start in [0, n-m] has i + m > n - 1
+    let counted = 0;
+    for (let i = 0; i <= n - m; i++) if (i + m > n - 1) counted++;
+    if (counted !== 1) tsFail(`n=${n} m=${m}: the brute-force count finds ${counted} broken starts`);
+    tsSweep++; tsChecks += 4;
+  }
+  if (tsSweep < 1000) tsFail(`the bound sweep covered only ${tsSweep} combinations`);
+
+  // --- 6. the two figures the transfer answer quotes -----------------------------------
+  // Both directions: the answer text has to carry them, and they have to be what the model
+  // computes. A quoted number that drifted from the arithmetic is the failure this catches.
+  const tsAnswer = tsAnswerText();
+  for (const [sizeKey, blockKey, draws, expected] of [["n10k", "m256", 1000, "90,2468"], ["n100k", "m256", 1000, "99,0024"]]) {
+    const size = tsApi.TS_SIZES.find(entry => entry.key === sizeKey), block = tsApi.TS_BLOCKS.find(entry => entry.key === blockKey);
+    const miss = tsApi.tsMissShare(tsApi.tsBounds(size.n, block.m), draws);
+    const printed = (miss * 100).toFixed(4).replace(".", ",");
+    if (printed !== expected) tsFail(`n=${size.n} m=${block.m}: ${draws} draws miss the broken start with ${printed} %, not the ${expected} % the answer quotes`);
+    if (!tsAnswer.includes(`${expected} %`)) tsFail(`the transfer answer no longer quotes ${expected} %, so the reader is sent after a figure it does not carry`);
+    tsChecks += 2;
+  }
+  // and the miss share has to grow with the shard, which is the counterintuitive half
+  const tsMissByShard = tsApi.TS_SIZES.map(size => tsApi.tsMissShare(tsApi.tsBounds(size.n, 256), 1000));
+  for (let index = 1; index < tsMissByShard.length; index++)
+    if (!(tsMissByShard[index] > tsMissByShard[index - 1]))
+      tsFail("a larger shard does not make the broken start harder to hit, which is the lab's second claim");
+  tsChecks += tsMissByShard.length - 1;
+
+  // --- 7. the lab is where the reader needs it -----------------------------------------
+  const tsLabConcepts = readConstant("LAB_CONCEPTS")["target-shift"];
+  if (!tsLabConcepts || !tsLabConcepts.includes("lm-objective")) tsFail("the lab is not attached to the lm-objective concept");
+  const tsCheck = sliceDeclaration(source, "checkTargetShift");
+  for (const key of ["deterministic", "depends", "single"])
+    if (!tsCheck.includes(`"${key}"`)) tsFail(`the short check no longer accepts ${key}`);
+  if (!source.includes('id="tsCheckBound"')) tsFail("the third short check is gone");
+  // The mutation test found this gap: checking the keys the *checker* accepts says nothing
+  // about the keys the *panel* offers. Rename one option value and the question becomes
+  // unanswerable while every assertion above still passes. Both sides, per select.
+  const tsPanel = source.slice(source.indexOf('if(id==="target-shift") return `'), source.indexOf('if(id==="causal-invariance") return `'));
+  for (const [selectId, accepted] of [["tsCheckZero", ["deterministic", "small", "vocab"]],
+                                      ["tsCheckQuiet", ["depends", "prev", "same"]],
+                                      ["tsCheckBound", ["single", "m", "grow"]]]) {
+    const start = tsPanel.indexOf(`id="${selectId}"`);
+    if (start < 0) tsFail(`the ${selectId} select is gone from the panel`);
+    const offered = [...tsPanel.slice(start, tsPanel.indexOf("</select>", start)).matchAll(/<option value="([^"]*)"/g)]
+      .map(hit => hit[1]).filter(Boolean);
+    if (JSON.stringify(offered) !== JSON.stringify(accepted))
+      tsFail(`${selectId} offers ${JSON.stringify(offered)} while the guard expects ${JSON.stringify(accepted)} -- a renamed option value leaves the question unanswerable without breaking anything else`);
+    tsChecks += offered.length;
+  }
+  // and the one the checker treats as correct has to be among the offered ones
+  for (const [selectId, correct] of [["tsCheckZero", "deterministic"], ["tsCheckQuiet", "depends"], ["tsCheckBound", "single"]]) {
+    const start = tsPanel.indexOf(`id="${selectId}"`);
+    if (!tsPanel.slice(start, tsPanel.indexOf("</select>", start)).includes(`value="${correct}"`))
+      tsFail(`${selectId} does not offer ${correct}, which the checker accepts as the right answer`);
+    tsChecks++;
+  }
+  tsChecks += 5;
+
+  console.log(`target shift OK: ${tsChecks} checks -- A1's get_batch and the next-token objective recomputed from the definition: the unshifted pairing reaches an exact 0.000000 in all ${tsApi.TS_CORPORA.length} texts because its map is a function, and its greedy roll-out repeats the same token 100 % of the time, so the best loss of the four belongs to the rule that learns nothing; which wrong rule then hides closest to the correct one is a property of the text and not of the rule (the skip rule sits ${tsRepPrinted} away on the doubling corpus, the backward shift elsewhere) while the copy is the furthest away in all three and still the best; and the naive bound i <= n - m admits exactly one start too many over ${tsSweep} (n, m) combinations -- brute-forced in both directions -- so 1,000 drawn batches miss it with 90.2468 % at n = 10,000 and 99.0024 % at n = 100,000, the larger shard being the harder one`);
 }
