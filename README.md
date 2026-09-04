@@ -24,7 +24,7 @@ Die Plattform spart Lecture-Nacharbeit und Suchzeit, ersetzt aber nicht das eige
 - Supabase Auth schützt den persönlichen Lernstand und die privaten Kurs-PDFs.
 - `localStorage` speichert Änderungen sofort auf dem Gerät; Supabase synchronisiert sie nach dem Login.
 - Eine Progressive Web App (PWA) ermöglicht die Installation auf iPhone und iPad.
-- Service-Worker-Cache und Sprachbundle verwenden aktuell Version 77.
+- Service-Worker-Cache und Sprachbundle verwenden aktuell Version 78.
 - Die PDFs werden durch `.gitignore` vom öffentlichen Repository ausgeschlossen.
 - Auf iPhone und iPad besitzen zentrale Controls mindestens 44 Pixel große Touch-Ziele; Labs stapeln im Portrait-Modus für lesbare Erklärungen und Antwortoptionen.
 

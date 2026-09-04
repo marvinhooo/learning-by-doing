@@ -9788,3 +9788,76 @@ console.log(`english render OK: ${englishStates} states across ${englishLabs} la
   if (cnNumeric < 200) throw new Error(`content numerals: only ${cnNumeric} numeric fields found, the walk is not seeing the packs any more`);
   console.log(`content numerals OK: ${cnRuns} digit runs identical on both sides across ${cnNumeric} numeric fields of ${cnFields} translated content fields -- the packs the renderer guard never looked inside`);
 }
+
+// ---- worked steps: the same worked example on both sides ---------------------------------
+// `content numerals` compares the digit runs of a whole field as a set. That leaves two holes,
+// and this pass found both standing open.
+//
+// The first is masking. A concept's `terms` is one field holding eight term/definition pairs,
+// so a figure dropped from the fifth pair stays in the field's set as long as the same digits
+// appear in any other pair. The ring all-reduce term printed "2·(4-1)·100 / 4 = 2 · 3 · 25 =
+// 150 MB" in German and "= 150 MB" in English; the intermediate 25 survived in the set because
+// another term mentioned 25 MB buckets. This guard walks the leaves in parallel instead.
+//
+// The second is arithmetic that carries no two-digit number. Digit runs shorter than two digits
+// are deliberately ignored (a lone 1 is spelled out in one language and written in the other),
+// which makes "A = 1 - 0,125 = +0,875" and "A = +0.875" identical to the older guard -- the
+// English reader was handed the result of a subtraction the app never showed. So this guard
+// counts steps rather than figures.
+//
+// A step is a relation between numbers. The text is cut into maximal runs of purely
+// mathematical characters, and a run counts once per relation sign it carries if it also
+// carries a digit. A letter ends the run, which is what keeps the count language-independent:
+// "C = throughput · 172800 s" and "C = Durchsatz · 172800 s" are both zero steps, while
+// "= 1 - 0.125 = +0.875" is two in either language. The earlier draft used a character window
+// around each equals sign instead, and ten of its seventeen hits were artefacts of German
+// words being longer than English ones -- the run rule has none.
+{
+  const wsMath = new Set("0123456789+-−–·*/^()[]{}%√⌊⌋⌈⌉≤≥<>,.    '=≈");
+  const wsSteps = text => {
+    // 1e-6 is one number; without this the exponent's letter would cut the run in half.
+    const s = String(text).replace(/(\d)e([+-−]?\d)/g, "$1^$2");
+    let total = 0, run = "";
+    const flush = () => { const relations = (run.match(/[=≈]/g) || []).length; if (relations && /\d/.test(run)) total += relations; run = ""; };
+    for (const char of s) { if (wsMath.has(char)) run += char; else flush(); }
+    flush();
+    return total;
+  };
+  const wsJoin = text => { let value = String(text), previous; do { previous = value; value = value.replace(/(\d)[.,   '](\d)/g, "$1$2"); } while (value !== previous); return value; };
+  const wsRuns = text => [...new Set(wsJoin(text).match(/\d\d+/g) || [])].sort();
+  const wsLeaves = (value, trail, out) => {
+    if (typeof value === "string") { out.push([trail, value]); return; }
+    if (Array.isArray(value)) value.forEach((entry, index) => wsLeaves(entry, `${trail}[${index}]`, out));
+  };
+  let wsPairs = 0, wsWorked = 0, wsTotal = 0, wsSkipped = 0, wsFigures = 0;
+  for (const [kind, fields] of Object.entries(requiredFields)) {
+    const sourceItems = keyed(base[kind]);
+    for (const [id, translated] of Object.entries(pack[kind])) {
+      for (const field of [...fields, "terms"]) {
+        const original = sourceItems[id]?.[field], english = translated[field];
+        if (original === undefined || english === undefined) continue;
+        const german = [], foreign = [];
+        wsLeaves(original, field, german); wsLeaves(english, field, foreign);
+        // A shape change is already an error for `requiredFields`; here it only means the two
+        // sides cannot be walked in parallel. Counting the skips keeps a reshaped pack from
+        // quietly emptying the guard.
+        if (german.length !== foreign.length) { wsSkipped++; continue; }
+        for (let index = 0; index < german.length; index++) {
+          const [trail, de] = german[index], en = foreign[index][1];
+          wsPairs++;
+          const deSteps = wsSteps(de), enSteps = wsSteps(en);
+          if (deSteps) { wsWorked++; wsTotal += deSteps; }
+          if (deSteps !== enSteps)
+            throw new Error(`worked steps: ${kind}.${id}.${trail} computes ${deSteps} step(s) in German and ${enSteps} in English -- one of the two readers is shown a worked example the other one gets handed as a result\n  DE: ${de.slice(0, 240)}\n  EN: ${en.slice(0, 240)}`);
+          const deRuns = wsRuns(de), enRuns = wsRuns(en);
+          if (JSON.stringify(deRuns) !== JSON.stringify(enRuns))
+            throw new Error(`worked steps: ${kind}.${id}.${trail} prints ${JSON.stringify(enRuns.slice(0, 12))} where the German prints ${JSON.stringify(deRuns.slice(0, 12))} -- the field-level set comparison hides this whenever a sibling entry repeats the same digits\n  DE: ${de.slice(0, 240)}\n  EN: ${en.slice(0, 240)}`);
+          wsFigures += deRuns.length;
+        }
+      }
+    }
+  }
+  if (wsWorked < 300) throw new Error(`worked steps: only ${wsWorked} leaves carry a computed step, the walk is not reaching the packs any more`);
+  if (wsSkipped) throw new Error(`worked steps: ${wsSkipped} field(s) could not be walked in parallel, so their worked examples are unchecked`);
+  console.log(`worked steps OK: ${wsPairs} leaf strings walked side by side, ${wsWorked} of them carrying ${wsTotal} computed steps -- every step present in both languages, and ${wsFigures} figures compared per entry rather than per field, where a sibling term used to hide a dropped one`);
+}
