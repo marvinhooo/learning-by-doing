@@ -9521,6 +9521,215 @@ console.log(`english render OK: ${englishStates} states across ${englishLabs} la
   console.log(`concept experiments OK: ${clChecks} checks -- ${clPairs} lab/concept pairs, every one of them co-located by a lecture, module or mission rather than invented, ${clWith} of ${base.concepts.length} concept pages now offer the experiment that computes them (${clButtons} buttons read back out of the real markup in both languages), all ${base.labs.length} labs reachable from a concept, and the remaining ${clWithout} concepts print no section at all rather than an empty one (${clOrphans.slice(0, 6).join(", ")}${clOrphans.length > 6 ? ", …" : ""})`);
 }
 
+// ---- lab render sweep: every lab, through the real app, without a browser -------------------
+// `render coverage` above proves four sharp properties, but only for the thirteen labs whose
+// stage functions were converted to take an injected slider binding. The other 45 read the DOM
+// themselves, so no guard could call them at all -- and "the guard is green" said nothing about
+// them (v80, point 7). Converting 45 more labs by hand is a large change to the app; this block
+// takes the other route and gives the guard a DOM instead. The whole page script is evaluated
+// with a small stub (getElementById, value, innerHTML, hidden, options), which is enough for
+// labMarkup() and initLab() to run exactly as the browser runs them.
+//
+// What that immediately found: `fmtNum` in the resources lab read `returnfixedNum(...)` --
+// `return` and the helper name with no space between them, so the identifier did not exist and
+// the lab threw a ReferenceError for every value at or above one million. Every realistic model
+// is above one million. It was live on the deployed site and no guard could see it, because no
+// guard could render that lab.
+{
+  const lrScript = source.slice(source.indexOf("<script>") + 8, source.lastIndexOf("</script>"));
+  const lrBody = lrScript.replace(/\n\s*init\(\);\s*$/u, "\n");
+  if (lrBody === lrScript) throw new Error("lab render sweep: the trailing init() call could not be separated, so evaluating the page would touch the DOM");
+
+  function lrSandbox(language) {
+    const registry = new Map();
+    const make = id => ({
+      id, value: "", _html: "", textContent: "", hidden: false, checked: false, disabled: false, inert: false,
+      get innerHTML() { return this._html; }, set innerHTML(value) { this._html = String(value); },
+      get options() { return [...String(this._html).matchAll(/<option[^>]*value="([^"]*)"/gu)].map(hit => ({ value: hit[1] })); },
+      style: {}, classList: { add() {}, remove() {}, toggle() {}, contains: () => false }, dataset: {},
+      onclick: null, oninput: null, onchange: null, onsubmit: null,
+      addEventListener() {}, removeEventListener() {}, focus() {}, click() {},
+      setAttribute() {}, getAttribute: () => null, hasAttribute: () => false, removeAttribute() {},
+      querySelector: () => null, querySelectorAll: () => [], closest: () => null,
+      appendChild() {}, remove() {}, insertAdjacentHTML() {}, scrollIntoView() {}
+    });
+    const doc = {
+      documentElement: make("html"), body: make("body"), head: make("head"), visibilityState: "visible",
+      activeElement: null, title: "", cookie: "",
+      getElementById(id) { if (!registry.has(id)) registry.set(id, make(id)); return registry.get(id); },
+      querySelector: () => make("q"), querySelectorAll: () => [], createElement: tag => make(tag),
+      createTreeWalker: () => ({ nextNode: () => null }), addEventListener() {}, removeEventListener() {}
+    };
+    const store = new Map();
+    const storage = { getItem: key => (store.has(key) ? store.get(key) : null), setItem: (key, value) => store.set(key, String(value)), removeItem: key => store.delete(key), clear: () => store.clear(), key: () => null, get length() { return store.size; } };
+    const win = {
+      document: doc, localStorage: storage, sessionStorage: storage, addEventListener() {}, removeEventListener() {},
+      matchMedia: () => ({ matches: false, addEventListener() {}, addListener() {} }),
+      location: { href: "http://localhost/", hash: "", search: "", pathname: "/", origin: "http://localhost", replace() {}, assign() {} },
+      history: { pushState() {}, replaceState() {}, state: null },
+      navigator: { onLine: true, serviceWorker: { register: () => Promise.resolve() }, clipboard: { writeText: () => Promise.resolve() }, language: language === "en" ? "en" : "de" },
+      requestAnimationFrame: () => 0, cancelAnimationFrame() {}, setTimeout: () => 0, clearTimeout() {}, setInterval: () => 0, clearInterval() {},
+      fetch: () => Promise.resolve({ ok: false, json: () => Promise.resolve({}), text: () => Promise.resolve("") }),
+      MutationObserver: class { observe() {} disconnect() {} }, IntersectionObserver: class { observe() {} disconnect() {} unobserve() {} },
+      Node: { ELEMENT_NODE: 1, TEXT_NODE: 3 }, NodeFilter: { SHOW_ELEMENT: 1, SHOW_TEXT: 4 },
+      crypto: { randomUUID: () => "00000000-0000-4000-8000-000000000000", getRandomValues: array => array }
+    };
+    const box = {
+      window: win, document: doc, localStorage: storage, sessionStorage: storage, navigator: win.navigator,
+      location: win.location, history: win.history, setTimeout: win.setTimeout, clearTimeout: win.clearTimeout,
+      setInterval: win.setInterval, clearInterval: win.clearInterval, requestAnimationFrame: win.requestAnimationFrame,
+      fetch: win.fetch, MutationObserver: win.MutationObserver, IntersectionObserver: win.IntersectionObserver,
+      Node: win.Node, NodeFilter: win.NodeFilter, crypto: win.crypto, console, TextEncoder, TextDecoder
+    };
+    box.globalThis = box;
+    runInNewContext(englishSource, box, { filename: "i18n-en.js" });
+    runInNewContext(`${lrBody}\nglobalThis.__API={LABS,labMarkup,initLab,setLanguage:l=>{currentLanguage=l;refreshLanguageResources();}};`, box, { filename: "index.html script" });
+    box.__API.setLanguage(language);
+    return { api: box.__API, doc };
+  }
+
+  // The eight labs with no addressable stage: seven are objective-check labs with no computed
+  // panel at all, and policy-loss-tracer's stage div carries no id because its pipeline is a
+  // fixed worked example. Written out so "not swept" stays a decision rather than a silence.
+  const LR_NO_STAGE = ["pytorch-debugger", "policy-loss-tracer", "transformer-ledger", "kernel-contracts",
+    "distributed-runtime", "scaling-transfer", "moe-routing", "rlvr-system-transfer"];
+  // One lab's branch of initLab, cut by balancing braces from `if(id==="<lab>")`.
+  const lrBranch = labId => {
+    const marker = source.indexOf(`if(id==="${labId}"){`);
+    if (marker < 0) return "";
+    let index = source.indexOf("{", marker), depth = 0, quote = "", escaped = false;
+    for (; index < source.length; index++) {
+      const char = source[index];
+      if (quote) { if (escaped) escaped = false; else if (char === "\\") escaped = true; else if (char === quote) quote = ""; continue; }
+      if (char === '"' || char === "'" || char === "`") { quote = char; continue; }
+      if (char === "{") depth++;
+      else if (char === "}") { depth--; if (!depth) break; }
+    }
+    return source.slice(marker, index + 1);
+  };
+  const lrTagBalance = markup => {
+    for (const tag of ["div", "table", "tr", "td", "th", "strong", "span", "section", "h2", "h3", "h4", "ul", "ol", "li", "dl", "dt", "dd", "em", "code"]) {
+      const open = (markup.match(new RegExp(`<${tag}[\\s>]`, "gu")) || []).length;
+      const close = (markup.match(new RegExp(`</${tag}>`, "gu")) || []).length;
+      if (open !== close) return `${tag}: ${open} open, ${close} closed`;
+    }
+    return "";
+  };
+  // Both languages at once, so a state can be compared across them. "undefined" is not a
+  // forbidden word: the app translates "nicht definiert" to "undefined", and decode-sampling
+  // prints exactly that when top-p leaves no token. The defect is an *extra* one, so the English
+  // render may carry it only as often as the German render says "nicht definiert" -- and the
+  // German render may never carry it at all.
+  const lrDe = lrSandbox("de"), lrEn = lrSandbox("en");
+  let lrLabs = 0, lrStates = 0, lrMoving = 0, lrControls = 0;
+  const lrDead = new Set();
+  for (const lab of lrDe.api.LABS) {
+    const markup = lrDe.api.labMarkup(lab.id);
+    if (typeof markup !== "string" || !markup.trim()) throw new Error(`lab render sweep: ${lab.id} has no control markup`);
+    const stageTag = (markup.match(/<div[^>]*class="lab-stage"[^>]*>/u) || [])[0] || "";
+    const stageId = (stageTag.match(/id="(\w+)"/u) || [])[1] || null;
+    if (!stageId) {
+      if (!LR_NO_STAGE.includes(lab.id)) throw new Error(`lab render sweep: ${lab.id} has no addressable stage and is not on the recorded list -- add it deliberately or give the stage an id`);
+      continue;
+    }
+    if (LR_NO_STAGE.includes(lab.id)) throw new Error(`lab render sweep: ${lab.id} is on the no-stage list but now has one (${stageId}) -- sweep it instead of excusing it`);
+    lrLabs++;
+    // A lab's stage controls are the ones its own initLab branch wires up. The <select>s of an
+    // objective short check are controls too but are not supposed to move the stage -- all five
+    // of scaling-fit's are answer pickers, and its branch wires none of them.
+    const wiredIds = new Set([...(lrBranch(lab.id).match(/"(\w+)"/gu) || [])].map(token => token.slice(1, -1)));
+    const selects = [...markup.matchAll(/<select[^>]*id="(\w+)"([\s\S]*?)<\/select>/gu)].filter(hit => wiredIds.has(hit[1])).map(hit => {
+      const options = [...hit[2].matchAll(/<option([^>]*)>([^<]*)</gu)].map(option => ({
+        value: (option[1].match(/value="([^"]*)"/u) || [, option[2].trim()])[1],
+        selected: /\bselected\b/u.test(option[1])
+      }));
+      return { id: hit[1], options: options.map(option => option.value), initial: (options.find(option => option.selected) || options[0] || { value: "" }).value };
+    });
+    for (const box of [lrDe, lrEn]) for (const select of selects) box.doc.getElementById(select.id).value = select.initial;
+    const renderBoth = () => {
+      const out = {};
+      for (const [language, box] of [["de", lrDe], ["en", lrEn]]) {
+        box.api.initLab(lab.id);
+        out[language] = box.doc.getElementById(stageId).innerHTML;
+      }
+      return out;
+    };
+    const check = (out, state) => {
+      lrStates += 2;
+      for (const language of ["de", "en"]) {
+        const markupOut = out[language];
+        if (!markupOut || !markupOut.trim()) throw new Error(`lab render sweep: ${lab.id}/${language} renders nothing at ${state}`);
+        if (markupOut.includes("${")) throw new Error(`lab render sweep: ${lab.id}/${language} leaves an uninterpolated placeholder at ${state}`);
+        const imbalance = lrTagBalance(markupOut);
+        if (imbalance) throw new Error(`lab render sweep: ${lab.id}/${language} renders unbalanced markup at ${state} -- ${imbalance}`);
+      }
+      const germanUndefined = (out.de.match(/undefined/gu) || []).length;
+      if (germanUndefined) throw new Error(`lab render sweep: ${lab.id}/de prints "undefined" ${germanUndefined} time(s) at ${state}`);
+      const allowed = (out.de.match(/nicht definiert/gu) || []).length;
+      const english = (out.en.match(/undefined/gu) || []).length;
+      if (english > allowed) throw new Error(`lab render sweep: ${lab.id}/en prints "undefined" ${english} time(s) at ${state}, but the German render says "nicht definiert" only ${allowed} time(s) -- the extra one is a missing value, not a translation`);
+      const visible = out.en.replace(/<pre[^>]*data-no-i18n[\s\S]*?<\/pre>/gu, " ").replace(/<[^>]*>/gu, " ");
+      const residue = visible.split(/\s{2,}/u).map(part => part.trim()).filter(part => part && GERMAN_WORDS.test(part));
+      if (residue.length) throw new Error(`lab render sweep: ${lab.id}/en still shows German at ${state} -- ${residue[0].slice(0, 90)}`);
+    };
+    const base = renderBoth();
+    check(base, "defaults");
+    let moved = 0;
+    for (const select of selects) {
+      lrControls++;
+      let differs = false;
+      for (const option of select.options) {
+        if (option === select.initial) continue;
+        for (const box of [lrDe, lrEn]) box.doc.getElementById(select.id).value = option;
+        const out = renderBoth();
+        check(out, `${select.id}=${option}`);
+        if (out.de !== base.de) differs = true;
+      }
+      for (const box of [lrDe, lrEn]) box.doc.getElementById(select.id).value = select.initial;
+      if (differs) moved++;
+    }
+    // Some labs hold part of their state outside the controls: dedup-pipeline walks seven steps
+    // through a prev/next button pair, and its threshold only changes what is on screen from
+    // step five on. A sweep that never leaves the first step would call that threshold dead. So
+    // when nothing moved, advance the lab through the buttons its own branch wires and try the
+    // selects again -- the claim then reads "some reachable state makes this control matter".
+    if (selects.length && !moved) {
+      for (let step = 0; step < 6 && !moved; step++) {
+        for (const box of [lrDe, lrEn]) {
+          const next = box.doc.getElementById([...wiredIds].find(id => /next$/iu.test(id)) || "");
+          if (typeof next?.onclick === "function") next.onclick();
+        }
+        const stepped = renderBoth();
+        check(stepped, `step ${step + 1}`);
+        for (const select of selects) {
+          for (const option of select.options) {
+            if (option === select.initial) continue;
+            for (const box of [lrDe, lrEn]) box.doc.getElementById(select.id).value = option;
+            const out = renderBoth();
+            check(out, `step ${step + 1} · ${select.id}=${option}`);
+            if (out.de !== stepped.de) moved = 1;
+          }
+          for (const box of [lrDe, lrEn]) box.doc.getElementById(select.id).value = select.initial;
+        }
+      }
+      lrMoving += moved;
+    }
+    renderBoth();
+    // Every lab whose own initLab wires a select must have at least one that changes the stage
+    // in some state it can actually reach. A control the app binds and the renderer ignores is a
+    // dead knob, and the reader who turns it learns the wrong thing about what the lab depends on.
+    if (selects.length && !moved) lrDead.add(lab.id);
+    lrMoving += moved;
+  }
+  if (lrDead.size) throw new Error(`lab render sweep: ${lrDead.size} lab(s) bind a select that changes nothing on their stage -- ${[...lrDead].join(", ")}`);
+  if (lrLabs + LR_NO_STAGE.length !== base.labs.length)
+    throw new Error(`lab render sweep: ${lrLabs} swept plus ${LR_NO_STAGE.length} excused is not ${base.labs.length} labs`);
+  if (lrLabs < 45) throw new Error(`lab render sweep: only ${lrLabs} labs swept, which is below what the stub is supposed to reach`);
+  // The sweep has to be seeing real output, not an empty stage it calls clean.
+  if (lrStates < 500 || lrControls < 100) throw new Error(`lab render sweep: only ${lrStates} renders over ${lrControls} controls, too few for the sweep to mean anything`);
+  console.log(`lab render sweep OK: ${lrStates} renders across ${lrLabs} of ${base.labs.length} labs in both languages, driven through the page's own labMarkup and initLab against a stubbed DOM -- every state balanced, free of "undefined" and of uninterpolated placeholders, no German left in the English render, and ${lrMoving} of ${lrControls} controls demonstrably move their lab (${LR_NO_STAGE.length} labs have no computed stage and are excused by name)`);
+}
+
 // ---- sft packing: the loader A5 §4.2.1 asks for, against the recipe the page describes ----
 // The lab's whole point is that two loaders sit in the same assignment and are not the same
 // thing, so this block re-derives both sides from the definitions instead of calling the app:
