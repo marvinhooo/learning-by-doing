@@ -7309,6 +7309,49 @@ const renderLabs = [
     ]
   },
   {
+    id: "mask-pii", entry: "piiStageMarkup", mode: "piiMode", update: "updateMaskPii",
+    names: ["PII_MARKED", "PII_KINDS", "PII_MARKS", "PII_VARIANTS", "PII_SETTINGS",
+      "piiKindOf", "piiVariantOf", "piiSettingOf", "piiDocs", "piiSpans", "piiScore",
+      "piiLedger", "piiCountTrap", "piiRead", "piiStageMarkup"],
+    options: {
+      piiMode: ["detect", "cost"], piiKind: "PII_KINDS",
+      piiVariant: ["strict", "loose", "digits", "naive", "ranged"], piiSetting: "PII_SETTINGS"
+    },
+    // The variant select is rebuilt from the kind, so a variant key that does not belong to
+    // the selected kind falls back to that kind's first pattern -- which is why piiVariant is
+    // declared as moving mode A rather than as moving nothing.
+    controls: {
+      piiKind: ["detect"], piiVariant: ["detect"], piiSetting: ["cost"]
+    },
+    nan: () => false,
+    anchors: [
+      // The finding: the range check strikes one false alarm and cannot strike the other.
+      [{ piiMode: "detect", piiKind: "ip", piiVariant: "naive", piiSetting: "strict" },
+        '<strong data-piipr="naive">66.6667 % · 100.0000 %</strong>',
+        "the naive dotted quad loses a third of its precision to two false alarms"],
+      [{ piiMode: "detect", piiKind: "ip", piiVariant: "ranged", piiSetting: "strict" },
+        '<strong data-piipr="ranged">80.0000 % · 100.0000 %</strong>',
+        "and the obvious repair buys back only one of the two, at unchanged recall"],
+      // The span, not the find: the same address is a false positive and a miss at once.
+      [{ piiMode: "detect", piiKind: "email", piiVariant: "loose", piiSetting: "strict" },
+        '<strong data-piipr="loose">33.3333 % · 33.3333 %</strong>',
+        "a pattern that finds every address and passes no test has to say so in both numbers"],
+      [{ piiMode: "detect", piiKind: "email", piiVariant: "strict", piiSetting: "strict" },
+        '<strong data-piipr="strict">100.0000 % · 100.0000 %</strong>',
+        "while the tighter one costs nothing at all -- the reader has to be able to see that"],
+      // Mode B: redaction makes the corpus grow, and masking less destroys more.
+      [{ piiMode: "cost", piiKind: "email", piiVariant: "strict", piiSetting: "strict" },
+        '<strong data-piitrap="1">12 · 0</strong>',
+        "counting after the replacement is the implementation trap and belongs on the screen"],
+      [{ piiMode: "cost", piiKind: "email", piiVariant: "strict", piiSetting: "loose" },
+        '<strong data-piidestroyed="1">34 Zeichen</strong>',
+        "the loose setting destroys more legitimate text than the tight one"],
+      [{ piiMode: "cost", piiKind: "email", piiVariant: "strict", piiSetting: "strict" },
+        '<strong data-piidestroyed="1">19 Zeichen</strong>',
+        "and the tight setting beside it has to print the smaller number, or the claim is unreadable"]
+    ]
+  },
+  {
     id: "target-shift", entry: "tsStageMarkup", mode: "tsMode", update: "updateTargetShift",
     names: ["TS_CORPORA", "TS_RULES", "TS_SIZES", "TS_BLOCKS", "TS_DRAWS", "tsCorpusOf",
       "tsRuleOf", "tsSizeOf", "tsBlockOf", "tsDrawsOf", "tsPairs", "tsFit", "tsLoss",
@@ -10373,4 +10416,176 @@ ${sliceDeclaration(source, "tsMissShare")}
   tsChecks += 5;
 
   console.log(`target shift OK: ${tsChecks} checks -- A1's get_batch and the next-token objective recomputed from the definition: the unshifted pairing reaches an exact 0.000000 in all ${tsApi.TS_CORPORA.length} texts because its map is a function, and its greedy roll-out repeats the same token 100 % of the time, so the best loss of the four belongs to the rule that learns nothing; which wrong rule then hides closest to the correct one is a property of the text and not of the rule (the skip rule sits ${tsRepPrinted} away on the doubling corpus, the backward shift elsewhere) while the copy is the furthest away in all three and still the best; and the naive bound i <= n - m admits exactly one start too many over ${tsSweep} (n, m) combinations -- brute-forced in both directions -- so 1,000 drawn batches miss it with 90.2468 % at n = 10,000 and 99.0024 % at n = 100,000, the larger shard being the harder one`);
+}
+
+// ---- mask pii: the three maskers A4 asks for, recomputed from the corpus ------------------
+// `a4:mask_pii` (3 points) was the last problem outside A5 whose deciding concept had no lab
+// that computes anything. A4 checks the maskers with test_mask_emails, test_mask_phones and
+// test_mask_ips -- against the *masked string*, not against a verdict of "found or not". Two
+// separate things follow from that, and neither had a number in the app:
+//
+//   1. A span that overshoots is a miss, however clearly a reader would call it a find. The
+//      loose email pattern finds all three addresses and passes no test at all.
+//   2. The obvious repair to the IP pattern -- checking 0-255 -- removes exactly one of its
+//      two false alarms. The other one is a version number, which is a syntactically valid
+//      dotted quad; no pattern can exclude it, only context can.
+//
+// The corpus carries its own truth inline ({e|...}, {p|...}, {i|...}), so text and labels
+// cannot drift apart, and this guard re-derives the offsets a second time rather than reading
+// the app's parser.
+{
+  const piiApi = runInNewContext(`${numberPrelude}
+${sliceDeclaration(source, "PII_MARKED")}
+${sliceDeclaration(source, "PII_KINDS")}
+${sliceDeclaration(source, "PII_MARKS")}
+${sliceDeclaration(source, "PII_VARIANTS")}
+${sliceDeclaration(source, "PII_SETTINGS")}
+${sliceDeclaration(source, "piiKindOf")}
+${sliceDeclaration(source, "piiVariantOf")}
+${sliceDeclaration(source, "piiSettingOf")}
+${sliceDeclaration(source, "piiDocs")}
+${sliceDeclaration(source, "piiSpans")}
+${sliceDeclaration(source, "piiScore")}
+${sliceDeclaration(source, "piiLedger")}
+${sliceDeclaration(source, "piiCountTrap")}
+({PII_MARKED,PII_KINDS,PII_VARIANTS,PII_SETTINGS,piiDocs,piiSpans,piiScore,piiLedger,piiCountTrap})`, {});
+  const piiFail = message => { throw new Error(`mask pii: ${message}`); };
+  let piiChecks = 0;
+
+  // --- 1. the corpus, parsed a second time ---------------------------------------------
+  // A hand-counted offset was the first mistake made while building this lab, so the guard
+  // does not accept the app's parse: it strips the markers with a regex instead and requires
+  // both the plain text and every span to agree character for character.
+  const piiRetyped = piiApi.PII_MARKED.map(marked => {
+    const truth = [];
+    let text = "", rest = marked;
+    const kindOf = { e: "email", p: "phone", i: "ip" };
+    while (rest.length) {
+      const open = rest.indexOf("{");
+      if (open < 0 || rest[open + 2] !== "|") { text += rest; break; }
+      text += rest.slice(0, open);
+      const close = rest.indexOf("}", open), body = rest.slice(open + 3, close);
+      truth.push({ kind: kindOf[rest[open + 1]], start: text.length, end: text.length + body.length, text: body });
+      text += body;
+      rest = rest.slice(close + 1);
+    }
+    return { text, truth };
+  });
+  const piiDocsApp = piiApi.piiDocs();
+  if (piiDocsApp.length !== piiRetyped.length) piiFail(`the app reads ${piiDocsApp.length} documents where the markup holds ${piiRetyped.length}`);
+  for (let index = 0; index < piiRetyped.length; index++) {
+    if (piiDocsApp[index].text !== piiRetyped[index].text)
+      piiFail(`document ${index}: the app's plain text differs from the one the markers describe`);
+    if (JSON.stringify(piiDocsApp[index].truth) !== JSON.stringify(piiRetyped[index].truth))
+      piiFail(`document ${index}: the app's spans are ${JSON.stringify(piiDocsApp[index].truth)} where the markers give ${JSON.stringify(piiRetyped[index].truth)}`);
+    // and no marked span may contain a marker leftover, which would mean the parse ran twice
+    for (const entry of piiRetyped[index].truth)
+      if (/[{}|]/.test(entry.text)) piiFail(`document ${index}: the span ${JSON.stringify(entry.text)} still carries markup`);
+    piiChecks += 2 + piiRetyped[index].truth.length;
+  }
+  const piiTruthCount = piiRetyped.reduce((sum, doc) => sum + doc.truth.length, 0);
+  if (piiTruthCount < 8) piiFail(`only ${piiTruthCount} marked spans, the corpus has lost its labels`);
+
+  // --- 2. every pattern scored against that truth, independently ------------------------
+  // Same rule as the test: a match counts only when its span equals a marked one exactly.
+  const piiRescore = (kind, variantKey) => {
+    const variant = piiApi.PII_VARIANTS[kind].find(entry => entry.key === variantKey);
+    let tp = 0, fp = 0, fn = 0, found = 0;
+    for (const doc of piiRetyped) {
+      const truth = doc.truth.filter(entry => entry.kind === kind);
+      const taken = new Set();
+      for (const span of piiApi.piiSpans(variant, doc.text)) {
+        found++;
+        const hit = truth.findIndex((entry, index) => !taken.has(index) && entry.start === span.start && entry.end === span.end);
+        if (hit >= 0) { taken.add(hit); tp++; } else fp++;
+      }
+      fn += truth.length - taken.size;
+    }
+    return { found, tp, fp, fn };
+  };
+  for (const [kind, variants] of Object.entries(piiApi.PII_VARIANTS)) for (const variant of variants) {
+    const mine = piiRescore(kind, variant.key), theirs = piiApi.piiScore(kind, variant.key);
+    for (const field of ["found", "tp", "fp", "fn"])
+      if (mine[field] !== theirs[field]) piiFail(`${kind}/${variant.key}: the app reports ${field}=${theirs[field]} where the rescoring gives ${mine[field]}`);
+    piiChecks += 4;
+  }
+
+  // --- 3. the two findings, as claims that can fail -------------------------------------
+  // The range check buys precision and costs no recall, and it cannot reach the version
+  // number. Both halves, by name -- a repair that removed both false alarms would make the
+  // lab's whole argument wrong, and the guard has to notice that too.
+  const piiNaive = piiApi.piiScore("ip", "naive"), piiRanged = piiApi.piiScore("ip", "ranged");
+  if (!(piiRanged.precision > piiNaive.precision)) piiFail("the range check no longer buys any precision");
+  if (piiRanged.recall !== piiNaive.recall) piiFail("the range check changed the recall, which the lab says it does not");
+  if (piiRanged.recall !== 1) piiFail(`both IP patterns should find every marked address; recall is ${piiRanged.recall}`);
+  if (piiRanged.fp !== 1) piiFail(`the range check leaves ${piiRanged.fp} false alarm(s), and the lab's point is that exactly one survives`);
+  if (!piiRanged.falsePositives.includes("1.2.3.4"))
+    piiFail(`the surviving false alarm is ${JSON.stringify(piiRanged.falsePositives)}, not the version number the lab names`);
+  if (piiNaive.falsePositives.filter(entry => entry === "999.999.999.999").length !== 1)
+    piiFail("the naive pattern no longer masks the impossible address, so the pair the lab contrasts is gone");
+  // the version number really is a valid dotted quad -- that is *why* no pattern can help
+  if (!/^(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)$/.test("1.2.3.4"))
+    piiFail("1.2.3.4 is not a valid dotted quad, so the lab's explanation of the surviving false alarm collapses");
+  piiChecks += 7;
+
+  // The loose email pattern: the same address is a false positive and a miss at once, which
+  // is what "the mistake is the span, not the find" means. Anything else and the short check
+  // answer would be wrong.
+  const piiLoose = piiApi.piiScore("email", "loose"), piiStrictMail = piiApi.piiScore("email", "strict");
+  if (piiStrictMail.precision !== 1 || piiStrictMail.recall !== 1) piiFail("the tight email pattern no longer scores perfectly, so it is not the reference any more");
+  if (piiLoose.found !== piiStrictMail.found)
+    piiFail(`the loose pattern reports ${piiLoose.found} matches against ${piiStrictMail.found} -- the lab's claim is that it finds every address and still fails`);
+  for (const missed of piiLoose.missed)
+    if (!piiLoose.falsePositives.some(entry => entry.startsWith(missed)))
+      piiFail(`the loose pattern missed ${JSON.stringify(missed)} without a false positive that overshoots it, so the mistake is not the span`);
+  piiChecks += 2 + piiLoose.missed.length;
+
+  // --- 4. what masking costs the text ---------------------------------------------------
+  // Both counterintuitive halves: the corpus grows, and masking fewer instances destroys more.
+  for (const setting of piiApi.PII_SETTINGS) {
+    const ledger = piiApi.piiLedger(setting.key);
+    if (!(ledger.net > 0)) piiFail(`${setting.key}: masking shrinks the corpus by ${-ledger.net} characters, and the lab says it grows`);
+    if (!(ledger.touched > 0 && ledger.touched <= ledger.documents)) piiFail(`${setting.key}: ${ledger.touched} of ${ledger.documents} documents touched`);
+    piiChecks += 2;
+  }
+  const piiTight = piiApi.piiLedger("strict"), piiSloppy = piiApi.piiLedger("loose");
+  if (!(piiSloppy.instances < piiTight.instances)) piiFail("the loose setting no longer masks fewer instances than the tight one");
+  if (!(piiSloppy.destroyed > piiTight.destroyed)) piiFail("the loose setting no longer destroys more legitimate text, which is the whole point of the comparison");
+  const piiTrap = piiApi.piiCountTrap("strict");
+  if (piiTrap.after !== 0) piiFail(`counting in the masked text finds ${piiTrap.after} matches; the placeholder is supposed to be invisible to every pattern`);
+  if (piiTrap.before !== piiTight.instances) piiFail(`the trap counts ${piiTrap.before} before replacing where the ledger reports ${piiTight.instances} instances`);
+  // and the placeholders themselves must not be matchable, or the trap is an accident
+  for (const kind of piiApi.PII_KINDS) for (const [, variants] of Object.entries(piiApi.PII_VARIANTS)) for (const variant of variants)
+    if (piiApi.piiSpans(variant, kind.token).length)
+      piiFail(`the placeholder ${kind.token} is matched by ${variant.key}, so masking twice would not be idempotent`);
+  piiChecks += 4 + piiApi.PII_KINDS.length * 6;
+
+  // --- 5. the figures the answer quotes, and the wiring ---------------------------------
+  const piiAnswer = base.labs.find(lab => lab.id === "mask-pii")?.transferAnswer || "";
+  for (const [value, digits] of [[piiNaive.precision, 4], [piiRanged.precision, 4], [piiLoose.precision, 4]]) {
+    const printed = `${(value * 100).toFixed(digits).replace(".", ",")} %`;
+    if (!piiAnswer.includes(printed)) piiFail(`the transfer answer no longer quotes ${printed}, so the reader is sent after a figure it does not carry`);
+    piiChecks++;
+  }
+  if (!piiAnswer.includes(`${piiTrap.after} statt ${piiTrap.before}`)) piiFail("the transfer answer no longer quotes the counting trap's two numbers");
+  const piiLabConcepts = readConstant("LAB_CONCEPTS")["mask-pii"];
+  if (!piiLabConcepts || !piiLabConcepts.includes("pii-harm")) piiFail("the lab is not attached to the pii-harm concept");
+  if (!handoutProblems["a4:mask_pii"]) piiFail("a4:mask_pii is gone from the handout list, and the lab's premise is that problem");
+  const piiPanel = source.slice(source.indexOf('if(id==="mask-pii") return `'), source.indexOf('if(id==="target-shift") return `'));
+  for (const [selectId, accepted] of [["piiCheckRange", ["context", "greedy", "order"]],
+                                      ["piiCheckSpan", ["span", "count", "order"]],
+                                      ["piiCheckCount", ["zero", "same", "more"]]]) {
+    const start = piiPanel.indexOf(`id="${selectId}"`);
+    if (start < 0) piiFail(`the ${selectId} select is gone from the panel`);
+    const offered = [...piiPanel.slice(start, piiPanel.indexOf("</select>", start)).matchAll(/<option value="([^"]*)"/g)].map(hit => hit[1]).filter(Boolean);
+    if (JSON.stringify(offered) !== JSON.stringify(accepted))
+      piiFail(`${selectId} offers ${JSON.stringify(offered)} while the guard expects ${JSON.stringify(accepted)}`);
+    piiChecks += offered.length;
+  }
+  const piiCheck = sliceDeclaration(source, "checkMaskPii");
+  for (const key of ["context", "span", "zero"])
+    if (!piiCheck.includes(`"${key}"`)) piiFail(`the short check no longer accepts ${key}`);
+  piiChecks += 5;
+
+  console.log(`mask pii OK: ${piiChecks} checks -- A4's three maskers scored against a corpus whose ${piiTruthCount} spans are re-derived from the markup rather than read out of the app: a match counts only when its span equals the marked one, which is the test's rule and not a reader's, so the loose email pattern finds all ${piiLoose.found} addresses and still scores ${(piiLoose.precision * 100).toFixed(4)} % against the tight pattern's 100.0000 % -- every miss it reports is the same address a false positive overshot; the 0-255 range check lifts IP precision from ${(piiNaive.precision * 100).toFixed(4)} % to ${(piiRanged.precision * 100).toFixed(4)} % at unchanged recall and cannot reach the surviving false alarm, because "1.2.3.4" is a valid dotted quad and only context says otherwise; and masking grows the corpus in all ${piiApi.PII_SETTINGS.length} settings (+${piiTight.net} characters, ${(piiTight.growth * 100).toFixed(4)} %) while the loose setting masks ${piiSloppy.instances} instances against ${piiTight.instances} and destroys ${piiSloppy.destroyed} characters of legitimate text against ${piiTight.destroyed}, and counting after the replacement returns ${piiTrap.after} instead of ${piiTrap.before}`);
 }
