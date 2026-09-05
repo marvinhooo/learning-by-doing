@@ -10765,3 +10765,321 @@ ${sliceDeclaration(source, "piiCountTrap")}
 
   console.log(`mask pii OK: ${piiChecks} checks -- A4's three maskers scored against a corpus whose ${piiTruthCount} spans are re-derived from the markup rather than read out of the app: a match counts only when its span equals the marked one, which is the test's rule and not a reader's, so the loose email pattern finds all ${piiLoose.found} addresses and still scores ${(piiLoose.precision * 100).toFixed(4)} % against the tight pattern's 100.0000 % -- every miss it reports is the same address a false positive overshot; the 0-255 range check lifts IP precision from ${(piiNaive.precision * 100).toFixed(4)} % to ${(piiRanged.precision * 100).toFixed(4)} % at unchanged recall and cannot reach the surviving false alarm, because "1.2.3.4" is a valid dotted quad and only context says otherwise; and masking grows the corpus in all ${piiApi.PII_SETTINGS.length} settings (+${piiTight.net} characters, ${(piiTight.growth * 100).toFixed(4)} %) while the loose setting masks ${piiSloppy.instances} instances against ${piiTight.instances} and destroys ${piiSloppy.destroyed} characters of legitimate text against ${piiTight.destroyed}, and counting after the replacement returns ${piiTrap.after} instead of ${piiTrap.before}`);
 }
+
+// ---- init scale: A1's three initialization rules, recomputed from the handout -------------
+// `parameter-initialization` decides a1:linear and a1:embedding and was, after v100, the last
+// concept deciding problems with no lab that computes. The prose was plentiful -- the concept
+// page works one numerical case, the formula card a second -- but nothing in the repo formed
+// sigma out of d_in and d_out, and nothing said how large the two effects are that the same
+// page uses to argue an empirical-variance test is unfit. "Truncation" and "finite sample"
+// stood side by side unquantified, although one is systematic and stays and the other falls
+// away with n.
+//
+// The finding the lab is built around comes out of A1 3.3.2: the test adapter loads the
+// provided weights into your module, so `pytest -k test_linear` tests the forward pass and is
+// blind to the initialization by construction. Everything below is derived a second time and
+// by a different route than the app takes: the truncated moments by Simpson integration where
+// the app uses the closed form, the per-variant spreads from each variant's own definition,
+// and the tolerance window by scanning rather than by the app's minimum/maximum.
+{
+  const isSource = ["IS_K", "isErf", "isNormalPdf", "isNormalCdf", "IS_MASS", "IS_M2", "IS_M4",
+    "IS_FACTOR", "IS_OUTSIDE", "IS_VOCAB", "IS_DMODEL", "IS_DFF", "IS_TABLES", "IS_SAMPLES",
+    "IS_VARIANTS", "IS_TOLERANCES", "isTableOf", "isSampleOf", "isToleranceOf", "isSampleSize",
+    "isSigma", "isBound", "isScatter", "isVariantRow", "isVarianceVerdict", "isToleranceWindow"];
+  const isApi = runInNewContext(`${numberPrelude}${isSource.map(name => sliceDeclaration(source, name)).join("\n")}\n({${isSource.join(",")}})`, {});
+  const isFail = message => { throw new Error(`init scale: ${message}`); };
+  const isClose = (a, b, eps) => Math.abs(a - b) <= eps;
+  let isChecks = 0;
+
+  // --- 1. the truncated normal, integrated rather than solved ---------------------------
+  // The app evaluates the closed forms mu2 = 1 - 2k phi(k)/Z and mu4 = 3 - (6k + 2k^3) phi(k)/Z
+  // through a rational approximation of erf. Simpson's rule over the same interval shares
+  // neither the approximation nor the integration by parts, so agreement is evidence.
+  const isDensity = x => Math.exp(-x * x / 2) / Math.sqrt(2 * Math.PI);
+  const isSimpson = (f, a, b, steps) => {
+    const h = (b - a) / steps;
+    let sum = f(a) + f(b);
+    for (let i = 1; i < steps; i++) sum += (i % 2 ? 4 : 2) * f(a + i * h);
+    return sum * h / 3;
+  };
+  const isSteps = 200000, isK = isApi.IS_K;
+  if (isK !== 3) isFail(`the truncation width is ${isK}, and A1 3.3.1 prescribes 3 sigma`);
+  const isMass = isSimpson(isDensity, -isK, isK, isSteps);
+  const isMoment2 = isSimpson(x => x * x * isDensity(x), -isK, isK, isSteps) / isMass;
+  const isMoment4 = isSimpson(x => Math.pow(x, 4) * isDensity(x), -isK, isK, isSteps) / isMass;
+  if (!isClose(isMass, isApi.IS_MASS, 1e-9)) isFail(`the retained mass integrates to ${isMass} where the app computes ${isApi.IS_MASS}`);
+  if (!isClose(isMoment2, isApi.IS_M2, 1e-9)) isFail(`the second moment integrates to ${isMoment2} where the app computes ${isApi.IS_M2}`);
+  if (!isClose(isMoment4, isApi.IS_M4, 1e-9)) isFail(`the fourth moment integrates to ${isMoment4} where the app computes ${isApi.IS_M4}`);
+  if (!isClose(Math.sqrt(isMoment2), isApi.IS_FACTOR, 1e-9)) isFail("the spread factor does not follow from the integrated second moment");
+  if (!isClose(1 - isMass, isApi.IS_OUTSIDE, 1e-9)) isFail("the mass outside the bounds disagrees with the integral");
+  // The whole lab turns on this being a *shrink*, and on it being large enough to matter.
+  if (!(isApi.IS_FACTOR < 1)) isFail("truncation no longer lowers the realized spread, and the lab's premise is that it does");
+  const isBias = 1 - isApi.IS_FACTOR;
+  if (!(isBias > 0.01)) isFail(`the truncation bias is ${(isBias * 100).toFixed(6)} %, below the 1 % tolerance the lab calls unusable -- the claim would no longer hold`);
+  isChecks += 7;
+
+  // --- 2. the tables, re-typed out of A1 7.2.1 -------------------------------------------
+  // Vocab 10000, context 256, d_model 512, d_ff 1344, 4 layers, 16 heads.
+  if (isApi.IS_VOCAB !== 10000 || isApi.IS_DMODEL !== 512 || isApi.IS_DFF !== 1344)
+    isFail(`the model config reads V=${isApi.IS_VOCAB}, d_model=${isApi.IS_DMODEL}, d_ff=${isApi.IS_DFF}; A1 7.2.1 prescribes 10000 / 512 / 1344`);
+  const isExpected = {
+    attn: { rule: "linear", din: 512, dout: 512, count: 512 * 512 },
+    ffnup: { rule: "linear", din: 512, dout: 1344, count: 1344 * 512 },
+    ffndown: { rule: "linear", din: 1344, dout: 512, count: 512 * 1344 },
+    head: { rule: "linear", din: 512, dout: 10000, count: 10000 * 512 },
+    embed: { rule: "embedding", din: null, dout: 512, count: 10000 * 512 }
+  };
+  if (isApi.IS_TABLES.length !== Object.keys(isExpected).length)
+    isFail(`the lab offers ${isApi.IS_TABLES.length} weight tables where A1's model has ${Object.keys(isExpected).length}`);
+  for (const table of isApi.IS_TABLES) {
+    const want = isExpected[table.key];
+    if (!want) isFail(`unknown weight table ${table.key}`);
+    if (table.rule !== want.rule || table.din !== want.din || table.dout !== want.dout || table.count !== want.count)
+      isFail(`${table.key} reads ${table.rule} ${table.din}x${table.dout} (${table.count}) against the handout's ${want.rule} ${want.din}x${want.dout} (${want.count})`);
+    // sigma from the handout rule, not from the app's helper
+    const sigma = want.rule === "embedding" ? 1 : Math.sqrt(2 / (want.din + want.dout));
+    if (!isClose(isApi.isSigma(table), sigma, 1e-12)) isFail(`${table.key}: sigma is ${isApi.isSigma(table)} where the rule gives ${sigma}`);
+    if (!isClose(isApi.isBound(table), 3 * sigma, 1e-12)) isFail(`${table.key}: the bound is not three sigma`);
+    // The branch that makes "bounds +-3 truncate nothing" true has to be true here.
+    if (want.rule === "linear" && !(sigma < 1)) isFail(`${table.key}: sigma is not below one, so absolute bounds of +-3 would truncate after all`);
+    isChecks += 3;
+  }
+  // The rule is symmetric in d_in and d_out; the forward factor is not. Both directions, over
+  // a grid rather than over the five tables, so the claim is about the rule and not the model.
+  let isSymmetric = 0, isUnitCases = 0;
+  for (let din = 8; din <= 2048; din += 8) for (let dout = 8; dout <= 2048; dout += 8) {
+    const sigma = Math.sqrt(2 / (din + dout)), mirror = Math.sqrt(2 / (dout + din));
+    if (!isClose(sigma, mirror, 1e-15)) isFail(`sigma is not symmetric at ${din}x${dout}`);
+    const unit = isClose(din * sigma * sigma, 1, 1e-12);
+    if (unit !== (din === dout)) isFail(`the forward factor is one at ${din}x${dout} but the layer is ${din === dout ? "" : "not "}square`);
+    if (unit) isUnitCases++;
+    isSymmetric++;
+  }
+  if (isUnitCases !== 256) isFail(`${isUnitCases} square layers on the grid, expected 256`);
+  isChecks += 2;
+
+  // --- 3. every variant, from its own definition -----------------------------------------
+  // Written out per variant rather than read from the app, so a changed branch shows up here.
+  const isRetyped = (table, key) => {
+    const sigma = table.rule === "embedding" ? 1 : Math.sqrt(2 / (table.din + table.dout));
+    if (key === "correct") return sigma * Math.sqrt(isMoment2);
+    if (key === "varAsStd") return sigma * sigma * Math.sqrt(isMoment2);
+    if (key === "linearEverywhere")
+      return (table.rule === "embedding" ? Math.sqrt(2 / (isApi.IS_VOCAB + isApi.IS_DMODEL)) : sigma) * Math.sqrt(isMoment2);
+    if (key === "plainBounds") return table.rule === "embedding" ? sigma * Math.sqrt(isMoment2) : sigma;
+    if (key === "torchDefault") return table.rule === "embedding" ? 1 : 1 / Math.sqrt(3 * table.din);
+    return NaN;
+  };
+  const isOutsideRetyped = (table, key) => {
+    const bound = 3 * (table.rule === "embedding" ? 1 : Math.sqrt(2 / (table.din + table.dout)));
+    if (key === "plainBounds") return table.rule === "embedding" ? 0 : 1 - isMass;
+    if (key === "torchDefault") {
+      if (table.rule === "embedding") return 1 - isMass;
+      const half = 1 / Math.sqrt(table.din);
+      return half > bound ? (half - bound) / half : 0;
+    }
+    return 0;
+  };
+  if (isApi.IS_VARIANTS.length !== 5) isFail(`${isApi.IS_VARIANTS.length} implementations offered, and the lab's prose counts five`);
+  if (isApi.IS_VARIANTS.filter(variant => variant.ok).length !== 1) isFail("exactly one of the five implementations has to be the correct one");
+  for (const table of isApi.IS_TABLES) for (const variant of isApi.IS_VARIANTS) {
+    const row = isApi.isVariantRow(table, variant.key), want = isRetyped(table, variant.key);
+    // 1e-9 and not tighter on purpose: the retyped value carries the Simpson integral, the
+    // app the closed form, so the last picodigits differ by construction. The smallest gap
+    // this has to resolve is 1e-4 between two variants, four orders wider.
+    if (!isClose(row.std, want, 1e-9)) isFail(`${table.key}/${variant.key}: realized spread ${row.std} against the retyped ${want}`);
+    const outside = isOutsideRetyped(table, variant.key);
+    if (!isClose(row.outside, outside, 1e-9)) isFail(`${table.key}/${variant.key}: ${row.outside} of the mass outside the prescribed bound, retyped ${outside}`);
+    if (!isClose(row.outsideCount, row.outside * table.count, 1e-9)) isFail(`${table.key}/${variant.key}: the count of weights outside does not follow from its own share`);
+    if (!isClose(row.outsideCount, outside * table.count, Math.max(1e-6, table.count * 1e-8))) isFail(`${table.key}/${variant.key}: ${row.outsideCount} weights outside against the retyped ${outside * table.count}`);
+    isChecks += 4;
+  }
+  // The forgotten square root is off by exactly sigma, so the damage grows with the width.
+  // Checked as an identity rather than on the five tables.
+  for (const table of isApi.IS_TABLES.filter(entry => entry.rule === "linear")) {
+    const sigma = isApi.isSigma(table);
+    const ratio = isApi.isVariantRow(table, "varAsStd").std / isApi.isVariantRow(table, "correct").std;
+    if (!isClose(ratio, sigma, 1e-12)) isFail(`${table.key}: forgetting the root is off by ${ratio} where the identity gives sigma = ${sigma}`);
+    isChecks++;
+  }
+  const isNarrow = isApi.isVariantRow(isApi.isTableOf("attn"), "varAsStd"), isWide = isApi.isVariantRow(isApi.isTableOf("head"), "varAsStd");
+  if (!(Math.abs(isWide.deviation) > Math.abs(isNarrow.deviation)))
+    isFail("the forgotten root is not worse on the wider table, and the lab's note says it is");
+  // Invisible where the two rules coincide -- both directions, because that is the point.
+  if (!isClose(isApi.isVariantRow(isApi.isTableOf("embed"), "varAsStd").std, isApi.isVariantRow(isApi.isTableOf("embed"), "correct").std, 1e-15))
+    isFail("the forgotten root is visible on the embedding, but 1 squared is 1");
+  for (const table of isApi.IS_TABLES.filter(entry => entry.rule === "linear"))
+    if (!isClose(isApi.isVariantRow(table, "linearEverywhere").std, isApi.isVariantRow(table, "correct").std, 1e-15))
+      isFail(`${table.key}: the width-rule-everywhere variant differs on a linear table, where it changes nothing`);
+  isChecks += 6;
+
+  // --- 4. the claim the lab is named for --------------------------------------------------
+  // The wrong bounds beat the correct rule on a spread comparison, on every linear table, and
+  // the correct rule is never the one at zero.
+  let isZeroRows = 0;
+  for (const table of isApi.IS_TABLES) {
+    const correct = isApi.isVariantRow(table, "correct"), loose = isApi.isVariantRow(table, "plainBounds");
+    if (isClose(correct.deviation, 0, 1e-12)) isFail(`${table.key}: the correct implementation sits exactly on sigma, so the lab's central contrast is gone`);
+    if (table.rule === "linear") {
+      if (!isClose(loose.deviation, 0, 1e-12)) isFail(`${table.key}: the wrong bounds deviate by ${loose.deviation} where they should land exactly on sigma`);
+      if (!(Math.abs(loose.deviation) < Math.abs(correct.deviation))) isFail(`${table.key}: the wrong bounds no longer look better than the correct rule`);
+      if (!(loose.outsideCount > 0)) isFail(`${table.key}: the wrong bounds leave no weight outside +-3 sigma, so nothing at all would catch them`);
+      isZeroRows++;
+    }
+    isChecks += 2;
+  }
+  if (isZeroRows !== 4) isFail(`${isZeroRows} linear tables show the contrast, expected 4`);
+
+  // Which test catches which error, brute-forced over every table and every offered tolerance.
+  const isWrong = isApi.IS_VARIANTS.filter(variant => !variant.ok);
+  const isCaughtByVariance = new Map(), isCaughtByBounds = new Map();
+  for (const variant of isWrong) { isCaughtByVariance.set(variant.key, false); isCaughtByBounds.set(variant.key, false); }
+  let isSweep = 0;
+  for (const table of isApi.IS_TABLES) for (const variant of isWrong) {
+    const row = isApi.isVariantRow(table, variant.key), correct = isApi.isVariantRow(table, "correct");
+    const differs = !isClose(row.deviation, correct.deviation, 1e-12) || !isClose(row.outside, correct.outside, 1e-12);
+    if (row.outside > 0) isCaughtByBounds.set(variant.key, true);
+    for (const tolerance of isApi.IS_TOLERANCES) {
+      const verdict = isApi.isVarianceVerdict(row, tolerance.value, table.count);
+      // A rejection only counts as *finding* the error when the same tolerance would have let
+      // the correct implementation through. At 1 % it does not -- the truncation bias alone is
+      // larger -- so every rejection there is noise, and counting it would flatter the test.
+      const correctVerdict = isApi.isVarianceVerdict(correct, tolerance.value, table.count);
+      if (verdict === "fail" && correctVerdict === "pass") {
+        if (!differs) isFail(`${table.key}/${variant.key}: the variance test rejects a variant that is identical to the correct one here, at a tolerance the correct one passes`);
+        isCaughtByVariance.set(variant.key, true);
+      }
+      isSweep++;
+      isChecks++;
+    }
+  }
+  // Neither test alone is enough, and together they are: both directions.
+  const isVarianceMisses = isWrong.filter(variant => !isCaughtByVariance.get(variant.key)).map(variant => variant.key);
+  const isBoundsMisses = isWrong.filter(variant => !isCaughtByBounds.get(variant.key)).map(variant => variant.key);
+  if (JSON.stringify(isVarianceMisses) !== JSON.stringify(["plainBounds"]))
+    isFail(`the variance test misses ${JSON.stringify(isVarianceMisses)}; the lab's answer says it misses the wrong bounds and only those`);
+  if (!isBoundsMisses.length) isFail("the bounds test now catches every wrong variant, so the lab's 'you need both' no longer holds");
+  for (const variant of isWrong)
+    if (!isCaughtByVariance.get(variant.key) && !isCaughtByBounds.get(variant.key))
+      isFail(`${variant.key} is caught by neither test, so the pair is no longer complete`);
+  isChecks += 3;
+
+  // --- 5. the tolerance window, scanned instead of solved --------------------------------
+  const isWindow = isApi.isToleranceWindow();
+  const isCorrectPasses = tolerance => isApi.IS_TABLES.every(table => isApi.isVarianceVerdict(isApi.isVariantRow(table, "correct"), tolerance, table.count) === "pass");
+  const isAnyWrongFails = tolerance => isApi.IS_TABLES.some(table => isWrong.some(variant => {
+    const row = isApi.isVariantRow(table, variant.key), correct = isApi.isVariantRow(table, "correct");
+    if (isClose(row.deviation, correct.deviation, 1e-12)) return false;
+    return isApi.isVarianceVerdict(row, tolerance, table.count) === "fail";
+  }));
+  // The upper edge is where the *first* error begins to hide, not where the last one does:
+  // above it one (table, variant) pair stops being rejected while wider deviations of the same
+  // variant are still caught elsewhere. Counted, so the edge is a drop in the count.
+  const isCaughtCount = tolerance => {
+    let count = 0;
+    for (const table of isApi.IS_TABLES) for (const variant of isWrong) {
+      const row = isApi.isVariantRow(table, variant.key), correct = isApi.isVariantRow(table, "correct");
+      if (isClose(row.deviation, correct.deviation, 1e-12)) continue;
+      if (isApi.isVarianceVerdict(correct, tolerance, table.count) !== "pass") continue;
+      if (isApi.isVarianceVerdict(row, tolerance, table.count) === "fail") count++;
+    }
+    return count;
+  };
+  const isEps = 1e-6;
+  if (isCorrectPasses(isWindow.low - isEps)) isFail(`a tolerance just below ${(isWindow.low * 100).toFixed(4)} % still passes the correct implementation everywhere, so the lower edge is wrong`);
+  if (!isCorrectPasses(isWindow.low + isEps)) isFail(`a tolerance just above ${(isWindow.low * 100).toFixed(4)} % already fails the correct implementation somewhere`);
+  if (!(isCaughtCount(isWindow.high - isEps) > isCaughtCount(isWindow.high + isEps)))
+    isFail(`the count of caught table/variant pairs does not drop at ${(isWindow.high * 100).toFixed(4)} %, so that is not where the first error starts hiding`);
+  if (!isAnyWrongFails(isWindow.high + isEps)) isFail(`above ${(isWindow.high * 100).toFixed(4)} % no wrong variant is caught at all any more, and the prose says only the first one starts slipping`);
+  if (!(isWindow.low < isWindow.high)) isFail("the tolerance window is empty, and the lab tells the reader to pick a value inside it");
+  // A scan, so the edges are not merely the app's own minimum and maximum read back.
+  const isFullCatch = isCaughtCount(isWindow.low + isEps);
+  let isScan = 0, isFirstUsable = null, isLastUsable = null;
+  for (let step = 1; step <= 5000; step++) {
+    const tolerance = step / 10000;
+    const usable = isCorrectPasses(tolerance) && isCaughtCount(tolerance) === isFullCatch;
+    if (usable) { if (isFirstUsable === null) isFirstUsable = tolerance; isLastUsable = tolerance; }
+    isScan++;
+  }
+  if (isFirstUsable === null) isFail("no tolerance on the scan is usable at all");
+  if (!(isFirstUsable >= isWindow.low && isFirstUsable < isWindow.low + 0.0002))
+    isFail(`the scan finds the first usable tolerance at ${(isFirstUsable * 100).toFixed(4)} %, the app claims ${(isWindow.low * 100).toFixed(4)} %`);
+  if (!(isLastUsable <= isWindow.high && isLastUsable > isWindow.high - 0.0002))
+    isFail(`the scan finds the last usable tolerance at ${(isLastUsable * 100).toFixed(4)} %, the app claims ${(isWindow.high * 100).toFixed(4)} %`);
+  // The same wrong variant is far larger on another table -- that spread is why the choice of
+  // table matters, and the box on the screen names both ends of it.
+  if (!(isWindow.widest > isWindow.high)) isFail("the widest deviation of the slipping variant is not wider than the edge it slips at, and the box claims it is");
+  isChecks += 9;
+  // The systematic half stays and the random half goes: measured over the offered sizes.
+  const isSampleRatios = isApi.IS_SAMPLES.map(sample => isBias / isApi.isScatter(isApi.isSampleSize(isApi.isTableOf("attn"), sample)));
+  for (let index = 1; index < isSampleRatios.length; index++) {
+    const smaller = isApi.isSampleSize(isApi.isTableOf("attn"), isApi.IS_SAMPLES[index - 1]);
+    const larger = isApi.isSampleSize(isApi.isTableOf("attn"), isApi.IS_SAMPLES[index]);
+    if (larger > smaller && !(isSampleRatios[index] > isSampleRatios[index - 1]))
+      isFail("a larger sample does not push the systematic share further above the random one");
+  }
+  if (!(isBias / isApi.isScatter(10000000) > 60)) isFail("at ten million weights the bias is no longer more than sixty times the scatter, and the lab says it is");
+  isChecks += isApi.IS_SAMPLES.length + 1;
+
+  // --- 6. the figures the prose quotes ----------------------------------------------------
+  const isLab = base.labs.find(lab => lab.id === "init-scale");
+  if (!isLab) isFail("the lab is gone from the list");
+  const isLabEn = pack.labs["init-scale"];
+  if (!isLabEn) isFail("the lab has no English entry");
+  const isGerman = value => value.toFixed(6).replace(".", ",");
+  const isQuotes = [
+    [isBias * 100, 6, "the truncation bias"],
+    [isWindow.low * 100, 4, "the lower edge of the tolerance window"],
+    [isWindow.high * 100, 4, "the upper edge of the tolerance window"],
+    [isApi.isVariantRow(isApi.isTableOf("attn"), "plainBounds").outsideCount, 1, "the weights outside the bound on the attention projection"],
+    [Math.abs(isApi.isVariantRow(isApi.isTableOf("head"), "torchDefault").deviation) * 100, 4, "the PyTorch default's overshoot on the LM head"],
+    [isWindow.high * 100, 4, "the smallest deviation of the variant that slips first"],
+    [isWindow.widest * 100, 4, "the widest deviation of that same variant"]
+  ];
+  for (const [value, digits, what] of isQuotes) {
+    const de = value.toFixed(digits).replace(".", ","), en = value.toFixed(digits);
+    if (!isLab.transferAnswer.includes(de)) isFail(`the German transfer answer no longer quotes ${de} for ${what}`);
+    if (!isLabEn.transferAnswer.includes(en)) isFail(`the English transfer answer no longer quotes ${en} for ${what}`);
+    isChecks += 2;
+  }
+  // The concept page's own correction: the figure it now names has to be the computed one, and
+  // the claim it replaced -- that a test checks the arguments -- must not come back.
+  const isConceptDe = base.concepts.find(concept => concept.id === "parameter-initialization");
+  const isConceptEn = pack.concepts["parameter-initialization"];
+  const isTextDe = JSON.stringify(isConceptDe), isTextEn = JSON.stringify(isConceptEn);
+  if (!isTextDe.includes(isGerman(isBias * 100))) isFail(`the German concept page no longer names ${isGerman(isBias * 100)} % as the truncation bias`);
+  if (!isTextEn.includes((isBias * 100).toFixed(6))) isFail(`the English concept page no longer names ${(isBias * 100).toFixed(6)} % as the truncation bias`);
+  if (/Ein Test prüft die verwendeten Argumente/.test(isTextDe) || /A test checks the arguments/.test(isTextEn))
+    isFail("the concept page claims again that a test checks the initialization arguments -- A1 3.3.2 has the adapter load the provided weights, so its test sees the forward pass");
+  for (const [locale, text] of [["de", isTextDe], ["en", isTextEn]])
+    if (!/Forward-Pass|forward pass/.test(text)) isFail(`${locale}.concepts.parameter-initialization no longer says what A1's own test does look at`);
+  isChecks += 6;
+
+  // --- 7. the wiring ----------------------------------------------------------------------
+  const isLabConcepts = readConstant("LAB_CONCEPTS")["init-scale"];
+  if (!isLabConcepts || !isLabConcepts.includes("parameter-initialization")) isFail("the lab is not attached to the parameter-initialization concept");
+  for (const problemKey of ["a1:linear", "a1:embedding"]) {
+    if (!(problemConcepts[problemKey] || []).includes("parameter-initialization"))
+      isFail(`${problemKey} no longer names parameter-initialization, and that pair is the reason this lab exists`);
+    if (!handoutProblems[problemKey]) isFail(`${problemKey} is gone from the handout list`);
+    isChecks += 2;
+  }
+  const isPanel = source.slice(source.indexOf('if(id==="init-scale") return `'), source.indexOf('if(id==="mask-pii") return `'));
+  if (!isPanel) isFail("the panel markup is gone");
+  for (const [selectId, accepted] of [["isCheckBetter", ["bounds", "torch", "none"]],
+                                      ["isCheckBlind", ["loaded", "tolerance", "seed"]],
+                                      ["isCheckWindow", ["between", "tight", "any"]]]) {
+    const start = isPanel.indexOf(`id="${selectId}"`);
+    if (start < 0) isFail(`the ${selectId} select is gone from the panel`);
+    const offered = [...isPanel.slice(start, isPanel.indexOf("</select>", start)).matchAll(/<option value="([^"]*)"/g)].map(hit => hit[1]).filter(Boolean);
+    if (JSON.stringify(offered) !== JSON.stringify(accepted))
+      isFail(`${selectId} offers ${JSON.stringify(offered)} while the guard expects ${JSON.stringify(accepted)}`);
+    isChecks += offered.length;
+  }
+  const isCheckSource = sliceDeclaration(source, "checkInitScale");
+  for (const key of ["bounds", "loaded", "between"])
+    if (!isCheckSource.includes(`"${key}"`)) isFail(`the short check no longer accepts ${key}`);
+  isChecks += 3;
+
+  console.log(`init scale OK: ${isChecks} checks -- A1's three initialization rules recomputed from the handout, with the truncated moments integrated by Simpson (${isSteps} intervals) where the app solves them in closed form: truncation at +-3 sigma lowers the realized spread by exactly ${(isBias * 100).toFixed(6)} % at every table size, so a tolerance below that figure fails a correct implementation however many weights it has, while the sampling scatter falls as 1/sqrt(n) and is ${(isBias / isApi.isScatter(10000000)).toFixed(2)} times smaller at ten million; the variant that carries the embedding's +-3 bounds over to the linear tables therefore lands on exactly 0.0000 % on all 4 of them -- closer to sigma than the by-the-book implementation -- and is the one wrong variant the variance test never catches at any of the ${isApi.IS_TOLERANCES.length} offered tolerances (${isSweep} table/variant/tolerance combinations), while the bounds test sees it through the ${isApi.isVariantRow(isApi.isTableOf("attn"), "plainBounds").outsideCount.toFixed(1)} of ${isApi.isTableOf("attn").count} weights it leaves outside; the usable tolerance window is ${(isWindow.low * 100).toFixed(4)} % to ${(isWindow.high * 100).toFixed(4)} %, both edges found again by scanning ${isScan} tolerances rather than read back out of the app, and sigma is symmetric in d_in and d_out over ${isSymmetric} grid pairs while d_in*sigma^2 equals one on exactly the ${isUnitCases} square ones`);
+}
