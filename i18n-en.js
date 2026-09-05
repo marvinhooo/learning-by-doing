@@ -4992,7 +4992,7 @@ window.CS336_EN = Object.freeze({
           "derive": "Work through a scalar two-step optimization example by hand, including moments, Bias Correction, decoupled Weight Decay, and the Schedule boundaries.",
           "evidence": "You can test Loss reduction, global Gradient Clipping, Optimizer state, and Step indexing at boundary values and state the expected update direction.",
           "failure": "First lead: Log the Loss value, gradient, clipped gradient, adaptive Adam term, Decay term, and current Learning Rate separately.",
-          "concepts": ["cross-entropy", "adamw", "schedules", "clipping"],
+          "concepts": ["logs", "cross-entropy", "adamw", "schedules", "clipping"],
           "labs": ["decay-horizon", "optimizer", "loss-and-clip", "resume-contract"]
         },
         {

@@ -9628,6 +9628,77 @@ console.log(`english render OK: ${englishStates} states across ${englishLabs} la
   if (clWithout !== clOrphans.length) throw new Error("concept experiments: the two counts of concepts without an experiment disagree");
   if (clWith < 50) throw new Error(`concept experiments: only ${clWith} concepts offer an experiment, which is below what the map is supposed to deliver`);
   console.log(`concept experiments OK: ${clChecks} checks -- ${clPairs} lab/concept pairs, every one of them co-located by a lecture, module or mission rather than invented, ${clWith} of ${base.concepts.length} concept pages now offer the experiment that computes them (${clButtons} buttons read back out of the real markup in both languages), all ${base.labs.length} labs reachable from a concept, and the remaining ${clWithout} concepts print no section at all rather than an empty one (${clOrphans.slice(0, 6).join(", ")}${clOrphans.length > 6 ? ", …" : ""})`);
+
+// ---- prerequisite sprint: the one ordered path, with an experiment at every station ---------
+// "How do I build the prerequisites fast?" has exactly one answer surface in the app: the
+// optional Module 00 run-through on the dashboard, whose cards are ordered so each one only
+// relies on the ones before it. Step 2 of the front page's own five-step method is "do that
+// lecture's lab", and until v100 one station of that path could not honour it: `logs`
+// (Log-Sum-Exp and numerical stability) offered no experiment, while `loss-and-clip` -- which
+// computes exactly its two failure modes, exp overflowing to infinity and the log/exp
+// cancellation against underflow -- sat one module away and was never offered there. It was the
+// only one of the ten, and the app itself named `logs` as a deciding concept of a1:softmax,
+// a1:cross_entropy and a5:get_response_log_probs while handing the reader nothing to compute.
+// The pairing is not an invention: `concept experiments` above still requires co-location, and
+// mission a1:optimization owns both the `cross_entropy` problem that turns on `logs` and the
+// `loss-and-clip` lab. This block keeps the path whole in both directions.
+{
+  const psModule = base.modules.find(module => module.id === "foundations");
+  if (!psModule) throw new Error("prerequisite sprint: the foundations module is gone, so the ordered path has no source");
+
+  // The guard has to measure the list the dashboard actually walks, not a second copy of it.
+  const psSource = sliceDeclaration(source, "foundationSprintConcepts");
+  if (!psSource.includes('byId(MODULES,"foundations")') || !psSource.includes(".concepts"))
+    throw new Error("prerequisite sprint: foundationSprintConcepts no longer reads the foundations module, so this block would be checking a different list than the page renders");
+
+  const psIds = psModule.concepts || [];
+  if (psIds.length < 8) throw new Error(`prerequisite sprint: only ${psIds.length} stations left on the ordered path -- shrinking the list is not a way to make it complete`);
+  const psUnique = new Set(psIds);
+  if (psUnique.size !== psIds.length) throw new Error("prerequisite sprint: a station appears twice on the ordered path");
+
+  let psChecks = 0, psButtons = 0;
+  const psRows = [];
+  for (const conceptId of psIds) {
+    const concept = base.concepts.find(entry => entry.id === conceptId);
+    if (!concept) throw new Error(`prerequisite sprint: station ${conceptId} has no concept page`);
+    const labs = base.labs.filter(lab => (clApi.LAB_CONCEPTS[lab.id] || []).includes(conceptId)).map(lab => lab.id);
+    // The point of the block: reading without a way to compute it is the gap this closes.
+    if (!labs.length)
+      throw new Error(`prerequisite sprint: ${conceptId} is a station on the ordered prerequisite path but offers no experiment, so step 2 of the app's own method cannot be followed there`);
+    psRows.push([conceptId, labs]);
+    psChecks++;
+    // Render-backed, in both languages: the pairing has to reach the screen, not just the table.
+    for (const language of ["de", "en"]) {
+      clRender.set(language === "en" ? clEnglishLabs : clGermanLabs, language);
+      const markup = clRender.markup(concept);
+      const rendered = [...markup.matchAll(/data-open-lab="([a-z0-9-]+)"/gu)].map(hit => hit[1]);
+      for (const labId of labs) {
+        if (!rendered.includes(labId))
+          throw new Error(`prerequisite sprint: ${conceptId}/${language} does not put ${labId} on the screen`);
+        psButtons++;
+      }
+      psChecks++;
+    }
+  }
+
+  // The other direction (v99's lesson: a list is only checked when both ways are checked). The
+  // reason `logs` carries an experiment is that three problems turn on log-space arithmetic; if
+  // that stops being true the pairing needs re-deriving, not silently keeping.
+  // A second check -- "logs also has to stay on the sprint path" -- was written here and then
+  // removed as unreachable rather than left in as decoration: it could not be made to fire.
+  // Dropping the station makes `problem concepts` fail first ("a5:get_response_log_probs points
+  // at logs, which this assignment never reaches"), and keeping it reachable by moving it onto a
+  // lecture instead makes the modules guard fail first ("concept logs belongs to foundations"),
+  // because a concept's own `module` field pins its home. The path membership is enforced there.
+  for (const problemKey of ["a1:softmax", "a1:cross_entropy", "a5:get_response_log_probs"]) {
+    if (!(problemConcepts[problemKey] || []).includes("logs"))
+      throw new Error(`prerequisite sprint: ${problemKey} no longer names logs, so the reason this station carries an experiment is gone -- re-derive it rather than deleting the check`);
+  }
+
+  const psWithout = base.concepts.filter(concept => !base.labs.some(lab => (clApi.LAB_CONCEPTS[lab.id] || []).includes(concept.id))).map(concept => concept.id);
+  if (psWithout.some(id => psUnique.has(id))) throw new Error("prerequisite sprint: the two counts of stations without an experiment disagree");
+  console.log(`prerequisite sprint OK: ${psChecks} checks -- all ${psIds.length} stations of the ordered Module 00 path offer the experiment that computes them (${psButtons} buttons read back out of the real markup in both languages), where before v100 \`logs\` was the one station that ended in reading while \`loss-and-clip\` computed its own two failure modes one module away; the three problems that turn on log-space arithmetic (${["a1:softmax", "a1:cross_entropy", "a5:get_response_log_probs"].join(", ")}) still name it, checked in both directions`);
+}
 }
 
 // ---- lab render sweep: every lab, through the real app, without a browser -------------------
