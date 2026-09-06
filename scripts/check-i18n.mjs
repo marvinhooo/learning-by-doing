@@ -11083,3 +11083,252 @@ ${sliceDeclaration(source, "piiCountTrap")}
 
   console.log(`init scale OK: ${isChecks} checks -- A1's three initialization rules recomputed from the handout, with the truncated moments integrated by Simpson (${isSteps} intervals) where the app solves them in closed form: truncation at +-3 sigma lowers the realized spread by exactly ${(isBias * 100).toFixed(6)} % at every table size, so a tolerance below that figure fails a correct implementation however many weights it has, while the sampling scatter falls as 1/sqrt(n) and is ${(isBias / isApi.isScatter(10000000)).toFixed(2)} times smaller at ten million; the variant that carries the embedding's +-3 bounds over to the linear tables therefore lands on exactly 0.0000 % on all 4 of them -- closer to sigma than the by-the-book implementation -- and is the one wrong variant the variance test never catches at any of the ${isApi.IS_TOLERANCES.length} offered tolerances (${isSweep} table/variant/tolerance combinations), while the bounds test sees it through the ${isApi.isVariantRow(isApi.isTableOf("attn"), "plainBounds").outsideCount.toFixed(1)} of ${isApi.isTableOf("attn").count} weights it leaves outside; the usable tolerance window is ${(isWindow.low * 100).toFixed(4)} % to ${(isWindow.high * 100).toFixed(4)} %, both edges found again by scanning ${isScan} tolerances rather than read back out of the app, and sigma is symmetric in d_in and d_out over ${isSymmetric} grid pairs while d_in*sigma^2 equals one on exactly the ${isUnitCases} square ones`);
 }
+
+// ---- seed variance: the two noise sources A5 grades you on, recomputed ----------------------
+// A5 asks for a judgement about spread at three graded places, worth 16 points together:
+// grpo_experiments_standard_on_policy wants "how much variance there is between runs" and an
+// accuracy "averaged across random seeds"; grpo_learning_rate says literally "Based on the
+// amount of variance you observed in the previous part, you should decide how many random
+// seeds you want to use"; grpo_prompt_ablation asks "Based on the variance between runs, how
+// confident are you in your findings?". The deciding concept for all three -- and for A1's
+// four ablations on top -- is `benchmark-validity`.
+//
+// That concept page knew exactly one spread: the sampling error over the test cases,
+// SE = sqrt(p(1-p)/n). For the question actually asked that is the wrong quantity, and it is
+// the narrower of the two, so it looks more convincing. Everything below is derived a second
+// time and by a different route than the app takes: the sampling error by enumerating the
+// binomial distribution term by term where the app uses the closed form, the seed counts by
+// scanning upward from one rather than by the closed form, and the crossover and the floor by
+// sweeping rather than by reading the app's own answer back out.
+{
+  const svSource = ["SV_Z", "SV_NVAL", "SV_BAR", "SV_SEEDS_REQUIRED", "SV_BUDGET_EXPERIMENTS",
+    "SV_COST_PER_RUN", "SV_BUDGET_SWEEP", "SV_SIGMAS", "SV_SEEDCOUNTS", "SV_VALSETS",
+    "SV_SHARING", "SV_DELTAS", "SV_ARMS", "svOptionOf", "svEvalSe", "svSeedSe", "svTotalSe",
+    "svCrossover", "svSeedsNeeded", "svSmallestGap"];
+  const svApi = runInNewContext(`${numberPrelude}${svSource.map(name => sliceDeclaration(source, name)).join("\n")}\n({${svSource.join(",")}})`, {});
+  const svFail = message => { throw new Error(`seed variance: ${message}`); };
+  const svClose = (a, b, eps) => Math.abs(a - b) <= eps;
+  let svChecks = 0;
+
+  // --- 1. A5's own constants, retyped from the handout ----------------------------------
+  // Section 4.3 lists n_val_examples = 1024 among the suggested hyperparameters, asks for
+  // 4 random seeds, writes 1.96 into its own interval line, and sets the bar at a final
+  // validation accuracy of at least 25 % averaged across seeds. The two budgets are the
+  // problem headers: 2 B200 hrs for grpo_experiments, 4 for grpo_learning_rate.
+  const svHandout = { nval: 1024, seeds: 4, bar: 0.25, z: 1.96, budgetExperiments: 2, budgetSweep: 4 };
+  if (svApi.SV_NVAL !== svHandout.nval) svFail(`n_val_examples is ${svApi.SV_NVAL}, and A5 4.3 prescribes ${svHandout.nval}`);
+  if (svApi.SV_SEEDS_REQUIRED !== svHandout.seeds) svFail(`the app asks for ${svApi.SV_SEEDS_REQUIRED} seeds, and A5 4.3 asks for ${svHandout.seeds}`);
+  if (svApi.SV_BAR !== svHandout.bar) svFail(`the bar is ${svApi.SV_BAR}, and A5 sets it at ${svHandout.bar}`);
+  if (svApi.SV_Z !== svHandout.z) svFail(`the interval factor is ${svApi.SV_Z}, and A5 4.3 writes ${svHandout.z}`);
+  if (svApi.SV_BUDGET_EXPERIMENTS !== svHandout.budgetExperiments) svFail(`grpo_experiments is budgeted at ${svApi.SV_BUDGET_EXPERIMENTS} B200 hours, and the handout header says ${svHandout.budgetExperiments}`);
+  if (svApi.SV_BUDGET_SWEEP !== svHandout.budgetSweep) svFail(`the sweep is budgeted at ${svApi.SV_BUDGET_SWEEP} B200 hours, and the handout header says ${svHandout.budgetSweep}`);
+  // The price of one run is the only figure not printed in the handout. It must stay a
+  // derivation from two figures that are, and never drift into an invented constant.
+  if (!svClose(svApi.SV_COST_PER_RUN, svHandout.budgetExperiments / svHandout.seeds, 1e-12))
+    svFail(`the price of a run is ${svApi.SV_COST_PER_RUN} and does not equal the handout's ${svHandout.budgetExperiments} hours divided by its ${svHandout.seeds} seeds`);
+  svChecks += 7;
+
+  // --- 2. the sampling error, enumerated rather than solved ------------------------------
+  // The app evaluates sqrt(p(1-p)/n). Summing k*(k/n - p)^2 over the exact binomial pmf shares
+  // neither the closed form nor its derivation, so agreement is evidence rather than an echo.
+  // The pmf runs through log-gamma so that n = 4096 does not overflow a binomial coefficient.
+  const svLogGamma = x => {
+    const g = [676.5203681218851, -1259.1392167224028, 771.32342877765313, -176.61502916214059,
+      12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7];
+    if (x < 0.5) return Math.log(Math.PI / Math.sin(Math.PI * x)) - svLogGamma(1 - x);
+    const z = x - 1;
+    let a = 0.99999999999980993, t = z + 7.5;
+    for (let i = 0; i < g.length; i++) a += g[i] / (z + i + 1);
+    return 0.5 * Math.log(2 * Math.PI) + (z + 0.5) * Math.log(t) - t + Math.log(a);
+  };
+  const svLogChoose = (n, k) => svLogGamma(n + 1) - svLogGamma(k + 1) - svLogGamma(n - k + 1);
+  const svEnumeratedSe = (p, n) => {
+    let mass = 0, mean = 0, second = 0;
+    for (let k = 0; k <= n; k++) {
+      const w = Math.exp(svLogChoose(n, k) + k * Math.log(p) + (n - k) * Math.log(1 - p));
+      mass += w; mean += w * (k / n); second += w * (k / n) * (k / n);
+    }
+    return { mass, se: Math.sqrt(second / mass - Math.pow(mean / mass, 2)), mean: mean / mass };
+  };
+  let svEnumerated = 0;
+  for (const valset of svApi.SV_VALSETS) {
+    const exact = svEnumeratedSe(svApi.SV_BAR, valset.value);
+    if (!svClose(exact.mass, 1, 1e-9)) svFail(`the enumerated binomial over ${valset.value} draws sums to ${exact.mass} instead of one`);
+    if (!svClose(exact.mean, svApi.SV_BAR, 1e-9)) svFail(`the enumerated binomial over ${valset.value} draws has mean ${exact.mean} instead of the bar ${svApi.SV_BAR}`);
+    const closed = svApi.svEvalSe(svApi.SV_BAR, valset.value);
+    if (!svClose(exact.se, closed, 1e-9)) svFail(`over ${valset.value} examples the enumerated sampling error is ${exact.se.toFixed(9)} where the app computes ${closed.toFixed(9)}`);
+    svEnumerated += valset.value + 1;
+    svChecks += 3;
+  }
+  // The figure the lab prints at A5's own settings, and the one the concept page names alone.
+  const svEvalAtBar = svApi.svEvalSe(svApi.SV_BAR, svApi.SV_NVAL);
+  if (!svClose(svEvalAtBar * 100, 1.353165, 5e-7)) svFail(`the sampling error at the bar over ${svApi.SV_NVAL} examples is ${(svEvalAtBar * 100).toFixed(6)} and the lab card prints 1.353165`);
+  svChecks += 1;
+
+  // --- 3. the two errors move on different levers ----------------------------------------
+  // The claim the lab is built on: more validation examples touch only the first, more seeds
+  // touch only the second. Checked as a property over the whole grid, not on one example.
+  let svLever = 0;
+  for (const sigma of svApi.SV_SIGMAS) for (const seeds of svApi.SV_SEEDCOUNTS) {
+    const base = svApi.svSeedSe(sigma.value, seeds.value);
+    for (const valset of svApi.SV_VALSETS) {
+      if (svApi.svSeedSe(sigma.value, seeds.value) !== base) svFail(`the seed error moved when only the validation set changed (sigma ${sigma.value}, ${seeds.value} seeds, ${valset.value} examples)`);
+      const evalSe = svApi.svEvalSe(svApi.SV_BAR, valset.value);
+      if (svApi.svEvalSe(svApi.SV_BAR, valset.value) !== evalSe) svFail("the sampling error is not a function of p and n_val alone");
+      svLever += 2;
+    }
+  }
+  svChecks += svLever;
+
+  // --- 4. the floor a shared validation set lays down --------------------------------------
+  // The punchline of mode A: with every seed scored on the same questions the total error is
+  // strictly decreasing in the seed count and converges to the sampling error without ever
+  // reaching it, while a set drawn fresh per seed drives it to zero. Both directions are swept
+  // rather than argued, and the limit is approached from above at every step.
+  const svSweepSeeds = 4096;
+  let svFloorChecks = 0;
+  for (const sigma of svApi.SV_SIGMAS) for (const valset of svApi.SV_VALSETS) {
+    const evalSe = svApi.svEvalSe(svApi.SV_BAR, valset.value);
+    let previousShared = Infinity, previousFresh = Infinity;
+    for (let n = 1; n <= svSweepSeeds; n *= 2) {
+      const shared = svApi.svTotalSe(sigma.value, n, svApi.SV_BAR, valset.value, true);
+      const fresh = svApi.svTotalSe(sigma.value, n, svApi.SV_BAR, valset.value, false);
+      if (!(shared < previousShared)) svFail(`the shared-set total error did not fall from ${previousShared} to ${shared} at ${n} seeds (sigma ${sigma.value}, ${valset.value} examples)`);
+      if (!(fresh < previousFresh)) svFail(`the fresh-set total error did not fall at ${n} seeds`);
+      if (shared <= evalSe) svFail(`at ${n} seeds the shared-set total error ${shared} reached or crossed the sampling floor ${evalSe}, which no seed budget may do`);
+      if (!(fresh <= shared)) svFail(`at ${n} seeds a set drawn fresh per seed (${fresh}) is not at most the shared-set error (${shared})`);
+      previousShared = shared; previousFresh = fresh;
+      svFloorChecks += 4;
+    }
+    // The limit itself: at the far end of the sweep the shared total must sit on the floor.
+    const far = svApi.svTotalSe(sigma.value, 1e12, svApi.SV_BAR, valset.value, true);
+    if (!svClose(far, evalSe, 1e-12)) svFail(`the shared-set total error converges to ${far} instead of the sampling error ${evalSe}`);
+    // The fresh-set case has no floor at all: far enough out it passes below the sampling
+    // error and keeps going. That contrast is the whole reason the shared floor is a finding.
+    const farFresh = svApi.svTotalSe(sigma.value, 1e12, svApi.SV_BAR, valset.value, false);
+    if (!(farFresh < evalSe * 1e-3)) svFail(`a set drawn fresh per seed still leaves ${farFresh} far out, so it has a floor too`);
+    // And the crossing happens at a countable seed number rather than never.
+    let crossing = null;
+    for (let n = 1; n <= 1e7; n *= 2) { if (svApi.svTotalSe(sigma.value, n, svApi.SV_BAR, valset.value, false) < evalSe) { crossing = n; break; } }
+    if (crossing === null) svFail(`the fresh-set error never passes below the sampling error at sigma ${sigma.value}`);
+    svFloorChecks += 3;
+  }
+  svChecks += svFloorChecks;
+
+  // --- 5. the crossover, found by scanning ------------------------------------------------
+  // "Both sources are equal in size at sigma = SE_eval*sqrt(n)" is checked by walking sigma on
+  // a fine grid and locating the sign change of SE_seed - SE_eval, never by the closed form.
+  const svScanSteps = 200000, svScanTop = 0.2;
+  let svCrossChecks = 0;
+  for (const seeds of svApi.SV_SEEDCOUNTS) for (const valset of svApi.SV_VALSETS) {
+    const evalSe = svApi.svEvalSe(svApi.SV_BAR, valset.value);
+    let found = null;
+    for (let i = 1; i <= svScanSteps; i++) {
+      const sigma = svScanTop * i / svScanSteps;
+      if (svApi.svSeedSe(sigma, seeds.value) >= evalSe) { found = sigma; break; }
+    }
+    if (found === null) svFail(`no crossover found below sigma ${svScanTop} at ${seeds.value} seeds and ${valset.value} examples`);
+    const declared = svApi.svCrossover(seeds.value, svApi.SV_BAR, valset.value);
+    if (!svClose(found, declared, 2 * svScanTop / svScanSteps)) svFail(`the scanned crossover ${found} and the app's ${declared} disagree at ${seeds.value} seeds and ${valset.value} examples`);
+    // Below it the sampling error dominates, above it the seed error -- the direction matters.
+    if (!(svApi.svSeedSe(declared * 0.9, seeds.value) < evalSe)) svFail(`below the crossover the seed error is not the smaller one at ${seeds.value} seeds`);
+    if (!(svApi.svSeedSe(declared * 1.1, seeds.value) > evalSe)) svFail(`above the crossover the seed error is not the larger one at ${seeds.value} seeds`);
+    svCrossChecks += 3;
+  }
+  svChecks += svCrossChecks;
+  const svCrossAtHandout = svApi.svCrossover(svApi.SV_SEEDS_REQUIRED, svApi.SV_BAR, svApi.SV_NVAL);
+  if (!svClose(svCrossAtHandout * 100, 2.706329, 5e-7)) svFail(`the crossover at A5's four seeds is ${(svCrossAtHandout * 100).toFixed(6)} and the report records 2.706329`);
+  svChecks += 1;
+
+  // --- 6. how many seeds a gap needs, counted upward --------------------------------------
+  // The app closes the form n = 2(z sigma/delta)^2. The guard instead walks n from one and
+  // takes the first count whose smallest resolvable gap fits under delta -- and asserts the
+  // count below it does not, which is the half a one-sided check would miss.
+  let svSeedGrid = 0;
+  for (const sigma of svApi.SV_SIGMAS) for (const delta of svApi.SV_DELTAS) {
+    let scanned = null;
+    for (let n = 1; n <= 100000; n++) {
+      if (svApi.svSmallestGap(sigma.value, n) <= delta.value) { scanned = n; break; }
+    }
+    if (scanned === null) svFail(`no seed count under 100000 resolves ${delta.value} at sigma ${sigma.value}`);
+    const closed = Math.max(1, Math.ceil(svApi.svSeedsNeeded(sigma.value, delta.value)));
+    if (scanned !== closed) svFail(`scanning finds ${scanned} seeds per arm for a gap of ${delta.value} at sigma ${sigma.value} where the closed form gives ${closed}`);
+    if (scanned > 1 && svApi.svSmallestGap(sigma.value, scanned - 1) <= delta.value) svFail(`${scanned - 1} seeds already resolve ${delta.value} at sigma ${sigma.value}, so the count is one too many`);
+    // And back the other way: the gap the app reports as reachable must actually be reachable.
+    if (!(svApi.svSmallestGap(sigma.value, scanned) <= delta.value)) svFail(`${scanned} seeds do not reach ${delta.value} at sigma ${sigma.value}`);
+    svSeedGrid += 4;
+  }
+  svChecks += svSeedGrid;
+
+  // --- 7. the quadratic, over a grid ------------------------------------------------------
+  // "Halving the gap quadruples the runs" is the sentence the shape-change box prints. Held
+  // against the unrounded requirement so that rounding cannot make it look true or false.
+  let svQuadratic = 0;
+  for (const sigma of svApi.SV_SIGMAS) for (let i = 1; i <= 400; i++) {
+    const delta = 0.001 * i;
+    const ratio = svApi.svSeedsNeeded(sigma.value, delta / 2) / svApi.svSeedsNeeded(sigma.value, delta);
+    if (!svClose(ratio, 4, 1e-9)) svFail(`halving a gap of ${delta} at sigma ${sigma.value} multiplies the required seeds by ${ratio} instead of four`);
+    svQuadratic += 1;
+  }
+  svChecks += svQuadratic;
+
+  // --- 8. the budget arithmetic of grpo_learning_rate --------------------------------------
+  // The figure the lab leads with: what the four B200 hours actually buy, and what stays out
+  // of reach because of it.
+  const svAffordable = Math.floor(svApi.SV_BUDGET_SWEEP / svApi.SV_COST_PER_RUN);
+  if (svAffordable !== 8) svFail(`the sweep budget buys ${svAffordable} runs and the report records eight`);
+  const svThreeArms = svApi.svOptionOf(svApi.SV_ARMS, "a3");
+  if (svThreeArms.value !== 3) svFail("the default sweep arm count is no longer three learning rates");
+  const svPerArm = Math.floor(svAffordable / svThreeArms.value);
+  if (svPerArm !== 2) svFail(`three learning rates leave ${svPerArm} seeds per arm and the report records two`);
+  const svReach = svApi.svSmallestGap(0.03, svPerArm);
+  if (!svClose(svReach * 100, 5.88, 1e-9)) svFail(`the smallest resolvable gap at three points of spread and two seeds is ${(svReach * 100).toFixed(6)} and the lab card prints 5.880000`);
+  // And the counter-figure: resolving two points instead costs this multiple of the budget.
+  const svTwoPointSeeds = Math.ceil(svApi.svSeedsNeeded(0.03, 0.02));
+  if (svTwoPointSeeds !== 18) svFail(`resolving two points at three points of spread needs ${svTwoPointSeeds} seeds per arm and the lab card prints 18`);
+  const svTwoPointShare = svTwoPointSeeds * svThreeArms.value * svApi.SV_COST_PER_RUN / svApi.SV_BUDGET_SWEEP;
+  if (!svClose(svTwoPointShare, 6.75, 1e-9)) svFail(`that costs ${svTwoPointShare.toFixed(4)} times the budget and the lab card prints 6.7500`);
+  svChecks += 6;
+
+  // --- 9. the three figures the panel's own answer key names --------------------------------
+  // The check the reader passes must be keyed on the numbers the stage prints, in both
+  // languages. A wrong key is invisible to every other block: the lab would still render.
+  const svSeedSeAtHandout = svApi.svSeedSe(0.03, svApi.SV_SEEDS_REQUIRED);
+  const svTotalAtHandout = svApi.svTotalSe(0.03, svApi.SV_SEEDS_REQUIRED, svApi.SV_BAR, svApi.SV_NVAL, true);
+  if (!svClose(svSeedSeAtHandout * 100, 1.5, 1e-9)) svFail(`the seed error at A5's settings is ${(svSeedSeAtHandout * 100).toFixed(6)} and the answer key names 1.500000`);
+  if (!svClose(svTotalAtHandout * 100, 2.020162, 5e-7)) svFail(`the joint error at A5's settings is ${(svTotalAtHandout * 100).toFixed(6)} and the answer key names 2.020162`);
+  const svUnderstated = svTotalAtHandout / svEvalAtBar - 1;
+  if (!svClose(svUnderstated * 100, 49.2917, 5e-5)) svFail(`the concept page's interval is ${(svUnderstated * 100).toFixed(4)} % too narrow and the success text names 49.2917`);
+  const svKey = source.slice(source.indexOf("function checkSeedVariance("), source.indexOf("function checkSeedVariance(") + 1200);
+  for (const [name, option] of [["which", "both"], ["floor", "shared"], ["budget", "two"]]) {
+    if (!svKey.includes(`${name}==="${option}"`)) svFail(`the short check no longer accepts "${option}" for the ${name} question -- the key and the stage have drifted apart`);
+    svChecks += 1;
+  }
+  const svPanel = source.slice(source.indexOf('if(id==="seed-variance") return'));
+  const svPanelLine = svPanel.slice(0, svPanel.indexOf("\n"));
+  for (const option of ["both", "shared", "two"]) {
+    if (!svPanelLine.includes(`value="${option}"`)) svFail(`the panel offers no option "${option}", so the accepted answer cannot be chosen`);
+    svChecks += 1;
+  }
+  // Each language must state the same three figures in the option the key accepts.
+  for (const [pack, figures] of [[source, ["1,353165", "1,500000", "2,020162", "5,880000", "0,500000"]],
+    [englishSource, ["1.353165", "1.500000", "2.020162", "5.880000", "0.500000"]]]) {
+    for (const figure of figures) {
+      if (!pack.includes(figure)) svFail(`the figure ${figure} is missing on one of the two language sides of the panel`);
+      svChecks += 1;
+    }
+  }
+  svChecks += 5;
+
+  // --- 10. the correction on the concept page, in both languages ---------------------------
+  // The page used to present sqrt(p(1-p)/n) as "the" uncertainty of a measured accuracy. That
+  // sentence licensed exactly the mistake A5 grades. Both sides must now name the second half.
+  for (const [label, text, phrase] of [
+    ["de", source, "sagt nichts darüber, wie stark ein zweiter Trainingslauf mit anderem Seed abweicht"],
+    ["en", englishSource, "says nothing about how far a second training run with a different seed lands"]]) {
+    if (!text.includes(phrase)) svFail(`the ${label} concept page no longer separates the two error sources -- it is back to naming one of them as the uncertainty`);
+    svChecks += 1;
+  }
+
+  console.log(`seed variance OK: ${svChecks} checks -- the two spreads A5 grades, recomputed from its own hyperparameters: the sampling error is re-derived by enumerating the binomial term by term (${svEnumerated} terms) where the app closes the form, and lands on ${(svEvalAtBar * 100).toFixed(6)} percentage points at the 25 % bar over ${svApi.SV_NVAL} examples -- against ${(svSeedSeAtHandout * 100).toFixed(6)} from the four seeds A5 prescribes, so neither is the footnote of the other and the figure that carries both is ${(svTotalAtHandout * 100).toFixed(6)}, making the concept page's interval ${(svUnderstated * 100).toFixed(4)} % too narrow; the two move on separate levers over ${svLever} grid points, and because every seed is scored on the same questions the shared-set total falls strictly but never reaches the sampling floor across a sweep to ${svSweepSeeds} seeds, while a set drawn fresh per seed has no floor at all and is shown to pass below that same value at a countable seed count; the crossover ${(svCrossAtHandout * 100).toFixed(6)} is found again by scanning ${svScanSteps} values of sigma with both sides of it held, and the seeds a gap needs are counted upward from one instead of closed (${svSeedGrid / 4} sigma/gap pairs, each with the count below it shown to fail) while halving a gap quadruples them exactly over ${svQuadratic} further pairs; and A5's own budget line buys ${svAffordable} runs, so three learning rates leave ${svPerArm} seeds per arm and every gap under ${(svReach * 100).toFixed(6)} points stays unprovable, where resolving two would cost ${svTwoPointShare.toFixed(4)} times the budget`);
+}
