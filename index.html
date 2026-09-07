@@ -873,7 +873,7 @@
       *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
     }
   </style>
-  <script src="i18n-en.js?v=82"></script>
+  <script src="i18n-en.js?v=83"></script>
   <script src="config.js"></script>
   <script src="vendor/supabase.js"></script>
 </head>
@@ -2696,11 +2696,13 @@
         "details": [
           "Ein 2D-Launchgrid hat beispielsweise (ceil_div(R,BR), ceil_div(C,BC)). program_id(0) und program_id(1) wählen die beiden Tileachsen; Offsets entstehen aus pid·Blockgröße plus arange. Ein Block Pointer dokumentiert Basis, Gesamtshape, Strides, Offsets, Blockshape und Speicherordnung. Loads und Stores am Rand benötigen die verbundene Maske row<R und col<C, damit das letzte Tile in beiden Achsen sicher bleibt.",
           "Beim gewichteten Zeilensummen-Kernel y_r=Σ_d X_rd·w_d gilt dX_rd=g_r·w_d und dw_d=Σ_r X_rd·g_r. dX lässt sich unabhängig pro Element schreiben. Mehrere Zeilentiles tragen aber zum selben dw_d bei; ohne Atomics erzeugt jedes Zeilenprogram deshalb einen Partial-Buffer mit Shape [n_row_tiles,D], den ein zweiter Kernel über die erste Achse reduziert. Eine Barriere innerhalb eines Programs synchronisiert keine verschiedenen Programs.",
-          "FlashAttention-Backward speichert Q, K, V, O und L=logsumexp(S) pro Queryzeile. Es berechnet D_row=rowsum(O⊙dO), rekonstruiert S=QKᵀ/√d samt derselben kausalen Maske und P=exp(S−L), dann dV=PᵀdO, dP=dOVᵀ, dS=P⊙(dP−D_row), dQ=dSK/√d und dK=dSᵀQ/√d. Als numerische Invariante summiert jede unmaskierte dS-Zeile näherungsweise zu null."
+          "FlashAttention-Backward speichert Q, K, V, O und L=logsumexp(S) pro Queryzeile. Es berechnet D_row=rowsum(O⊙dO), rekonstruiert S=QKᵀ/√d samt derselben kausalen Maske und P=exp(S−L), dann dV=PᵀdO, dP=dOVᵀ, dS=P⊙(dP−D_row), dQ=dSK/√d und dK=dSᵀQ/√d. Als numerische Invariante summiert jede unmaskierte dS-Zeile näherungsweise zu null.",
+          "Die Zeileninvariante rowsum(dS)=0 ist notwendig und nicht hinreichend. Sie folgt allein daraus, dass softmax(x+c)=softmax(x) gilt: die Jacobi-Matrix der Softmax hat Zeilensumme null, also ist Σ_j dS_ij = dO_i·O_i − D_row_i = 0 für jede erlaubte Queryzeile. In dieser Herleitung kommt kein Skalenfaktor vor. Ein Backward, das den Faktor 1/√d in dQ=dS·K/√d und dK=dSᵀ·Q/√d vergisst oder zweimal anwendet, verändert dS überhaupt nicht und besteht die Invariante deshalb auf Maschinengenauigkeit — bei jeder Toleranz. Weil ein solcher Fehler ein einheitlicher Faktor ist, besteht er auch eine Richtungsprüfung: der Kosinus zur Referenz ist exakt eins. Bei der Head-Dimension 64 aus A2s Benchmarkzeile ist der Gradient dabei um den Faktor 8 daneben. Nur ein Betragsvergleich mit einer Referenz fängt diese Familie, und dV=PᵀdO fängt sie nie, weil dV ohne dS auskommt."
         ],
         "pitfalls": [
           "Nur die Spaltenmaske prüfen: In einem echten 2D-Grid können sowohl das letzte Zeilen- als auch das letzte Spaltentile außerhalb der Matrix liegen.",
-          "Im Backward eine andere kausale Maske oder Log-Sum-Exp-Achse verwenden; dann sind rekonstruierte Wahrscheinlichkeiten und Gradienten trotz plausibler Shapes falsch."
+          "Im Backward eine andere kausale Maske oder Log-Sum-Exp-Achse verwenden; dann sind rekonstruierte Wahrscheinlichkeiten und Gradienten trotz plausibler Shapes falsch.",
+          "rowsum(dS)≈0 als Korrektheitsbeweis lesen: die Invariante ist skaleninvariant und übersieht jeden vergessenen oder verdoppelten Faktor 1/√d in dQ und dK — genau die Fehlerfamilie, die den Gradienten am stärksten verfälscht."
         ],
         "checks": [
           "Welche Grid- und Partial-Buffer-Shape entstehen für R=37, D=70, BR=16 und BD=32?",
@@ -2710,7 +2712,7 @@
         "sources": ["l06","a2"],
         "answers": [
           "Das 2D-Grid besitzt ceil(37/16)=3 Zeilentiles und ceil(70/32)=3 Spaltentiles. Für die über Zeilen zu reduzierende Ableitung dw erzeugt man ohne Atomics einen Partial-Buffer [3,70]; die Spaltentiles schreiben dabei disjunkte D-Bereiche innerhalb jeder Partial-Zeile.",
-          "Gespeichert werden Q, K, V, O und die zeilenweise Statistik L. Scores und P werden mit identischer Skalierung und Maske rekonstruiert. Weil Softmax gegen einen gemeinsamen Zeilenoffset invariant ist, muss die Summe von dS über jede erlaubte Keyzeile numerisch ungefähr null sein."
+          "Gespeichert werden Q, K, V, O und die zeilenweise Statistik L. Scores und P werden mit identischer Skalierung und Maske rekonstruiert. Weil Softmax gegen einen gemeinsamen Zeilenoffset invariant ist, muss die Summe von dS über jede erlaubte Keyzeile numerisch ungefähr null sein. Diese Invariante ist notwendig und nicht hinreichend: in ihrer Herleitung kommt kein Skalenfaktor vor, ein vergessener oder verdoppelter Faktor 1/√d in dQ und dK besteht sie deshalb exakt — und eine Richtungsprüfung ebenfalls, weil der Fehler ein einheitlicher Faktor ist."
         ]
       },
       {
@@ -5200,12 +5202,12 @@
         transferQuestion:"Welche Terme reagieren linear beziehungsweise quadratisch, wenn nur T verdoppelt wird?"
       },
       {
-        id:"kernel-contracts",title:"2D-Triton & Flash-Backward Gate",module:"gpu",time:"12 min",desc:"Prüfe 2D-Grid, Randmasken, Partial-Buffer und die zentrale FlashAttention-Backward-Invariante.",
-        mental:"Ein 2D-Kernel besitzt zwei unabhängige Randachsen. Eine Reduktion über mehrere Programs benötigt expliziten Zwischenzustand oder Atomics. Flash-Backward rekonstruiert dagegen blockweise dieselben maskierten Wahrscheinlichkeiten aus gespeicherten Zeilenstatistiken.",
-        formula:"grid=(ceil(R/BR),ceil(D/BD))  ·  partial_dw:[ceil(R/BR),D]  ·  dS=P⊙(dOVᵀ−rowsum(O⊙dO))",
-        symbols:[["R,D","Zeilen und Featurebreite."],["BR,BD","Tilegrößen der zwei Gridachsen."],["partial_dw","Disjunkte partielle Reduktion pro Zeilentile."],["dS","Gradient der skalierten Attention-Scores."]],
-        observe:"Nutze R=37, D=70, BR=16 und BD=32. Leite beide Gridachsen, die Partial-Shape und die dS-Zeilensumme her.",
-        misconception:"Eine Program-Barriere synchronisiert keine anderen Programs; Forward- und Backward-Maske dürfen außerdem nicht voneinander abweichen.",
+        id:"kernel-contracts",title:"2D-Triton & das Backward-Gate, das keins ist",module:"gpu",time:"15 min",desc:"Rechne beide Gridachsen, die Randtiles und den Partial-Buffer für dw aus — und stelle danach vier falsche Backward-Varianten gegen drei Prüfungen. Die Invariante rowsum(dS)≈0, die dieses Lab bisher als Gate ausgab, ist wahr und lässt trotzdem eine ganze Fehlerfamilie durch: einen vergessenen oder verdoppelten Faktor 1/√d in dQ und dK sieht sie nicht, und eine Richtungsprüfung ebenso wenig.",
+        mental:"Ein 2D-Kernel besitzt zwei unabhängige Randachsen, und jede wird für sich aufgerundet. Eine Reduktion über mehrere Programs braucht expliziten Zwischenzustand oder Atomics. Flash-Backward rekonstruiert die maskierten Wahrscheinlichkeiten blockweise aus gespeicherten Zeilenstatistiken — und die naheliegende Selbstprüfung dafür ist rowsum(dS)≈0. Diese Invariante gilt, weil softmax(x+c)=softmax(x) ist und die Jacobi-Matrix der Softmax deshalb Zeilensumme null hat. Sie hängt damit an der Form von dS und an nichts sonst. Ein Fehler, der nur die Skala verschiebt, bleibt für sie unsichtbar; eine notwendige Bedingung ist keine hinreichende.",
+        formula:"grid=(ceil(R/BR),ceil(D/BD))  ·  partial_dw:[ceil(R/BR),D]  ·  dS=P⊙(dOVᵀ−rowsum(O⊙dO))  ·  dQ=dS·K/√d  ·  dV=Pᵀ·dO  ·  rowsum(dS)=0 unabhängig von jedem Skalenfaktor",
+        symbols:[["R,D","Zeilen und Featurebreite."],["BR,BD","Tilegrößen der zwei Gridachsen."],["partial_dw","Disjunkte partielle Reduktion pro Zeilentile."],["dS","Gradient der skalierten Attention-Scores."],["D_row","Die Zeilenkorrektur rowsum(O⊙dO): ein Skalar je Queryzeile, gebildet aus dem gespeicherten Output und dem eingehenden Gradienten."],["1/√d","Der Skalenfaktor der Scores. Er steht im Forward vor QKᵀ und im Backward erneut vor dS·K und dSᵀ·Q — genau die Stelle, an der die Zeilensummenprüfung blind ist."]],
+        observe:"Stelle in Modus A zuerst R=37, D=70, BR=16 und BD=32 ein und sage beide Gridachsen und die Partial-Shape voraus, bevor du sie abliest. Gehe danach in Modus B die vier falschen Varianten der Reihe nach durch und sage vor jedem Wechsel voraus, welche der drei Prüfungen anschlägt. Zwei der vier bestehen die erste Prüfung — sage vorher, welche zwei.",
+        misconception:"Eine Program-Barriere synchronisiert keine anderen Programs; Forward- und Backward-Maske dürfen außerdem nicht voneinander abweichen. Der teurere Irrtum aber ist, rowsum(dS)≈0 für einen Korrektheitsbeweis zu halten. Die Invariante ist skaleninvariant: ein vergessener oder verdoppelter Faktor 1/√d in dQ und dK lässt sie auf Maschinengenauigkeit unverändert, und weil ein solcher Fehler ein einheitlicher Faktor ist, ist auch der Kosinus zur Referenz exakt eins. Bei der Head-Dimension 64 aus A2s eigener Benchmarkzeile wäre der Gradient damit um den Faktor 8 daneben. Und dV=Pᵀ·dO benutzt dS gar nicht, sieht also keinen einzigen dieser Fehler.",
         transferQuestion:"Warum braucht dw einen zweiten Reduktionsschritt, dX aber nicht?"
       },
       {
@@ -5529,18 +5531,6 @@
           {prompt:"Forward FLOPs per block",options:[["3670016","3,670,016"],["1310720","1,310,720"],["8388608","8,388,608"]]},
           {prompt:"Total forward FLOPs including LM head",options:[["15106048","15,106,048"],["8138752","8,138,752"],["12010048","12,010,048"]]}
         ],hint:"Count SwiGLU as three matrices and add the untied LM head only after L·F_block.",success:"Parameters, per-block FLOPs, and total FLOPs match the complete A1 ledger."},answers:["288192","3670016","15106048"]
-      },
-      "kernel-contracts": {
-        de:{title:"Fester A2-Fall · R=37, D=70, BR=16, BD=32",questions:[
-          {prompt:"2D-Launchgrid",options:[["3x3","3 × 3 Programs"],["3x5","3 × 5 Programs"],["2x3","2 × 3 Programs"]]},
-          {prompt:"Partial-Buffer für dw ohne Atomics",options:[["3x70","[3,70]"],["9x70","[9,70]"],["37x3","[37,3]"]]},
-          {prompt:"Flash-Backward-Invariante",options:[["ds-zero","rowsum(dS)≈0 je erlaubter Queryzeile"],["dv-zero","rowsum(dV)=0"],["p-zero","rowsum(P)=0"]]}
-        ],hint:"Gridachsen werden separat aufgerundet; nur Zeilentiles teilen sich dieselben dw-Features.",success:"2D-Grid, Partial-Reduktion und Softmax-Gradienteninvariante sind korrekt getrennt."},
-        en:{title:"Fixed A2 case · R=37, D=70, BR=16, BD=32",questions:[
-          {prompt:"2D launch grid",options:[["3x3","3 × 3 programs"],["3x5","3 × 5 programs"],["2x3","2 × 3 programs"]]},
-          {prompt:"Partial buffer for dw without atomics",options:[["3x70","[3,70]"],["9x70","[9,70]"],["37x3","[37,3]"]]},
-          {prompt:"Flash backward invariant",options:[["ds-zero","rowsum(dS)≈0 for each allowed query row"],["dv-zero","rowsum(dV)=0"],["p-zero","rowsum(P)=0"]]}
-        ],hint:"Round each grid axis separately; only row tiles contribute to the same dw features.",success:"The 2D grid, partial reduction, and Softmax-gradient invariant are correctly separated."},answers:["3x3","3x70","ds-zero"]
       },
       "distributed-runtime": {
         de:{title:"Fester Distributed-Fall · d=4, t=4, p=2, B_micro=2, accum=4",questions:[
@@ -6021,7 +6011,7 @@
     function updateProgressUI(){}
     function toggleBookmark(type,id,focusSelector=""){ const key=type+":"+id; user.bookmarks=user.bookmarks.includes(key)?user.bookmarks.filter(x=>x!==key):[...user.bookmarks,key]; saveUser(true); toast(user.bookmarks.includes(key)?"Gespeichert":"Lesezeichen entfernt"); renderCurrent(); if(focusSelector)document.querySelector(focusSelector)?.focus(); }
     function isBookmarked(type,id){ return user.bookmarks.includes(type+":"+id); }
-    const OBJECTIVE_LAB_IDS = new Set(["pytorch-debugger","shapes","einsum-pattern","loss-and-clip","bpe-encode","rope-rotation","triton-tile","online-softmax-kata","scaling-fit","filtering-mechanics","bloom-filter","dedup-pipeline","dpo-loss","policy-loss-tracer","grpo","norm-and-ffn","comm-crossover","answer-parsing","decode-sampling","winrate-lc","batch-windows","mixed-precision","checkpoint-segments","shard-ledger","offpolicy-clip","advantage-normalizers","microbatch-denominator","baseline-variance","lsh-bands","quality-threshold","compression-ratio","resume-contract","ablation-controls","position-signal","stability-edge","pipeline-yield","decay-horizon","run-budget-ledger","target-config","run-plan","seed-variance",...Object.keys(LAB_OBJECTIVES)]);
+    const OBJECTIVE_LAB_IDS = new Set(["pytorch-debugger","shapes","einsum-pattern","loss-and-clip","bpe-encode","rope-rotation","triton-tile","online-softmax-kata","scaling-fit","filtering-mechanics","bloom-filter","dedup-pipeline","dpo-loss","policy-loss-tracer","grpo","norm-and-ffn","comm-crossover","answer-parsing","decode-sampling","winrate-lc","batch-windows","mixed-precision","checkpoint-segments","shard-ledger","offpolicy-clip","advantage-normalizers","microbatch-denominator","baseline-variance","lsh-bands","quality-threshold","compression-ratio","resume-contract","ablation-controls","position-signal","stability-edge","pipeline-yield","decay-horizon","run-budget-ledger","target-config","run-plan","seed-variance","kernel-contracts",...Object.keys(LAB_OBJECTIVES)]);
     function labHasObjectiveCheck(id){return OBJECTIVE_LAB_IDS.has(id)}
     function labCheckPassed(id){return labHasObjectiveCheck(id)&&Boolean(user.labChecks[id])}
 
@@ -7022,6 +7012,7 @@
 
     function labMarkup(id){
       if(LAB_OBJECTIVES[id])return objectiveLabMarkup(id);
+      if(id==="kernel-contracts") return `<div class="lab-layout"><div class="panel lab-controls"><h2>A2 · 2D-Kernel und das Backward-Gate</h2><label class="field">Was gerechnet wird <select class="select" id="kcMode"><option value="grid" selected>Modus A: Grid, Randtiles und der Partial-Buffer</option><option value="gate">Modus B: welche Prüfung welchen Backward-Fehler sieht</option></select></label><div id="kcGridFields"><label class="field">Matrixform <select class="select" id="kcShape">${KC_SHAPES.map((entry,index)=>`<option value="${entry.key}" ${index===0?"selected":""}>${esc(localizedUi(entry.label))}</option>`).join("")}</select></label><label class="field">Tilegrößen <select class="select" id="kcTile">${KC_TILES.map((entry,index)=>`<option value="${entry.key}" ${index===0?"selected":""}>${esc(localizedUi(entry.label))}</option>`).join("")}</select></label></div><div id="kcGateFields" hidden><label class="field">Fall <select class="select" id="kcCase">${KC_CASES.map((entry,index)=>`<option value="${entry.key}" ${index===0?"selected":""}>${esc(localizedUi(entry.label))}</option>`).join("")}</select></label><label class="field">Backward-Variante <select class="select" id="kcVariant">${KC_VARIANTS.map((entry,index)=>`<option value="${entry.key}" ${index===0?"selected":""}>${esc(localizedUi(entry.label))}</option>`).join("")}</select></label></div><p class="lab-note">Sage in Modus B vor jedem Wechsel voraus, welche der drei Prüfungen anschlägt. Zwei der vier Fehler bestehen die erste Prüfung — finde sie, bevor du sie einstellst.</p><fieldset class="question" style="margin-top:1rem"><legend><strong>Objektiver Transfer-Kurzcheck</strong></legend><p class="small muted">Fester Fall: R=37, D=70, BR=16, BD=32. Alles direkt aus den angezeigten Zahlen ablesbar.</p><label class="field">1. 2D-Launchgrid <select class="select" id="kcCheckGrid"><option value="">Noch nicht gewählt</option><option value="3x3">3 × 3 Programs · jede Achse für sich aufgerundet</option><option value="3x5">3 × 5 Programs</option><option value="2x3">2 × 3 Programs</option></select></label><label class="field">2. Partial-Buffer für dw ohne Atomics <select class="select" id="kcCheckBuffer"><option value="">Noch nicht gewählt</option><option value="3x70">[3, 70] · eine Zeile je Zeilentile, volle Featurebreite</option><option value="9x70">[9, 70]</option><option value="37x3">[37, 3]</option></select></label><label class="field">3. Welchen Fehler kann rowsum(dS) ≈ 0 grundsätzlich nicht sehen? <select class="select" id="kcCheckBlind"><option value="">Noch nicht gewählt</option><option value="scale">Einen vergessenen oder verdoppelten Faktor 1/√d in dQ und dK — er ändert die Skala von dS nicht, die Zeilensumme bleibt auf Maschinengenauigkeit dieselbe</option><option value="dterm">Einen vergessenen D-Term, weil rowsum(O⊙dO) selbst eine Zeilensumme ist</option><option value="mask">Eine falsche kausale Maske, weil maskierte Positionen ohnehin null sind</option></select></label><button class="button" id="kcCheck" type="button">Kurzcheck prüfen</button><div id="kcCheckResult" role="status" aria-live="polite"></div></fieldset></div><div class="lab-stage" role="region" aria-label="Interaktive Rechnung zu 2D-Grid und Flash-Backward" aria-live="polite" id="kcStage"></div></div>`;
       if(id==="shapes") return `<div class="lab-layout"><div class="panel lab-controls"><h2>Eingaben</h2><div class="lab-quick-result" id="shapeQuick" role="status" aria-live="polite"></div><label class="field">Batchgröße B <input id="shapeB" type="range" min="1" max="8" value="3"><output id="shapeBOut">3</output></label><label class="field">Tokens pro Sequenz T <input id="shapeT" type="range" min="2" max="32" value="11"><output id="shapeTOut">11</output></label><label class="field">Modelldimension D <select class="select" id="shapeD"><option>64</option><option>128</option><option selected>256</option><option>512</option></select></label><label class="field">Attention Heads H <select class="select" id="shapeH"><option>1</option><option>2</option><option>4</option><option selected>8</option></select></label><p class="lab-note">Ändere genau einen Wert. Lies danach jede Shape mit ihren Achsennamen, nicht nur als Zahlenfolge.</p><fieldset class="question" style="margin-top:1rem"><legend><strong>Transfer-Kurzcheck ohne Regler</strong></legend><p class="small muted">Fester Fall: B=2, T=5, D=12 und H=3. Leite d_head und die Shapes zuerst selbst her.</p><label class="field">Q nach Head-Aufteilung <select class="select" id="shapeCheckQ"><option value="">Noch nicht gewählt</option><option value="correct">[2,3,5,4] = [B,H,T,d_head]</option><option value="copy">[2,3,5,12]</option><option value="swap">[2,5,3,4]</option></select></label><label class="field">QKᵀ Compatibility Scores <select class="select" id="shapeCheckScores"><option value="">Noch nicht gewählt</option><option value="correct">[2,3,5,5] = [B,H,T_query,T_key]</option><option value="features">[2,3,5,4]</option><option value="flat">[2,5,12]</option></select></label><label class="field">Nur T wird von 5 auf 10 verdoppelt <select class="select" id="shapeCheckScaling"><option value="">Noch nicht gewählt</option><option value="correct">X-Elemente ×2 · Score-Elemente ×4 · Gewichte unverändert</option><option value="all2">Alles einschließlich Gewichte ×2</option><option value="scores2">X- und Score-Elemente ×2 · Gewichte ×2</option></select></label><button class="button" id="shapeCheck" type="button">Kurzcheck prüfen</button><div id="shapeCheckResult" role="status" aria-live="polite"></div></fieldset></div><div class="lab-stage" role="region" aria-label="Interaktives Ergebnis" id="shapeStage"></div></div>`;
       if(id==="loss-and-clip") return `<div class="lab-layout"><div class="panel lab-controls"><h2>Schritt und Variante</h2><label class="field">Welcher A1-Schritt <select class="select" id="lossClipMode"><option value="loss" selected>Cross-Entropy · adapters.run_cross_entropy</option><option value="clip">Globales Gradient Clipping · adapters.run_gradient_clipping</option></select></label><div id="lossFields"><label class="field">Eingabefall <select class="select" id="lossScenario">${Object.entries(LOSS_CASES).map(([key,item],index)=>`<option value="${key}" ${index===0?"selected":""}>${esc(localizedUi(item.label))}</option>`).join("")}</select></label><label class="field">Gewählte Implementierung <select class="select" id="lossVariant">${LOSS_VARIANTS.map((variant,index)=>`<option value="${variant.key}" ${index===0?"selected":""}>${esc(localizedUi(variant.label))}</option>`).join("")}</select></label></div><div id="clipFields" hidden><label class="field">Maximale Gesamtnorm M <input id="clipMax" type="range" min="2" max="20" step="1" value="10"><output id="clipMaxOut">10</output></label><label class="field">Gewählte Implementierung <select class="select" id="clipVariant">${CLIP_VARIANTS.map((variant,index)=>`<option value="${variant.key}" ${index===0?"selected":""}>${esc(localizedUi(variant.label))}</option>`).join("")}</select></label></div><p class="lab-note">Sage vor jedem Wechsel voraus, ob sich das Ergebnis überhaupt ändert. Fast jede falsche Variante sieht bei mindestens einer Einstellung völlig korrekt aus – genau das ist der Inhalt dieses Labs.</p><fieldset class="question" style="margin-top:1rem"><legend><strong>Objektiver Transfer-Kurzcheck</strong></legend><p class="small muted">Feste Fälle ohne Regler. Leite zuerst selbst her.</p><label class="field">1. Ohne Abziehen des Maximums bei Logits um 100: Was liefert float32? <select class="select" id="lossCheckOverflow"><option value="">Noch nicht gewählt</option><option value="nan">exp läuft über nach unendlich; unendlich geteilt durch unendlich ergibt NaN</option><option value="same">Denselben Wert; Softmax ist verschiebungsinvariant</option><option value="zero">Exakt null, weil alle Exponenten gleich groß sind</option></select></label><label class="field">2. Welche der beiden A1-Regeln verhindert unendlich bei einem sehr sicheren Fehlurteil? <select class="select" id="lossCheckUnderflow"><option value="">Noch nicht gewählt</option><option value="cancel">log und exp kürzen, statt die Wahrscheinlichkeit zwischendurch zu bilden</option><option value="max">Das Maximum abziehen</option><option value="mean">Über die Batchachse mitteln statt summieren</option></select></label><label class="field">3. Was ändert Clipping pro Tensor gegenüber globalem Clipping zusätzlich zur Länge? <select class="select" id="lossCheckDirection"><option value="">Noch nicht gewählt</option><option value="direction">Die Richtung des Gesamtgradienten</option><option value="nothing">Nichts; nur die Rechenzeit</option><option value="sign">Das Vorzeichen einzelner Gradienten</option></select></label><button class="button" id="lossClipCheck" type="button">Kurzcheck prüfen</button><div id="lossClipCheckResult" role="status" aria-live="polite"></div></fieldset></div><div class="lab-stage" role="region" aria-label="Interaktiver Loss- und Clipping-Rechner" aria-live="polite" id="lossClipStage"></div></div>`;
       if(id==="einsum-pattern") return `<div class="lab-layout"><div class="panel lab-controls"><h2>Operation und Muster</h2><label class="field">A1-Kernoperation <select class="select" id="einsumOp">${Object.entries(EINSUM_OPS).map(([key,op],index)=>`<option value="${key}" ${index===0?"selected":""}>${esc(localizedUi(op.label))}</option>`).join("")}</select></label><label class="field">Führende Achsen im Ellipsis-Teil <select class="select" id="einsumLead"><option value="none">keine · ein einzelnes Beispiel</option><option value="batch" selected>Batch B=2</option><option value="batch-head">Batch B=2 und Heads H=3</option></select></label><label class="field">Gewähltes Muster <select class="select" id="einsumPattern">${EINSUM_OPS.linear.patterns.map((pattern,index)=>`<option value="${pattern.key}" ${index===0?"selected":""}>${esc(einsumPatternText(pattern,EINSUM_OPS.linear))}</option>`).join("")}</select></label><p class="lab-note">Sage vor jedem Wechsel voraus, welche Achse kontrahiert wird und welche Shape herauskommt. Erst danach die Auflösung lesen. Die führenden Achsen ändern das Muster nie – genau das ist der Zweck der drei Punkte.</p><fieldset class="question" style="margin-top:1rem"><legend><strong>Objektiver Transfer-Kurzcheck</strong></legend><p class="small muted">Feste Fälle ohne Regler. Leite zuerst selbst her.</p><label class="field">1. Für x [2,3,4] und W [5,4] mit dem Muster „... d_in, d_out d_in -&gt; ... d_out“: Welche Achse wird kontrahiert? <select class="select" id="einsumCheckContract"><option value="">Noch nicht gewählt</option><option value="d_in">d_in</option><option value="d_out">d_out</option><option value="none">keine · beide bleiben erhalten</option></select></label><label class="field">2. Für Q und K je [B,3,4] mit dem Muster „... query d_k, ... key d_k -&gt; ... query key“: Welche Shape entsteht? <select class="select" id="einsumCheckShape"><option value="">Noch nicht gewählt</option><option value="b33">[B,3,3]</option><option value="b34">[B,3,4]</option><option value="b44">[B,4,4]</option></select></label><label class="field">3. Was passiert beim Muster „... query key, ... key d_v -&gt; ... query key“? <select class="select" id="einsumCheckDropped"><option value="">Noch nicht gewählt</option><option value="sum-dv">d_v wird aufsummiert; die Values gehen als Featurevektor verloren</option><option value="error">Das Muster ist ungültig und wirft einen Fehler</option><option value="same">Identisch zum korrekten Muster, nur andere Achsenreihenfolge</option></select></label><button class="button" id="einsumCheck" type="button">Kurzcheck prüfen</button><div id="einsumCheckResult" role="status" aria-live="polite"></div></fieldset></div><div class="lab-stage" role="region" aria-label="Interaktiver Einsum-Muster-Auflöser" aria-live="polite" id="einsumStage"></div></div>`;
@@ -7123,6 +7114,7 @@
       if(id==="causal-invariance"){["cmMode","cmVariant","cmLength","cmProbe","cmDepth","cmLossLength"].forEach(x=>document.getElementById(x).oninput=updateCausalInvariance);document.getElementById("cmCheck").onclick=checkCausalInvariance;updateCausalInvariance()}
       if(id==="target-shift"){["tsMode","tsCorpus","tsRule","tsSize","tsBlock","tsDraws"].forEach(x=>document.getElementById(x).oninput=updateTargetShift);document.getElementById("tsCheck").onclick=checkTargetShift;updateTargetShift()}
       if(id==="init-scale"){["isMode","isTable","isSample","isVarTable","isTolerance"].forEach(x=>document.getElementById(x).oninput=updateInitScale);document.getElementById("isCheck").onclick=checkInitScale;updateInitScale()}
+      if(id==="kernel-contracts"){["kcMode","kcShape","kcTile","kcCase","kcVariant"].forEach(x=>document.getElementById(x).oninput=updateKernelContracts);document.getElementById("kcCheck").onclick=checkKernelContracts;updateKernelContracts()}
       if(id==="seed-variance"){["svMode","svSigma","svSeeds","svValset","svSharing","svArms"].forEach(x=>document.getElementById(x).oninput=updateSeedVariance);document.getElementById("svCheck").onclick=checkSeedVariance;updateSeedVariance()}
       if(id==="mask-pii"){["piiMode","piiKind","piiVariant","piiSetting"].forEach(x=>document.getElementById(x).oninput=updateMaskPii);document.getElementById("piiCheck").onclick=checkMaskPii;updateMaskPii()}
       if(id==="target-config"){["tcMode","tcTarget","tcRho","tcHeadDim","tcPick","tcRule","tcThroughput"].forEach(x=>document.getElementById(x).oninput=updateTargetConfig);document.getElementById("tcCheck").onclick=checkTargetConfig;updateTargetConfig()}
@@ -7215,6 +7207,7 @@
       if(id==="causal-invariance"){updateCausalInvariance();document.getElementById("cmCheckResult").innerHTML=causalInvarianceSuccessMarkup()}
       if(id==="target-shift"){updateTargetShift();document.getElementById("tsCheckResult").innerHTML=targetShiftSuccessMarkup()}
       if(id==="init-scale"){updateInitScale();document.getElementById("isCheckResult").innerHTML=initScaleSuccessMarkup()}
+      if(id==="kernel-contracts"){["kcCheckGrid","kcCheckBuffer","kcCheckBlind"].forEach((x,i)=>{const f=document.getElementById(x);if(f)f.value=["3x3","3x70","scale"][i]});updateKernelContracts();document.getElementById("kcCheckResult").innerHTML=kernelContractsSuccessMarkup()}
       if(id==="seed-variance"){updateSeedVariance();document.getElementById("svCheckResult").innerHTML=seedVarianceSuccessMarkup()}
       if(id==="mask-pii"){updateMaskPii();document.getElementById("piiCheckResult").innerHTML=maskPiiSuccessMarkup()}
       if(id==="target-config"){updateTargetConfig();document.getElementById("tcCheckResult").innerHTML=targetConfigSuccessMarkup()}
@@ -12494,6 +12487,189 @@ p99 went from 12.4ms to 8.1ms but RSS is back to ~78MB, so it is a real tradeoff
       if(!which||!floor||!budget){toast("Beantworte alle drei Kurzchecks zu den zwei Quellen, zur Bodenplatte und zum Budget.");return}
       if(which==="both"&&floor==="shared"&&budget==="two"){user.labChecks["seed-variance"]=true;saveUser(true);result.innerHTML=seedVarianceSuccessMarkup();return}
       result.innerHTML=`<div class="callout warning" style="margin-top:.7rem"><strong>${tr("Noch nicht.")}</strong><br>${tr("Lies in Modus A die ersten beiden Zeilen nebeneinander: keine der beiden ist die kleinere Hälfte der anderen, und die Zeile „was die berichtete Zahl wirklich trägt“ steht über beiden. Die zweite Antwort steht in der Tabelle darunter — verfolge die Spalte nach unten bis 256 Seeds und sieh nach, wo sie aufhört zu fallen. Die dritte steht in Modus B in der Zeile „davon je Arm“.")}</div>`;
+    }
+
+    // ---- Lab: kernel-contracts -----------------------------------------------------
+    // `kernel-contracts` ist das einzige Lab des gleichnamigen Konzepts, und dieses Konzept
+    // entscheidet `a2:flash_forward` (15 Punkte) und `a2:flash_backward` (5 Punkte) — 20 Punkte
+    // auf einer Seite. Bis hier war das Lab ein Quiz über einen festen Fall: drei
+    // Auswahlfragen, keine gerechnete Zeile, kein Regler. Sein eigener Beobachtungsauftrag
+    // sagte „Nutze R=37, D=70, BR=16 und BD=32. Leite beide Gridachsen, die Partial-Shape und
+    // die dS-Zeilensumme her" — und bot nichts an, woran man die Herleitung prüfen konnte.
+    //
+    // Schwerer wiegt die dritte Frage. Das Lab heißt „Flash-Backward Gate", und als richtige
+    // Antwort gilt die Invariante rowsum(dS) ≈ 0 je erlaubter Queryzeile. Die Invariante ist
+    // wahr — sie folgt daraus, dass softmax(x+c) = softmax(x) ist, die Jacobi-Matrix der
+    // Softmax also Zeilensumme null hat. Aber sie ist kein Gate: sie hängt nur an der Form
+    // von dS, nicht an seiner Skala. Ein Backward, das den Faktor 1/√d in dQ und dK vergisst
+    // oder zweimal anwendet, liefert dieselbe Zeilensumme wie die korrekte Implementierung —
+    // auf Maschinengenauigkeit identisch, bei jeder Toleranz. Und weil ein solcher Fehler
+    // ein *einheitlicher* Faktor ist, ist auch eine Richtungsprüfung blind: der Kosinus zur
+    // Referenz ist exakt eins.
+    //
+    // Damit lässt das Gate genau die Fehlerfamilie durch, die im Backward am teuersten ist.
+    // Bei A2s eigener Head-Dimension 64 ist der Gradient um den Faktor 8 daneben, und der
+    // Forward — den `test_flash_forward_pass` prüft — ist von alldem unberührt.
+    //
+    // Der Fall wird deterministisch erzeugt (MINSTD, jeder Zwischenwert eine exakte
+    // ganze Zahl), damit App und Guard denselben Fall rechnen, ohne ihn abzutippen.
+    const KC_SHAPES = [
+      {key:"rect",R:37,D:70,label:"R=37, D=70 · der Fall aus der Aufgabenstellung"},
+      {key:"aligned",R:64,D:64,label:"R=64, D=64 · beide Achsen gehen glatt auf"},
+      {key:"thin",R:128,D:33,label:"R=128, D=33 · nur die Featureachse hat einen Rand"}
+    ];
+    const KC_TILES = [
+      {key:"16x32",BR:16,BD:32,label:"BR=16, BD=32"},
+      {key:"32x32",BR:32,BD:32,label:"BR=32, BD=32"},
+      {key:"64x16",BR:64,BD:16,label:"BR=64, BD=16"}
+    ];
+    // Drei Fälle, weil ein Backward an nichtquadratischen und an maskierten Shapes anders
+    // scheitern kann als an der bequemen quadratischen Form.
+    const KC_CASES = [
+      {key:"square",Tq:4,Tk:4,d:4,causal:false,label:"4 Queries, 4 Keys · quadratisch, ohne Maske"},
+      {key:"edge",Tq:5,Tk:7,d:4,causal:false,label:"5 Queries, 7 Keys · nichtquadratisch"},
+      {key:"causal",Tq:6,Tk:6,d:4,causal:true,label:"6 Queries, 6 Keys · mit kausaler Maske"}
+    ];
+    const KC_VARIANTS = [
+      {key:"correct",label:"korrekt · dS=P⊙(dOVᵀ−rowsum(O⊙dO)), dQ=dS·K/√d",
+        note:"Die Vorschrift des Handouts. Alle drei Prüfungen bestehen."},
+      {key:"noDterm",label:"D-Term vergessen · dS=P⊙(dOVᵀ)",
+        note:"Der häufigste Fehler in der Zeilenkorrektur. Die Zeilensumme fällt sofort auf."},
+      {key:"dOdO",label:"falscher D-Term · rowsum(dO⊙dO) statt rowsum(O⊙dO)",
+        note:"O mit dO verwechselt. Auch das fängt die Zeilensumme."},
+      {key:"noScaleQK",label:"1/√d in dQ und dK vergessen",
+        note:"dS ist völlig richtig, nur dQ und dK sind um √d zu groß. Die Zeilensumme kann das nicht sehen."},
+      {key:"doubleScaleQK",label:"1/√d in dQ und dK zweimal angewendet",
+        note:"Derselbe blinde Fleck von der anderen Seite: um √d zu klein."}
+    ];
+    const KC_MATMUL = (A,B)=>A.map(row=>B[0].map((_,j)=>row.reduce((sum,value,k)=>sum+value*B[k][j],0)));
+    const KC_TRANSPOSE = A=>A[0].map((_,j)=>A.map(row=>row[j]));
+    const KC_ROWSUM = A=>A.map(row=>row.reduce((sum,value)=>sum+value,0));
+    function kcShapeOf(key){return KC_SHAPES.find(item=>item.key===key)||KC_SHAPES[0]}
+    function kcTileOf(key){return KC_TILES.find(item=>item.key===key)||KC_TILES[0]}
+    function kcCaseOf(key){return KC_CASES.find(item=>item.key===key)||KC_CASES[0]}
+    function kcVariantOf(key){return KC_VARIANTS.find(item=>item.key===key)||KC_VARIANTS[0]}
+    function kcTiles(length,block){return Math.ceil(length/block)}
+    // MINSTD: s bleibt unter 2^31, das Produkt unter 2^47, also jede Zwischenrechnung exakt.
+    function kcTensors(item){
+      let state=7;const next=()=>{state=(state*48271)%2147483647;return (state%2001)/1000-1};
+      const grid=(rows,cols)=>Array.from({length:rows},()=>Array.from({length:cols},next));
+      return {Q:grid(item.Tq,item.d),K:grid(item.Tk,item.d),V:grid(item.Tk,item.d),dO:grid(item.Tq,item.d)};
+    }
+    function kcForward(item){
+      const {Q,K,V,dO}=kcTensors(item),scale=1/Math.sqrt(item.d),offset=item.Tk-item.Tq;
+      const allowed=(i,j)=>item.causal?j<=i+offset:true;
+      const scores=Q.map((row,i)=>K.map((key,j)=>row.reduce((sum,value,k)=>sum+value*key[k],0)*scale));
+      const P=scores.map((row,i)=>{
+        const valid=row.map((_,j)=>j).filter(j=>allowed(i,j));
+        const peak=Math.max(...valid.map(j=>row[j]));
+        const weights=row.map((value,j)=>allowed(i,j)?Math.exp(value-peak):0);
+        const total=weights.reduce((sum,value)=>sum+value,0);
+        return weights.map(value=>value/total);
+      });
+      return {Q,K,V,dO,scale,P,O:KC_MATMUL(P,V)};
+    }
+    function kcBackward(item,variantKey){
+      const {Q,K,V,dO,scale,P,O}=kcForward(item);
+      const dP=KC_MATMUL(dO,KC_TRANSPOSE(V));
+      const correction=variantKey==="noDterm"?P.map(()=>0)
+        :variantKey==="dOdO"?KC_ROWSUM(dO.map(row=>row.map(value=>value*value)))
+        :KC_ROWSUM(O.map((row,i)=>row.map((value,j)=>value*dO[i][j])));
+      const dS=P.map((row,i)=>row.map((value,j)=>value*(dP[i][j]-correction[i])));
+      const factor=variantKey==="noScaleQK"?1:variantKey==="doubleScaleQK"?scale*scale:scale;
+      return {dS,
+        dQ:KC_MATMUL(dS,K).map(row=>row.map(value=>value*factor)),
+        dK:KC_MATMUL(KC_TRANSPOSE(dS),Q).map(row=>row.map(value=>value*factor)),
+        dV:KC_MATMUL(KC_TRANSPOSE(P),dO)};
+    }
+    // Prüfung 1: die Invariante, die das Lab bisher als Gate ausgab.
+    function kcRowResidual(item,variantKey){return Math.max(...KC_ROWSUM(kcBackward(item,variantKey).dS).map(Math.abs))}
+    // Prüfung 2 und 3: Richtung und Betrag gegen eine Referenz — das, was A2s eigener
+    // Test tut, wenn er die Gradienten vergleicht.
+    function kcCompare(item,variantKey){
+      const actual=kcBackward(item,variantKey),reference=kcBackward(item,"correct");
+      const a=actual.dQ.flat(),b=reference.dQ.flat();
+      const dot=a.reduce((sum,value,i)=>sum+value*b[i],0);
+      const normA=Math.sqrt(a.reduce((sum,value)=>sum+value*value,0));
+      const normB=Math.sqrt(b.reduce((sum,value)=>sum+value*value,0));
+      const dv=actual.dV.flat(),dvRef=reference.dV.flat();
+      return {cos:dot/(normA*normB),ratio:normA/normB,
+        maxQ:Math.max(...a.map((value,i)=>Math.abs(value-b[i]))),
+        maxV:Math.max(...dv.map((value,i)=>Math.abs(value-dvRef[i])))};
+    }
+    const KC_TOLERANCE = 1e-9;
+    function kcVerdicts(item,variantKey){
+      const residual=kcRowResidual(item,variantKey),compare=kcCompare(item,variantKey);
+      return {residual,...compare,
+        rowPass:residual<KC_TOLERANCE,
+        directionPass:Math.abs(compare.cos-1)<KC_TOLERANCE,
+        referencePass:compare.maxQ<KC_TOLERANCE};
+    }
+    function kcRead(id,binding){return binding&&Object.prototype.hasOwnProperty.call(binding,id)?binding[id]:document.getElementById(id).value}
+    function kcStageMarkup(binding){
+      const tr=value=>esc(localizedUi(value)),mode=kcRead("kcMode",binding);
+      const mark=flag=>flag?tr("besteht"):tr("fällt durch");
+      if(mode==="grid"){
+        const shape=kcShapeOf(kcRead("kcShape",binding)),tile=kcTileOf(kcRead("kcTile",binding));
+        const rowTiles=kcTiles(shape.R,tile.BR),colTiles=kcTiles(shape.D,tile.BD);
+        const lastRow=shape.R-(rowTiles-1)*tile.BR,lastCol=shape.D-(colTiles-1)*tile.BD;
+        const launched=rowTiles*tile.BR*colTiles*tile.BD,valid=shape.R*shape.D;
+        return `<h2>${tr("Zwei Achsen, zwei Ränder, ein Partial-Buffer")}</h2>`+
+          `<p class="small muted">${tr("Jede Gridachse wird für sich aufgerundet. Eine Achse, die glatt aufgeht, sagt nichts über die andere.")}</p>`+
+          `<div class="calculation-ledger">`+
+          `<div class="calculation-row"><span>${tr("Zeilentiles · ceil(R/BR)")}</span><strong data-kcrowtiles="1">${tr("ceil")}(${fixedNum(shape.R,0)}/${fixedNum(tile.BR,0)}) = ${fixedNum(rowTiles,0)}</strong></div>`+
+          `<div class="calculation-row"><span>${tr("Spaltentiles · ceil(D/BD)")}</span><strong data-kccoltiles="1">${tr("ceil")}(${fixedNum(shape.D,0)}/${fixedNum(tile.BD,0)}) = ${fixedNum(colTiles,0)}</strong></div>`+
+          `<div class="calculation-row"><span>${tr("gestartete Programs")}</span><strong data-kcprograms="1">${fixedNum(rowTiles*colTiles,0)}</strong></div>`+
+          `<div class="calculation-row"><span>${tr("Partial-Buffer für dw ohne Atomics")}</span><strong data-kcpartial="1">[${fixedNum(rowTiles,0)}, ${fixedNum(shape.D,0)}]</strong></div>`+
+          `<div class="calculation-row"><span>${tr("gültige Zeilen im letzten Zeilentile")}</span><strong data-kclastrow="1">${fixedNum(lastRow,0)} ${tr("von")} ${fixedNum(tile.BR,0)}</strong></div>`+
+          `<div class="calculation-row"><span>${tr("gültige Spalten im letzten Spaltentile")}</span><strong data-kclastcol="1">${fixedNum(lastCol,0)} ${tr("von")} ${fixedNum(tile.BD,0)}</strong></div>`+
+          `<div class="calculation-row"><span>${tr("Lanes insgesamt gestartet")}</span><strong data-kclanes="1">${fixedNum(launched,0)} ${tr("für")} ${fixedNum(valid,0)} ${tr("gültige Elemente")}</strong></div>`+
+          `<div class="calculation-row"><span>${tr("Anteil maskierter Lanes")}</span><strong data-kcwaste="1">${fixedNum(100*(1-valid/launched),4)} %</strong></div>`+
+          `</div>`+
+          `<div class="callout ${lastRow===tile.BR&&lastCol===tile.BD?"accent":"warning"}" style="margin-top:1rem"><strong>${lastRow===tile.BR&&lastCol===tile.BD?tr("Beide Achsen gehen glatt auf."):tr("Mindestens eine Achse hat ein Rand-Program.")}</strong> ${tr("Der Partial-Buffer trägt eine Zeile je Zeilentile und die volle Featurebreite D: nur Zeilentiles teilen sich dieselben dw-Features, Spaltentiles schreiben disjunkte D-Bereiche. Ein maskierter Load braucht das neutrale Element seiner Reduktion — 0 für eine Summe, −∞ für ein Maximum.")}</div>`;
+      }
+      const item=kcCaseOf(kcRead("kcCase",binding)),variant=kcVariantOf(kcRead("kcVariant",binding));
+      const state=kcVerdicts(item,variant.key);
+      const rows=KC_VARIANTS.map(entry=>{
+        const value=kcVerdicts(item,entry.key);
+        return `<div class="calculation-row"><span>${tr(entry.label)}</span><strong data-kcsummary="${entry.key}">${tr("Zeilensumme")} ${mark(value.rowPass)} · ${tr("Richtung")} ${mark(value.directionPass)} · ${tr("Referenz")} ${mark(value.referencePass)}</strong></div>`;
+      }).join("");
+      const blind=state.rowPass&&!state.referencePass;
+      return `<h2>${tr("Was die Zeilensumme sieht — und was nicht")}</h2>`+
+        `<p class="small muted">${tr(item.label)} · ${tr("Toleranz")} 1e−9</p>`+
+        `<div class="calculation-ledger">`+
+        `<div class="calculation-row"><span>${tr("größte Zeilensumme |rowsum(dS)|")}</span><strong data-kcresidual="1">${fixedNum(state.residual,12)}</strong></div>`+
+        `<div class="calculation-row"><span>${tr("Prüfung 1 · rowsum(dS) ≈ 0")}</span><strong data-kcrowpass="1">${mark(state.rowPass)}</strong></div>`+
+        `<div class="calculation-row"><span>${tr("Kosinus zwischen dQ und der Referenz")}</span><strong data-kccos="1">${fixedNum(state.cos,12)}</strong></div>`+
+        `<div class="calculation-row"><span>${tr("Prüfung 2 · Richtung von dQ")}</span><strong data-kcdirpass="1">${mark(state.directionPass)}</strong></div>`+
+        `<div class="calculation-row"><span>${tr("Längenverhältnis ‖dQ‖ zur Referenz")}</span><strong data-kcratio="1">${fixedNum(state.ratio,6)} ×</strong></div>`+
+        `<div class="calculation-row"><span>${tr("größter Betragsfehler in dQ")}</span><strong data-kcmaxq="1">${fixedNum(state.maxQ,6)}</strong></div>`+
+        `<div class="calculation-row"><span>${tr("Prüfung 3 · Vergleich mit einer Referenz")}</span><strong data-kcrefpass="1">${mark(state.referencePass)}</strong></div>`+
+        `<div class="calculation-row"><span>${tr("größter Betragsfehler in dV")}</span><strong data-kcmaxv="1">${fixedNum(state.maxV,6)}</strong></div>`+
+        `</div>`+
+        `<p class="lab-note">${tr(variant.note)}</p>`+
+        `<h3>${tr("Alle fünf Varianten an denselben drei Prüfungen")}</h3><div class="calculation-ledger">${rows}</div>`+
+        (blind
+          ?`<div class="callout warning" style="margin-top:1rem"><strong>${tr("Diese Variante geht durch das Gate.")}</strong> ${tr("Die Zeilensumme steht auf demselben Wert wie bei der korrekten Implementierung, und der Kosinus ist exakt eins — beide Prüfungen hängen an der Form von dS, dieser Fehler an seiner Skala. Das Längenverhältnis nennt ihn: er ist ein einheitlicher Faktor, und bei der Head-Dimension 64 aus A2s eigener Benchmarkzeile wäre das der Faktor 8. Nur der Vergleich mit einer Referenz fängt ihn.")}</div>`
+          :state.referencePass
+            ?`<div class="callout accent" style="margin-top:1rem"><strong>${tr("Alle drei Prüfungen bestehen.")}</strong> ${tr("Die Zeilensumme ist null, weil softmax(x+c)=softmax(x) gilt und die Jacobi-Matrix der Softmax deshalb Zeilensumme null hat. Das ist eine notwendige Bedingung, keine hinreichende.")}</div>`
+            :`<div class="callout accent" style="margin-top:1rem"><strong>${tr("Diesen Fehler fängt die Zeilensumme.")}</strong> ${tr("Er verändert die Form von dS und nicht nur seine Skala. Genau deshalb wirkt die Invariante als Gate, solange man nur diese Fehlerfamilie ausprobiert.")}</div>`)+
+        `<div class="shape-change"><strong>${tr("dV sieht von alldem nichts")}</strong><span>${tr("dV = Pᵀ·dO benutzt dS überhaupt nicht. Der Betragsfehler in dV ist deshalb bei jeder der fünf Varianten exakt null, und eine Prüfung, die mit dV beginnt, kann keinen einzigen dS-Fehler finden. Ebenso ist der Forward unberührt: der Test, der den Forward-Pass prüft, besteht bei allen fünf.")}</span></div>`;
+    }
+    function updateKernelContracts(){
+      const mode=document.getElementById("kcMode").value;
+      document.getElementById("kcGridFields").hidden=mode!=="grid";
+      document.getElementById("kcGateFields").hidden=mode!=="gate";
+      document.getElementById("kcStage").innerHTML=kcStageMarkup();
+    }
+    function kernelContractsSuccessMarkup(){const tr=value=>esc(localizedUi(value));return `<div class="callout accent" style="margin-top:.7rem"><strong>${tr("Alle drei richtig.")}</strong><br>${tr("Für R=37, D=70, BR=16 und BD=32 hat das Grid ceil(37/16)=3 Zeilentiles und ceil(70/32)=3 Spaltentiles, und der Partial-Buffer für dw ist [3,70] — eine Zeile je Zeilentile, die volle Featurebreite, weil nur Zeilentiles sich dieselben dw-Features teilen. Die Invariante rowsum(dS)≈0 ist wahr und trotzdem kein Gate: sie hängt allein an der Form von dS. Ein vergessener oder verdoppelter Faktor 1/√d in dQ und dK lässt sie auf Maschinengenauigkeit unverändert, und weil ein solcher Fehler ein einheitlicher Faktor ist, ist auch der Kosinus zur Referenz exakt eins. Bei der Head-Dimension 64 wäre der Gradient damit um den Faktor 8 daneben. Nur ein Vergleich der Beträge mit einer Referenz fängt diese Familie — und dV fängt sie nie, weil dV=Pᵀ·dO ohne dS auskommt.")}</div>`}
+    function checkKernelContracts(){
+      const grid=document.getElementById("kcCheckGrid").value,buffer=document.getElementById("kcCheckBuffer").value,
+        blind=document.getElementById("kcCheckBlind").value,result=document.getElementById("kcCheckResult"),
+        tr=value=>esc(localizedUi(value));
+      if(!grid||!buffer||!blind){toast("Beantworte alle drei Kurzchecks zu Grid, Partial-Buffer und dem blinden Fleck der Invariante.");return}
+      if(grid==="3x3"&&buffer==="3x70"&&blind==="scale"){user.labChecks["kernel-contracts"]=true;saveUser(true);result.innerHTML=kernelContractsSuccessMarkup();return}
+      result.innerHTML=`<div class="callout warning" style="margin-top:.7rem"><strong>${tr("Noch nicht.")}</strong><br>${tr("Die ersten beiden Antworten stehen in Modus A, wenn du R=37, D=70, BR=16 und BD=32 einstellst — runde jede Gridachse für sich. Für die dritte stelle in Modus B nacheinander alle fünf Varianten ein und lies die Zeile „Prüfung 1“ mit: zwei Varianten bestehen sie und fallen trotzdem beim Referenzvergleich durch.")}</div>`;
     }
 
     // ---- Lab: mask-pii -------------------------------------------------------------

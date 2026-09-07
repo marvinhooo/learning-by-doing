@@ -629,7 +629,6 @@ if (Math.abs(scoreGradients.reduce((sum, value) => sum + value, 0)) > 1e-12) thr
 
 for (const [id, answers] of Object.entries({
   "transformer-ledger":["288192","3670016","15106048"],
-  "kernel-contracts":["3x3","3x70","ds-zero"],
   "distributed-runtime":["32","32","wait"],
   "scaling-transfer":["hidden","readout","decayed"],
   "moe-routing":["4","2","alpha"],
@@ -9768,10 +9767,12 @@ console.log(`english render OK: ${englishStates} states across ${englishLabs} la
     return { api: box.__API, doc };
   }
 
-  // The eight labs with no addressable stage: seven are objective-check labs with no computed
+  // The seven labs with no addressable stage: six are objective-check labs with no computed
   // panel at all, and policy-loss-tracer's stage div carries no id because its pipeline is a
   // fixed worked example. Written out so "not swept" stays a decision rather than a silence.
-  const LR_NO_STAGE = ["pytorch-debugger", "policy-loss-tracer", "transformer-ledger", "kernel-contracts",
+  // kernel-contracts left this list in v103: it decides 20 points (a2:flash_forward and
+  // a2:flash_backward) and was the largest block of them that no computed panel stood behind.
+  const LR_NO_STAGE = ["pytorch-debugger", "policy-loss-tracer", "transformer-ledger",
     "distributed-runtime", "scaling-transfer", "moe-routing", "rlvr-system-transfer"];
   // One lab's branch of initLab, cut by balancing braces from `if(id==="<lab>")`.
   const lrBranch = labId => {
@@ -11331,4 +11332,248 @@ ${sliceDeclaration(source, "piiCountTrap")}
   }
 
   console.log(`seed variance OK: ${svChecks} checks -- the two spreads A5 grades, recomputed from its own hyperparameters: the sampling error is re-derived by enumerating the binomial term by term (${svEnumerated} terms) where the app closes the form, and lands on ${(svEvalAtBar * 100).toFixed(6)} percentage points at the 25 % bar over ${svApi.SV_NVAL} examples -- against ${(svSeedSeAtHandout * 100).toFixed(6)} from the four seeds A5 prescribes, so neither is the footnote of the other and the figure that carries both is ${(svTotalAtHandout * 100).toFixed(6)}, making the concept page's interval ${(svUnderstated * 100).toFixed(4)} % too narrow; the two move on separate levers over ${svLever} grid points, and because every seed is scored on the same questions the shared-set total falls strictly but never reaches the sampling floor across a sweep to ${svSweepSeeds} seeds, while a set drawn fresh per seed has no floor at all and is shown to pass below that same value at a countable seed count; the crossover ${(svCrossAtHandout * 100).toFixed(6)} is found again by scanning ${svScanSteps} values of sigma with both sides of it held, and the seeds a gap needs are counted upward from one instead of closed (${svSeedGrid / 4} sigma/gap pairs, each with the count below it shown to fail) while halving a gap quadruples them exactly over ${svQuadratic} further pairs; and A5's own budget line buys ${svAffordable} runs, so three learning rates leave ${svPerArm} seeds per arm and every gap under ${(svReach * 100).toFixed(6)} points stays unprovable, where resolving two would cost ${svTwoPointShare.toFixed(4)} times the budget`);
+}
+
+// ---- flash backward gate: the invariant the lab used to sell as a gate ----------------------
+// `kernel-contracts` decides a2:flash_forward (15 points) and a2:flash_backward (5 points) and is
+// the only lab of its concept. Until v103 it was a three-question quiz on a fixed case, and its
+// third question taught rowsum(dS) ~= 0 as *the* backward check.
+//
+// The invariant is true and it is not a gate. It follows from softmax(x+c)=softmax(x) alone, so it
+// constrains the shape of dS and nothing about its scale. This block re-derives the whole backward
+// pass on a different route from the app's: where the app applies the closed form
+// dS=P*(dO V^T - rowsum(O*dO)), the guard differentiates the scalar L = sum(O * dO) by central
+// finite differences, element by element, and compares. Nothing here is retyped from the app --
+// the app's own functions are run, and the truth they are measured against is numerical.
+{
+  const fbNames = ["KC_SHAPES", "KC_TILES", "KC_CASES", "KC_VARIANTS", "KC_MATMUL", "KC_TRANSPOSE", "KC_ROWSUM",
+    "kcShapeOf", "kcTileOf", "kcCaseOf", "kcVariantOf", "kcTiles", "kcTensors", "kcForward", "kcBackward",
+    "kcRowResidual", "kcCompare", "KC_TOLERANCE", "kcVerdicts"];
+  const fbApi = runInNewContext(`${numberPrelude}${fbNames.map(name => sliceDeclaration(source, name)).join("\n")}; ({${fbNames.join(",")}})`, {});
+  let fbChecks = 0;
+  const fbFail = message => { throw new Error(`flash backward gate: ${message}`); };
+  const fbClose = (a, b, tolerance) => Math.abs(a - b) <= tolerance;
+
+  // --- the independent route -----------------------------------------------------------------
+  // L = sum_i sum_k O_ik * dO_ik, with dO held constant. Its gradients with respect to Q, K and V
+  // are exactly the dQ, dK and dV a backward pass must produce. Softmax is rebuilt here from the
+  // definition rather than taken from the app.
+  const fbLoss = (item, tensors) => {
+    const scale = 1 / Math.sqrt(item.d), offset = item.Tk - item.Tq;
+    let total = 0;
+    for (let i = 0; i < item.Tq; i++) {
+      const row = [];
+      for (let j = 0; j < item.Tk; j++) {
+        let dot = 0;
+        for (let k = 0; k < item.d; k++) dot += tensors.Q[i][k] * tensors.K[j][k];
+        row.push(dot * scale);
+      }
+      const allowed = j => !item.causal || j <= i + offset;
+      const peak = Math.max(...row.filter((_, j) => allowed(j)));
+      const weights = row.map((value, j) => allowed(j) ? Math.exp(value - peak) : 0);
+      const norm = weights.reduce((sum, value) => sum + value, 0);
+      for (let k = 0; k < item.d; k++) {
+        let out = 0;
+        for (let j = 0; j < item.Tk; j++) out += weights[j] / norm * tensors.V[j][k];
+        total += out * tensors.dO[i][k];
+      }
+    }
+    return total;
+  };
+  const fbNumericGrad = (item, which) => {
+    const step = 1e-6, base = fbApi.kcTensors(item);
+    return base[which].map((row, i) => row.map((_, j) => {
+      const up = fbApi.kcTensors(item), down = fbApi.kcTensors(item);
+      up[which][i][j] += step; down[which][i][j] -= step;
+      return (fbLoss(item, up) - fbLoss(item, down)) / (2 * step);
+    }));
+  };
+  const fbMaxDiff = (A, B) => Math.max(...A.flat().map((value, index) => Math.abs(value - B.flat()[index])));
+
+  // The generator must stay exactly reproducible, or app and guard silently rate different cases.
+  {
+    const first = fbApi.kcTensors(fbApi.KC_CASES[0]), again = fbApi.kcTensors(fbApi.KC_CASES[0]);
+    if (JSON.stringify(first) !== JSON.stringify(again)) fbFail("kcTensors is not reproducible across two calls");
+    for (const value of Object.values(first).flat(2)) {
+      if (!Number.isFinite(value) || Math.abs(value) > 1) fbFail(`the generator produced ${value}, outside the intended [-1,1]`);
+      if (!Number.isInteger(Math.round(value * 1000)) || Math.abs(value * 1000 - Math.round(value * 1000)) > 1e-9)
+        fbFail(`the generator produced ${value}, which is not an exact multiple of 1/1000 -- the MINSTD arithmetic has left the exact-integer range`);
+      fbChecks += 1;
+    }
+  }
+
+  const fbScaleFamily = ["noScaleQK", "doubleScaleQK"], fbShapeFamily = ["noDterm", "dOdO"];
+  for (const item of fbApi.KC_CASES) {
+    // 1. The app's closed form agrees with numerical differentiation on all three gradients.
+    const reference = fbApi.kcBackward(item, "correct");
+    for (const [which, actual] of [["Q", reference.dQ], ["K", reference.dK], ["V", reference.dV]]) {
+      const numeric = fbNumericGrad(item, which);
+      const gap = fbMaxDiff(actual, numeric);
+      if (!(gap < 1e-7)) fbFail(`${item.key}: the app's d${which} and a central finite difference disagree by ${gap.toExponential(3)} -- one of the two routes is wrong`);
+      fbChecks += 1;
+    }
+
+    // 2. The invariant holds for the correct implementation, and holds for exactly the scale family.
+    for (const variant of fbApi.KC_VARIANTS) {
+      const state = fbApi.kcVerdicts(item, variant.key);
+      const expectedRow = variant.key === "correct" || fbScaleFamily.includes(variant.key);
+      if (state.rowPass !== expectedRow)
+        fbFail(`${item.key}/${variant.key}: rowsum(dS) ${state.rowPass ? "passes" : "fails"} and the lab's whole point is that it does the opposite`);
+      // The blind spot has to be blindness, not a loose tolerance: the residual of a scale variant
+      // must equal the correct one's *bit for bit*, because dS is literally the same array.
+      if (fbScaleFamily.includes(variant.key)) {
+        const correct = fbApi.kcRowResidual(item, "correct");
+        if (fbApi.kcRowResidual(item, variant.key) !== correct)
+          fbFail(`${item.key}/${variant.key}: the residual differs from the correct one, so the variant is not a pure scale error after all`);
+        if (!fbClose(state.cos, 1, 1e-12))
+          fbFail(`${item.key}/${variant.key}: the cosine against the reference is ${state.cos}, so a direction check would catch it and the second blind spot is not real`);
+        // ... and it must still be a real error, or there would be nothing to miss.
+        if (state.referencePass) fbFail(`${item.key}/${variant.key}: the reference comparison passes, so this variant is not wrong at all`);
+        fbChecks += 3;
+      }
+      if (fbShapeFamily.includes(variant.key)) {
+        if (state.directionPass) fbFail(`${item.key}/${variant.key}: a shape error should move the direction of dQ and did not`);
+        if (state.referencePass) fbFail(`${item.key}/${variant.key}: a shape error should move dQ and did not`);
+        fbChecks += 2;
+      }
+      // 3. No dS error reaches dV, in any variant. This is the third blind spot the lab names.
+      if (state.maxV !== 0) fbFail(`${item.key}/${variant.key}: dV moved by ${state.maxV}, but dV=P^T dO cannot depend on dS`);
+      fbChecks += 2;
+    }
+
+    // 4. The scale factors are exactly sqrt(d) and 1/sqrt(d) -- the number the lab prints as the
+    //    length ratio, and the reason it names factor 8 at A2's head dimension 64.
+    const root = Math.sqrt(item.d);
+    if (!fbClose(fbApi.kcCompare(item, "noScaleQK").ratio, root, 1e-12))
+      fbFail(`${item.key}: dropping 1/sqrt(d) should scale dQ by exactly sqrt(d)=${root}, found ${fbApi.kcCompare(item, "noScaleQK").ratio}`);
+    if (!fbClose(fbApi.kcCompare(item, "doubleScaleQK").ratio, 1 / root, 1e-12))
+      fbFail(`${item.key}: applying 1/sqrt(d) twice should scale dQ by exactly 1/sqrt(d)=${1 / root}, found ${fbApi.kcCompare(item, "doubleScaleQK").ratio}`);
+    fbChecks += 2;
+
+    // 5. The tolerance is a formality, not a tuned constant: every caught variant misses by orders
+    //    of magnitude, every blind one is at machine zero. Scanned rather than asserted at one value.
+    for (const exponent of [-14, -12, -10, -8, -6, -4]) {
+      const tolerance = Math.pow(10, exponent);
+      for (const variant of fbScaleFamily)
+        if (!(fbApi.kcRowResidual(item, variant) < tolerance)) fbFail(`${item.key}/${variant}: the residual escapes the invariant at tolerance 1e${exponent} -- the blindness is tolerance-dependent`);
+      for (const variant of fbShapeFamily)
+        if (fbApi.kcRowResidual(item, variant) < tolerance) fbFail(`${item.key}/${variant}: the invariant stops catching this at tolerance 1e${exponent}`);
+      fbChecks += 4;
+    }
+  }
+
+  // 6. Mode A's grid arithmetic, counted up from one instead of read out of ceil().
+  for (const shape of fbApi.KC_SHAPES) for (const tile of fbApi.KC_TILES) {
+    for (const [length, block] of [[shape.R, tile.BR], [shape.D, tile.BD]]) {
+      let counted = 0, covered = 0;
+      while (covered < length) { covered += block; counted += 1; }
+      if (fbApi.kcTiles(length, block) !== counted) fbFail(`ceil(${length}/${block}) is ${fbApi.kcTiles(length, block)} and stepping the tiles one at a time reaches ${counted}`);
+      if (counted > 1 && (counted - 1) * block >= length) fbFail(`${length}/${block}: ${counted} tiles is one more than the cover needs`);
+      fbChecks += 2;
+    }
+  }
+  // The handout's own case, which the short check's answer key names.
+  if (fbApi.kcTiles(37, 16) !== 3 || fbApi.kcTiles(70, 32) !== 3)
+    fbFail(`the handout case R=37,D=70,BR=16,BD=32 no longer gives a 3x3 grid, but the answer key still says "3x3"`);
+  fbChecks += 1;
+
+  // 7. The short check's key, the panel's options and the success text have to stay one thing.
+  const fbKey = source.slice(source.indexOf("function checkKernelContracts("), source.indexOf("function checkKernelContracts(") + 1200);
+  for (const [name, option] of [["grid", "3x3"], ["buffer", "3x70"], ["blind", "scale"]]) {
+    if (!fbKey.includes(`${name}==="${option}"`)) fbFail(`the short check no longer accepts "${option}" for the ${name} question`);
+    fbChecks += 1;
+  }
+  const fbPanel = source.slice(source.indexOf('if(id==="kernel-contracts") return'));
+  const fbPanelLine = fbPanel.slice(0, fbPanel.indexOf("\n"));
+  for (const option of ["3x3", "3x70", "scale"]) {
+    if (!fbPanelLine.includes(`value="${option}"`)) fbFail(`the panel offers no option "${option}", so the accepted answer cannot be chosen`);
+    fbChecks += 1;
+  }
+  // The lab must no longer be sold as a gate anywhere, in either language.
+  for (const [label, text] of [["de", sliceDeclaration(source, "kernelContractsSuccessMarkup")],
+    ["en", englishSource.slice(englishSource.indexOf('"kernel-contracts": {', englishSource.indexOf('"labs": {')), englishSource.indexOf('"kernel-contracts": {', englishSource.indexOf('"labs": {')) + 4000)]]) {
+    if (!/8|acht/u.test(text)) fbFail(`${label}: the factor at head dimension 64 is gone from the text the reader is shown`);
+    fbChecks += 1;
+  }
+  // Every figure the success text names is a figure this lab can actually produce.
+  const fbHandout = { key: "square", Tq: 4, Tk: 4, d: 4, causal: false };
+  if (fbApi.kcCompare(fbHandout, "noScaleQK").ratio !== 2) fbFail("the square case no longer scales by 2, and the prose leans on sqrt(d)");
+  if (Math.sqrt(64) !== 8) fbFail("sqrt(64) is not 8");
+  fbChecks += 2;
+
+  // --- what the reader actually sees ----------------------------------------------------------
+  // The four escapes of the v103 mutation run were all of one kind: the block checked the number
+  // the app computes and never the cell it prints, so swapping two cells of the ledger, or
+  // indexing the partial buffer by the wrong axis on a shape where both axes happen to agree,
+  // changed the screen without moving a single checked value. Each cell of the stage is therefore
+  // pinned to the expression it interpolates. (kcStageMarkup cannot be sliced and run the way the
+  // pure functions above are -- it nests template literals, which the slicer cannot balance -- so
+  // the binding is checked where it is written instead of where it is evaluated.)
+  const fbStage = source.slice(source.indexOf("function kcStageMarkup(binding){"), source.indexOf("function updateKernelContracts()"));
+  if (fbStage.length < 2000) fbFail("kcStageMarkup could not be located, so no printed cell is being checked");
+  const fbBinds = [
+    ["kcrowtiles", "rowTiles", "the row-tile count"],
+    ["kccoltiles", "colTiles", "the column-tile count"],
+    ["kcpartial", "fixedNum(rowTiles,0)}, ${fixedNum(shape.D,0)}", "the partial buffer, which needs one row per *row* tile and the full feature width"],
+    ["kcresidual", "state.residual", "the row residual"],
+    ["kcrowpass", "mark(state.rowPass)", "check 1"],
+    ["kccos", "state.cos", "the cosine"],
+    ["kcdirpass", "mark(state.directionPass)", "check 2"],
+    ["kcratio", "state.ratio", "the length ratio"],
+    ["kcmaxq", "state.maxQ", "the dQ error"],
+    ["kcrefpass", "mark(state.referencePass)", "check 3"],
+    ["kcmaxv", "state.maxV", "the dV error"]
+  ];
+  for (const [key, expression, what] of fbBinds) {
+    const hit = fbStage.match(new RegExp(`data-${key}="[^"]*">((?:[^<]|<(?!/strong))*)</strong>`, "u"));
+    if (!hit) fbFail(`the stage prints no cell carrying data-${key} -- a figure the reader is told to read is gone`);
+    if (!hit[1].includes(expression))
+      fbFail(`the data-${key} cell prints "${hit[1].trim().slice(0, 60)}" and should carry ${what} (${expression}) -- two cells of the ledger have been swapped`);
+    fbChecks += 1;
+  }
+  // Every cell has to carry a *different* expression, or a swap that duplicates one goes unseen.
+  if (new Set(fbBinds.map(entry => entry[1])).size !== fbBinds.length) fbFail("two checked cells expect the same expression");
+  fbChecks += 1;
+  // A shape whose two axes need a *different* number of tiles, so a cell indexed by the wrong axis
+  // cannot hide behind a square grid. Without one, [rowTiles,D] and [colTiles,D] read alike.
+  if (!fbApi.KC_SHAPES.some(shape => fbApi.KC_TILES.some(tile => fbApi.kcTiles(shape.R, tile.BR) !== fbApi.kcTiles(shape.D, tile.BD))))
+    fbFail("no offered shape/tile pair splits the two axes into different tile counts, so the partial buffer's axis is untestable");
+  fbChecks += 1;
+
+  // --- the residual is a maximum, not a sum ----------------------------------------------------
+  // Summing the row sums instead of taking the largest absolute one passes every case offered here
+  // and would still be wrong: two rows off by +a and -a would cancel to zero and report a clean
+  // backward. The definition is pinned directly.
+  let fbSeparates = 0;
+  for (const item of fbApi.KC_CASES) for (const variant of fbApi.KC_VARIANTS) {
+    const perRow = fbApi.KC_ROWSUM(fbApi.kcBackward(item, variant.key).dS);
+    const asMax = Math.max(...perRow.map(Math.abs)), asSum = Math.abs(perRow.reduce((sum, value) => sum + value, 0));
+    if (fbApi.kcRowResidual(item, variant.key) !== asMax)
+      fbFail(`${item.key}/${variant.key}: the residual is ${fbApi.kcRowResidual(item, variant.key)} and the largest absolute row sum is ${asMax} -- a per-row check has become an aggregate`);
+    // (An aggregate is not bounded by the maximum: several rows of the same sign add up past it.
+    // The first version of this assertion claimed otherwise and was the wrong half of the pair.)
+    if (Math.abs(asSum - asMax) > 1e-15) fbSeparates += 1;
+    fbChecks += 1;
+  }
+  if (!fbSeparates) fbFail("the maximum and the aggregate agree on every case offered, so this block cannot tell the two definitions apart");
+  fbChecks += 1;
+
+  // --- the masked case has to be masked --------------------------------------------------------
+  // Turning the causal case's flag off left every other assertion in this block true, because all
+  // of them hold for unmasked attention as well. The lab claims a masked case; it must have one,
+  // and the mask must actually remove weight.
+  const fbCausal = fbApi.KC_CASES.filter(item => item.causal);
+  if (!fbCausal.length) fbFail("no case carries a causal mask, and the lab's own case list offers one");
+  for (const item of fbCausal) {
+    const masked = fbApi.kcForward(item).P, open = fbApi.kcForward({ ...item, causal: false }).P;
+    const zeros = masked.flat().filter(value => value === 0).length;
+    if (zeros !== (item.Tq * (item.Tq - 1)) / 2) fbFail(`${item.key}: a causal mask over ${item.Tq} rows must zero ${(item.Tq * (item.Tq - 1)) / 2} weights, found ${zeros}`);
+    if (JSON.stringify(masked) === JSON.stringify(open)) fbFail(`${item.key}: the masked and unmasked probabilities are identical, so the mask does nothing`);
+    // and the invariant must still hold exactly on a masked row -- that is the version A2 needs.
+    for (const variant of ["correct", ...fbScaleFamily])
+      if (!(fbApi.kcRowResidual(item, variant) < 1e-12)) fbFail(`${item.key}/${variant}: the invariant breaks under the causal mask`);
+    fbChecks += 5;
+  }
+
+  console.log(`flash backward gate OK: ${fbChecks} checks -- a2:flash_forward and a2:flash_backward (20 points) recomputed from the definition, with every gradient re-derived by central finite differences of L=sum(O*dO) where the app closes the form (agreement better than 1e-7 on dQ, dK and dV across all ${fbApi.KC_CASES.length} cases, square, non-square and causally masked); the invariant rowsum(dS)~=0 that this lab used to teach as its gate is shown to pass for exactly the correct implementation and the two scale variants, whose residual is not merely small but bit-for-bit the residual of the correct one, because dS is the same array -- held across six tolerances from 1e-14 to 1e-4 in both directions, so the blindness is structural and not a tuned constant; the cosine against the reference is exactly one for the same two, so a direction check is blind as well, while the length ratio is exactly sqrt(d) and 1/sqrt(d) (factor 8 at A2's head dimension 64); dV is untouched by every one of the five variants, at exactly zero; and mode A's two grid axes are re-counted one tile at a time rather than read out of ceil() over ${fbApi.KC_SHAPES.length * fbApi.KC_TILES.length * 2} shape/tile axes, with the handout's own 3x3 pinned to the answer key`);
 }
