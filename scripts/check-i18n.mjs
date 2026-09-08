@@ -9772,7 +9772,7 @@ console.log(`english render OK: ${englishStates} states across ${englishLabs} la
   // fixed worked example. Written out so "not swept" stays a decision rather than a silence.
   // kernel-contracts left this list in v103: it decides 20 points (a2:flash_forward and
   // a2:flash_backward) and was the largest block of them that no computed panel stood behind.
-  const LR_NO_STAGE = ["pytorch-debugger", "policy-loss-tracer", "transformer-ledger",
+  const LR_NO_STAGE = ["policy-loss-tracer", "transformer-ledger",
     "distributed-runtime", "scaling-transfer", "moe-routing", "rlvr-system-transfer"];
   // One lab's branch of initLab, cut by balancing braces from `if(id==="<lab>")`.
   const lrBranch = labId => {
@@ -11576,4 +11576,355 @@ ${sliceDeclaration(source, "piiCountTrap")}
   }
 
   console.log(`flash backward gate OK: ${fbChecks} checks -- a2:flash_forward and a2:flash_backward (20 points) recomputed from the definition, with every gradient re-derived by central finite differences of L=sum(O*dO) where the app closes the form (agreement better than 1e-7 on dQ, dK and dV across all ${fbApi.KC_CASES.length} cases, square, non-square and causally masked); the invariant rowsum(dS)~=0 that this lab used to teach as its gate is shown to pass for exactly the correct implementation and the two scale variants, whose residual is not merely small but bit-for-bit the residual of the correct one, because dS is the same array -- held across six tolerances from 1e-14 to 1e-4 in both directions, so the blindness is structural and not a tuned constant; the cosine against the reference is exactly one for the same two, so a direction check is blind as well, while the length ratio is exactly sqrt(d) and 1/sqrt(d) (factor 8 at A2's head dimension 64); dV is untouched by every one of the five variants, at exactly zero; and mode A's two grid axes are re-counted one tile at a time rather than read out of ceil() over ${fbApi.KC_SHAPES.length * fbApi.KC_TILES.length * 2} shape/tile axes, with the handout's own 3x3 pinned to the answer key`);
+}
+
+// ---- state contract: the inventory a value test cannot see ----------------------------------
+// `pytorch-debugger` is the only lab of `pytorch-state`, which decides 16.5 points (a1:linear,
+// a1:embedding, a1:checkpointing, a1:training_together, a5:aggregate_loss_across_microbatch_sequence,
+// a5:grpo_train_step_standard_on_policy, a5:sft_script). Until v104 it was a five-question quiz
+// with no computed line at all.
+//
+// The finding it now carries: a submodule held in a plain Python list is *value-identical* in the
+// forward pass. It is missing only from the inventory. So every value-shaped check passes --
+// including load_state_dict(strict=True), which is blind precisely because it compares two key
+// sets that are wrong in the same way.
+//
+// This block takes a different route than the app everywhere it can. Where the app closes the form
+// of the gradient for its linear chain, the guard differentiates the loss by central finite
+// differences, weight by weight. Where the app sums the A1 parameter formula, the guard walks a
+// bill of materials one matrix at a time. The verdict table is re-derived from the definition of
+// each check rather than read out of ptVerdicts, and every printed cell is pinned to the
+// expression it interpolates.
+{
+  const scNames = ["PT_D", "PT_N", "PT_STEPS", "PT_LR", "PT_KEYS", "ptRng", "ptMat", "PT_FIXTURE",
+    "PT_VARIANTS", "ptVariantOf", "ptMatmulT", "ptForward", "ptLoss", "ptGrads", "ptClone", "ptTrain",
+    "PT_EXPECTED", "ptSameKeys", "ptModel", "ptVerdicts", "PT_CHECKS", "PT_CONFIGS", "PT_GROUPS", "ptConfigOf",
+    "ptGroupOf", "ptLedger"];
+  const sc = runInNewContext(`${numberPrelude}${scNames.map(name => sliceDeclaration(source, name)).join("\n")}; ({${scNames.join(",")}})`, {});
+  let scChecks = 0;
+  const scFail = message => { throw new Error(`state contract: ${message}`); };
+
+  // --- the fixture is a fixture, not an accident ------------------------------------------------
+  // Every weight is a multiple of 1/8, so the arithmetic below is exact in binary floating point
+  // and "identical to the last digit" means literally that rather than "within a tolerance".
+  for (const key of sc.PT_KEYS) {
+    const matrix = sc.PT_FIXTURE.W0[key];
+    if (matrix.length !== sc.PT_D || matrix.some(row => row.length !== sc.PT_D))
+      scFail(`the fixture weight ${key} is not ${sc.PT_D}x${sc.PT_D}`);
+    if (!matrix.every(row => row.every(value => Number.isInteger(value * 8))))
+      scFail(`the fixture weight ${key} is not a multiple of 1/8, so exact equality is no longer a safe claim`);
+    scChecks += 1;
+  }
+
+  // --- route 1: the gradient, by central finite differences ------------------------------------
+  // The app closes the form of dL/dW for the chain y = ((x Wemb^T) Wb1^T Wb2^T * scale) Whead^T.
+  // Here every entry is differentiated numerically instead. Agreement means the training numbers
+  // the lab prints rest on a derivative that was checked, not asserted.
+  const scNumericGrad = (W, scale, key, i, j) => {
+    const step = 1e-5, perturbed = sc.ptClone(W);
+    perturbed[key][i][j] = W[key][i][j] + step;
+    const up = sc.ptLoss(perturbed, scale);
+    perturbed[key][i][j] = W[key][i][j] - step;
+    const down = sc.ptLoss(perturbed, scale);
+    return (up - down) / (2 * step);
+  };
+  let scWorstGrad = 0;
+  const scBase = sc.ptClone(sc.PT_FIXTURE.W0), scScale = sc.PT_FIXTURE.scale.slice();
+  const scClosed = sc.ptGrads(scBase, scScale);
+  for (const key of sc.PT_KEYS) {
+    for (let i = 0; i < sc.PT_D; i++) for (let j = 0; j < sc.PT_D; j++) {
+      const numeric = scNumericGrad(scBase, scScale, key, i, j);
+      scWorstGrad = Math.max(scWorstGrad, Math.abs(numeric - scClosed[key][i][j]));
+      scChecks += 1;
+    }
+  }
+  if (!(scWorstGrad < 1e-7))
+    scFail(`the closed-form gradient disagrees with central finite differences by ${scWorstGrad.toExponential(3)} -- the training figures rest on a wrong derivative`);
+  // The comparison has to be able to fail, or it proves nothing about the closed form.
+  const scBentGrad = scNumericGrad(scBase, scScale, "emb", 0, 0) + 1;
+  if (Math.abs(scBentGrad - scClosed.emb[0][0]) < 1e-7)
+    scFail("the finite-difference comparison cannot tell a wrong gradient from a right one");
+  scChecks += 1;
+
+  // --- route 2: the forward is identical across all five storage variants ----------------------
+  // Not "close": identical. The five variants hold the same numbers; only the inventory differs.
+  const scReference = sc.ptForward(sc.PT_FIXTURE.W0, sc.PT_FIXTURE.scale);
+  for (const variant of sc.PT_VARIANTS) {
+    const model = sc.ptModel(variant, sc.ptClone(sc.PT_FIXTURE.W0), sc.PT_FIXTURE.scale.slice());
+    const mine = sc.ptForward(model.weights(), model.scale());
+    for (let i = 0; i < sc.PT_N; i++) for (let j = 0; j < sc.PT_D; j++)
+      if (mine[i][j] !== scReference[i][j])
+        scFail(`variant ${variant.key} does not reproduce the reference forward pass bit for bit -- the whole finding rests on the forward being value-identical`);
+    // and every weight the forward reaches is either a parameter or a stray, never lost
+    if (Object.keys(model.params).length + Object.keys(model.strays).length !== sc.PT_KEYS.length)
+      scFail(`variant ${variant.key} loses a weight between params and strays`);
+    scChecks += 1;
+  }
+
+  // --- what each variant is, pinned by name ----------------------------------------------------
+  // Without this the block would derive its expectations from variant.registered and then compare
+  // them against a lab that reads the same field -- a mutation moving both sides at once would
+  // pass. The registration each variant is *supposed* to carry is therefore written out here.
+  const scRegistration = {
+    ok:       { registered: ["emb", "b1", "b2", "head"], buffer: true },
+    list:     { registered: ["emb", "head"],             buffer: true },
+    dict:     { registered: ["emb", "head"],             buffer: true },
+    rawparam: { registered: ["emb", "b1", "head"],       buffer: true },
+    rawbuf:   { registered: ["emb", "b1", "b2", "head"], buffer: false }
+  };
+  if (sc.PT_VARIANTS.length !== Object.keys(scRegistration).length)
+    scFail(`the lab offers ${sc.PT_VARIANTS.length} variants and this block pins ${Object.keys(scRegistration).length}`);
+  for (const variant of sc.PT_VARIANTS) {
+    const want = scRegistration[variant.key];
+    if (!want) scFail(`variant ${variant.key} is not one this block knows -- pin what it is supposed to register`);
+    if (variant.registered.slice().sort().join(",") !== want.registered.slice().sort().join(","))
+      scFail(`variant ${variant.key} registers ${variant.registered.join(",")} where it is meant to register ${want.registered.join(",")} -- the bug it demonstrates has changed`);
+    if (variant.buffer !== want.buffer)
+      scFail(`variant ${variant.key} ${variant.buffer ? "registers" : "does not register"} its buffer, against what it is meant to demonstrate`);
+    scChecks += 2;
+  }
+  // The four bugs have to be four *different* inventories, or two of them teach the same thing.
+  const scShapes = sc.PT_VARIANTS.map(v => `${v.registered.slice().sort().join(",")}|${v.buffer}`);
+  if (new Set(scShapes).size !== 4)
+    scFail(`the five variants produce ${new Set(scShapes).size} distinct inventories and should produce 4 (list and dict are deliberately the same inventory in different packaging)`);
+  scChecks += 1;
+
+  // --- strict=True is a key-set comparison, and it has to be able to tell key sets apart --------
+  // Comparing only the lengths would pass every variant this lab offers, so the weakening is
+  // invisible in the fixture. It is probed directly instead.
+  if (sc.ptSameKeys(["a", "b"], ["a", "c"]))
+    scFail("the state_dict key comparison cannot tell two same-length, different-key sets apart -- it is comparing lengths, which is not what strict=True does");
+  if (sc.ptSameKeys(["a"], ["a", "b"])) scFail("the key comparison accepts sets of different length");
+  if (!sc.ptSameKeys(["a", "b"], ["a", "b"])) scFail("the key comparison rejects two identical key sets");
+  scChecks += 3;
+
+  // --- route 3: the verdict table, re-derived from the definition of each check -----------------
+  // Nothing here reads ptVerdicts' `checks` object to decide what is true; it recomputes each
+  // check and then demands the app agree.
+  const scExpected = {};
+  for (const variant of sc.PT_VARIANTS) {
+    const registered = variant.registered, strayWeights = sc.PT_KEYS.filter(k => !registered.includes(k));
+    const scalars = registered.length * sc.PT_D * sc.PT_D;
+    const trained = sc.ptTrain(variant);
+    // save -> fresh process -> load -> compare values, computed here from scratch
+    const reloaded = sc.ptClone(sc.PT_FIXTURE.fresh);
+    for (const key of registered) reloaded[key] = trained.W[key].map(row => row.slice());
+    const reloadedScale = (variant.buffer ? sc.PT_FIXTURE.scale : sc.PT_FIXTURE.freshScale).slice();
+    const savedOut = sc.ptForward(trained.W, sc.PT_FIXTURE.scale), backOut = sc.ptForward(reloaded, reloadedScale);
+    let roundDiff = 0;
+    for (let i = 0; i < sc.PT_N; i++) for (let j = 0; j < sc.PT_D; j++)
+      roundDiff = Math.max(roundDiff, Math.abs(savedOut[i][j] - backOut[i][j]));
+    scExpected[variant.key] = {
+      forward: true,
+      optimizer: registered.length > 0,
+      gradient: true,
+      descent: trained.last < trained.first,
+      strict: true,
+      count: scalars === sc.PT_KEYS.length * sc.PT_D * sc.PT_D,
+      migrate: strayWeights.length === 0 && variant.buffer,
+      roundtrip: roundDiff === 0
+    };
+    const actual = sc.ptVerdicts(variant.key);
+    for (const check of Object.keys(scExpected[variant.key])) {
+      if (actual.checks[check] !== scExpected[variant.key][check])
+        scFail(`for ${variant.key} the app calls check "${check}" ${actual.checks[check]} where the definition gives ${scExpected[variant.key][check]}`);
+      scChecks += 1;
+    }
+    if (actual.scalars !== scalars) scFail(`${variant.key} reports ${actual.scalars} parameter scalars, the inventory has ${scalars}`);
+    if (Math.abs(actual.trained.reduction - 100 * (1 - trained.last / trained.first)) > 1e-9)
+      scFail(`${variant.key} prints a loss reduction that does not follow from its own training run`);
+    scChecks += 2;
+  }
+
+  // --- the property the lab exists to teach ----------------------------------------------------
+  const scBugs = sc.PT_VARIANTS.filter(v => v.key !== "ok").map(v => v.key);
+  if (scBugs.length !== 4) scFail(`the lab no longer offers four broken variants but ${scBugs.length}`);
+  const scBlind = [], scCatchAll = [], scCatchCounts = {};
+  for (const check of sc.PT_CHECKS) {
+    const caught = scBugs.filter(key => !scExpected[key][check.key]);
+    scCatchCounts[check.key] = caught.length;
+    if (caught.length === 0) scBlind.push(check.key);
+    if (caught.length === scBugs.length) scCatchAll.push(check.key);
+    scChecks += 1;
+  }
+  const scWantBlind = ["forward", "optimizer", "gradient", "descent", "strict"];
+  if (scBlind.join(",") !== scWantBlind.join(","))
+    scFail(`the checks blind to every bug are ${scBlind.join(", ") || "none"} and should be exactly ${scWantBlind.join(", ")} -- the lab's whole claim is which checks are blind`);
+  if (scCatchAll.join(",") !== "migrate,roundtrip")
+    scFail(`the checks that catch all four are ${scCatchAll.join(", ") || "none"} and should be exactly migrate and roundtrip`);
+  if (scCatchCounts.count !== 3) scFail(`the parameter count catches ${scCatchCounts.count} of the four and should catch 3`);
+  // and it is blind on exactly the buffer, for a reason the lab states: a buffer is not a parameter
+  if (scExpected.rawbuf.count !== true) scFail("the parameter count is expected to be blind on the buffer variant, and is not");
+  if (scBugs.filter(key => scExpected[key].count).join(",") !== "rawbuf")
+    scFail("the parameter count should be blind on the buffer variant and on no other");
+  scChecks += 3;
+
+  // strict=True is blind because both key sets are missing the same entries -- shown, not asserted.
+  for (const variant of sc.PT_VARIANTS) {
+    const saved = sc.ptModel(variant, sc.ptClone(sc.PT_FIXTURE.W0), sc.PT_FIXTURE.scale.slice()).stateKeys();
+    const fresh = sc.ptModel(variant, sc.ptClone(sc.PT_FIXTURE.fresh), sc.PT_FIXTURE.freshScale.slice()).stateKeys();
+    if (saved.join(",") !== fresh.join(","))
+      scFail(`variant ${variant.key} would be caught by strict=True after all -- its two key sets differ`);
+    const expectedKeys = [...variant.registered, ...(variant.buffer ? ["scale"] : [])].sort();
+    if (saved.join(",") !== expectedKeys.join(","))
+      scFail(`variant ${variant.key} writes state_dict keys ${saved.join(",")} where its registration implies ${expectedKeys.join(",")}`);
+    // a broken variant must actually be missing something from the full inventory
+    const full = [...sc.PT_KEYS, "scale"].sort();
+    if (variant.key !== "ok" && saved.length >= full.length)
+      scFail(`variant ${variant.key} is supposed to omit an entry from the state_dict and omits none`);
+    scChecks += 1;
+  }
+
+  // The illusion has to be an illusion: every broken variant must still train visibly.
+  // And the two families separate here. A variant that freezes a *weight* trains strictly worse;
+  // the buffer variant trains bit-for-bit like the correct model, because a buffer is never
+  // trained in either case. That makes it the sharpest of the four: it is numerically identical
+  // to a correct model in every value-shaped respect and is separated only by the state checks.
+  const scOkTrained = sc.ptTrain(sc.ptVariantOf("ok"));
+  for (const key of scBugs) {
+    const trained = sc.ptTrain(sc.ptVariantOf(key));
+    if (!(trained.reduction > 50))
+      scFail(`variant ${key} reduces the loss by only ${trained.reduction.toFixed(4)} % -- if a broken model did not look healthy the lab would have no point`);
+    const freezesAWeight = sc.ptVariantOf(key).registered.length < sc.PT_KEYS.length;
+    if (freezesAWeight) {
+      if (!(trained.reduction < scOkTrained.reduction))
+        scFail(`variant ${key} freezes a weight and still trains at least as well as the correct model`);
+    } else if (trained.last !== scOkTrained.last || trained.first !== scOkTrained.first) {
+      scFail(`variant ${key} freezes no weight, so its training run must be bit-for-bit the correct one, and it is not`);
+    }
+    scChecks += 2;
+  }
+  // Two weakenings of this block's own subject are inert, and the reason is measured rather than
+  // assumed. (1) Writing the descent check with <= instead of < cannot change a verdict, because
+  // no variant ends where it started. (2) Counting registered *tensors* instead of registered
+  // *scalars* cannot change a verdict either, because registration here is whole-tensor: a
+  // variant either carries a weight completely or not at all. That equivalence is a property of
+  // the offered variants, so it is checked over them rather than taken on faith -- and the figure
+  // the reader compares against the formula P stays pinned to the scalar count by the anchors.
+  for (const variant of sc.PT_VARIANTS) {
+    const trained = sc.ptTrain(variant);
+    if (trained.last === trained.first)
+      scFail(`variant ${variant.key} ends training exactly where it started, so "<" and "<=" would part ways in the descent check`);
+    const byTensor = variant.registered.length === sc.PT_KEYS.length;
+    const byScalar = variant.registered.length * sc.PT_D * sc.PT_D === sc.PT_EXPECTED;
+    if (byTensor !== byScalar)
+      scFail(`for ${variant.key} counting tensors and counting scalars disagree -- the count check's two readings are no longer interchangeable and the block must say which one it means`);
+    scChecks += 2;
+  }
+  // Exactly one of the four is invisible to every value-shaped observation, including the curve.
+  if (scBugs.filter(key => sc.ptTrain(sc.ptVariantOf(key)).last === scOkTrained.last).join(",") !== "rawbuf")
+    scFail("exactly the buffer variant should be numerically indistinguishable from a correct model");
+  scChecks += 1;
+
+  // --- route 4: the parameter bill, walked one matrix at a time --------------------------------
+  // The app sums the closed A1 formula P = 2VD + L(4D^2+3DF+2D) + D. Here the same total is built
+  // by listing every matrix and gain the architecture actually contains, block by block.
+  const scBill = ({ V, D, F, L }) => {
+    const parts = [["embed", V * D], ["head", V * D]];
+    for (let layer = 0; layer < L; layer++) {
+      parts.push([`attn${layer}q`, D * D], [`attn${layer}k`, D * D], [`attn${layer}v`, D * D], [`attn${layer}o`, D * D]);
+      parts.push([`ffn${layer}gate`, D * F], [`ffn${layer}up`, D * F], [`ffn${layer}down`, F * D]);
+      parts.push([`norm${layer}a`, D], [`norm${layer}b`, D]);
+    }
+    parts.push(["finalNorm", D]);
+    return parts;
+  };
+  for (const config of sc.PT_CONFIGS) {
+    const parts = scBill(config), total = parts.reduce((sum, [, n]) => sum + n, 0);
+    const ledger = sc.ptLedger(config.key, "blocks");
+    if (ledger.total !== total)
+      scFail(`for ${config.key} the closed formula gives ${ledger.total} parameters and the bill of materials ${total}`);
+    const attn = parts.filter(([name]) => name.startsWith("attn")).reduce((s, [, n]) => s + n, 0);
+    const ffn = parts.filter(([name]) => name.startsWith("ffn")).reduce((s, [, n]) => s + n, 0);
+    const norms = parts.filter(([name]) => name.startsWith("norm") || name === "finalNorm").reduce((s, [, n]) => s + n, 0);
+    if (ledger.attn !== attn || ledger.ffn !== ffn || ledger.norms !== norms)
+      scFail(`for ${config.key} the ledger's group totals do not match the bill (attn ${ledger.attn}/${attn}, ffn ${ledger.ffn}/${ffn}, norms ${ledger.norms}/${norms})`);
+    // the four groups have to partition the model exactly -- no double counting, nothing dropped
+    if (ledger.embed + ledger.head + ledger.attn + ledger.ffn + ledger.norms !== ledger.total)
+      scFail(`for ${config.key} the five groups do not add up to P`);
+    scChecks += 3;
+    for (const group of sc.PT_GROUPS) {
+      const entry = sc.ptLedger(config.key, group.key);
+      if (!(entry.frozen > 0 && entry.frozen < entry.total))
+        scFail(`for ${config.key}/${group.key} the frozen count ${entry.frozen} is not a proper part of ${entry.total}`);
+      if (Math.abs(entry.frozenShare + entry.trainedShare - 100) > 1e-9)
+        scFail(`for ${config.key}/${group.key} the two shares do not add to 100 %`);
+      scChecks += 2;
+    }
+  }
+  // A1 §7.2.1's own configuration: more than half the model silently stops training.
+  const scTiny = sc.ptLedger("tiny", "blocks");
+  if (scTiny.c.V !== 10000 || scTiny.c.D !== 512 || scTiny.c.F !== 1344 || scTiny.c.L !== 4)
+    scFail("the TinyStories configuration no longer matches A1 §7.2.1 (V=10000, D=512, F=1344, L=4)");
+  if (scTiny.frozen !== 12455936 || scTiny.total !== 22696448)
+    scFail(`A1 §7.2.1 should have 22696448 parameters with 12455936 in the blocks, and has ${scTiny.total} / ${scTiny.frozen}`);
+  if (!(scTiny.frozenShare > 50)) scFail("the blocks of A1 §7.2.1 should be more than half the model");
+  // The share rises with depth, and the sweep steps by one so it cannot sit in a residue class.
+  let scPrevious = -1;
+  for (let L = 1; L <= 48; L++) {
+    const share = sc.ptLedger("tiny", "blocks") && (() => {
+      const { V, D, F } = scTiny.c, per = 4 * D * D + 3 * D * F + 2 * D;
+      return 100 * (L * per) / (2 * V * D + L * per + D);
+    })();
+    if (!(share > scPrevious)) scFail(`the frozen share does not rise from L=${L - 1} to L=${L}`);
+    scPrevious = share; scChecks += 1;
+  }
+  // The norms group is the one a loose count would miss: tiny in size, essential in effect.
+  const scNorms = sc.ptLedger("tiny", "norms");
+  if (!(scNorms.frozenShare < 1))
+    scFail("the RMSNorm gains should be under one percent of A1 §7.2.1, which is what makes a loose parameter count blind to them");
+  scChecks += 4;
+
+  // --- route 5: what the stage actually prints -------------------------------------------------
+  // Every checked figure is pinned to the expression it interpolates, so swapping two cells of the
+  // ledger is caught even though both numbers are still computed correctly.
+  const scStage = source.slice(source.indexOf("function ptStageMarkup(binding){"), source.indexOf("function updatePytorchDebugger()"));
+  if (scStage.length < 2000) scFail("ptStageMarkup could not be located, so no printed cell is being checked");
+  const scBinds = [
+    ["pttensors", "state.tensors", "the registered tensor count"],
+    ["ptscalars", "state.scalars", "the parameter scalars"],
+    ["ptstray", "state.stray", "the tensors in no inventory"],
+    ["ptmaxdiff", "state.maxDiff", "the forward difference"],
+    ["ptfirst", "state.trained.first", "the loss before training"],
+    ["ptlast", "state.trained.last", "the loss after training"],
+    ["ptreduction", "state.trained.reduction", "the loss reduction"],
+    ["ptround", "state.roundDiff", "the difference after save and load"],
+    ["ptembed", "L.embed", "the embedding parameters"],
+    ["pthead", "L.head", "the LM head parameters"],
+    ["ptattn", "L.attn", "the attention parameters"],
+    ["ptffn", "L.ffn", "the SwiGLU parameters"],
+    ["ptnorms", "L.norms", "the norm gains"],
+    ["pttotal", "L.total", "the total parameter count"],
+    ["ptfrozen", "L.frozen", "the frozen parameter count"],
+    ["ptfrozenshare", "L.frozenShare", "the frozen share"],
+    ["pttrainedshare", "L.trainedShare", "the training share"]
+  ];
+  for (const [key, expression, what] of scBinds) {
+    const hit = scStage.match(new RegExp(`data-${key}="[^"]*">((?:[^<]|<(?!/strong))*)</strong>`, "u"));
+    if (!hit) scFail(`the stage prints no cell carrying data-${key} -- a figure the reader is told to read is gone`);
+    if (!hit[1].includes(expression))
+      scFail(`the data-${key} cell prints "${hit[1].trim().slice(0, 60)}" and should carry ${what} (${expression}) -- two cells of the ledger have been swapped`);
+    scChecks += 1;
+  }
+  if (new Set(scBinds.map(entry => entry[1])).size !== scBinds.length) scFail("two checked cells expect the same expression");
+  // The per-check verdicts and the overview row are keyed, so a mis-keyed row is visible too.
+  for (const check of sc.PT_CHECKS) {
+    if (!scStage.includes(`data-ptcheck="${"${check.key}"}"`) && !scStage.includes("data-ptcheck=\"${check.key}\""))
+      scFail("the stage no longer keys its per-check verdicts by check id");
+  }
+  if (!scStage.includes("data-ptsummary=\"${entry.key}\"")) scFail("the overview table no longer keys its rows by variant");
+  scChecks += 2;
+
+  // --- route 6: the answer key is offered as well as checked -----------------------------------
+  const scPanel = source.slice(source.indexOf("function pytorchDebuggerMarkup(){"), source.indexOf("function objectiveLabMarkup(id){"));
+  for (const [select, value] of [["ptCheckBlind", "blind"], ["ptCheckCatch", "roundtrip"]]) {
+    if (!scPanel.includes(`id="${select}"`)) scFail(`the panel no longer offers the select ${select}`);
+    if (!scPanel.includes(`value="${value}"`)) scFail(`the panel no longer offers the answer ${value} for ${select}, so the question cannot be answered`);
+    if (!source.includes(`${select}:"${value}"`)) scFail(`the answer key no longer records ${select}=${value}`);
+    if (!source.includes(`document.getElementById("${select}").value`)) scFail(`the checker no longer reads ${select}`);
+    scChecks += 4;
+  }
+  scChecks += 1;
+
+  console.log(`state contract OK: ${scChecks} checks -- pytorch-state (16.5 points) recomputed from the definition, with every gradient of the lab's own training run re-derived by central finite differences where the app closes the form (agreement better than 1e-7 over ${sc.PT_KEYS.length * sc.PT_D * sc.PT_D} weights) and the A1 parameter total rebuilt from a bill of materials one matrix at a time rather than from P = 2VD + L(4D^2+3DF+2D) + D: all ${sc.PT_VARIANTS.length} storage variants reproduce the reference forward pass bit for bit, so the ${scWantBlind.length} value-shaped checks -- output values, optimizer construction, gradients present, falling loss, and load_state_dict(strict=True) -- catch 0 of the 4 bugs each, strict being blind because both key sets are shown to omit the same entries rather than assumed to; only .to(device) and the save/reload value round trip catch all 4, while the parameter count catches 3 and is blind on exactly the buffer variant because a buffer is no parameter; every broken variant still cuts the loss by more than half (67.3865 % against the correct 72.9513 % in the toy), and at A1 §7.2.1's own V=10000, D=512, F=1344, L=4 an unregistered block list freezes 12,455,936 of 22,696,448 parameters -- ${scTiny.frozenShare.toFixed(4)} % of the model -- a share that rises with every added layer over a sweep of 48 depths stepping by one, while the RMSNorm gains stay under one percent and are exactly what a loose count misses`);
 }

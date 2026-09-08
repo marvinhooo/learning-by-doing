@@ -873,7 +873,7 @@
       *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
     }
   </style>
-  <script src="i18n-en.js?v=83"></script>
+  <script src="i18n-en.js?v=84"></script>
   <script src="config.js"></script>
   <script src="vendor/supabase.js"></script>
 </head>
@@ -1366,12 +1366,14 @@
         "details": [
           "Ein nn.Module registriert Untermodul-Attribute und nn.Parameter automatisch. Nur registrierte Parameter erscheinen in parameters() und state_dict() und werden damit vom Optimizer oder Checkpoint gefunden. Ein Buffer ist nicht trainierbarer, aber persistenter Modulzustand, etwa eine vorberechnete Tabelle. Ein gewöhnlicher Tensor als lokale Variable gehört dagegen weder automatisch zum Modellzustand noch folgt er zwingend einem Device-Wechsel.",
           "Autograd baut während des Forward Pass einen Rechengraphen aus Operationen auf Tensoren mit requires_grad. backward akkumuliert Gradienten in den Leaf-Parametern; es aktualisiert keine Gewichte und löscht alte Gradienten nicht. Der typische Step trennt deshalb zero_grad, Forward, skalaren Loss, backward, optionales Gradient Clipping, optimizer.step und scheduler.step. train() und eval() ändern das Verhalten bestimmter Module, sind aber kein Ersatz für no_grad bei reiner Inferenz.",
-          "Ein belastbarer Test isoliert genau einen Vertrag: winzige nichtquadratische Shapes, handrechenbare Werte, Grenzfälle, erwartete Dtypes und eine klar benannte Invariante. Für Resume speicherst du Modell, Optimizer, Scheduler, globalen Update-Step, Datenposition und Random Number Generator (RNG) für relevante Geräte. Der stärkste Test vergleicht einen ununterbrochenen Lauf mit Save/Reload: Der nächste Batch, Loss, Update und die resultierenden Parameter müssen unter kontrollierten deterministischen Bedingungen übereinstimmen."
+          "Ein belastbarer Test isoliert genau einen Vertrag: winzige nichtquadratische Shapes, handrechenbare Werte, Grenzfälle, erwartete Dtypes und eine klar benannte Invariante. Für Resume speicherst du Modell, Optimizer, Scheduler, globalen Update-Step, Datenposition und Random Number Generator (RNG) für relevante Geräte. Der stärkste Test vergleicht einen ununterbrochenen Lauf mit Save/Reload: Der nächste Batch, Loss, Update und die resultierenden Parameter müssen unter kontrollierten deterministischen Bedingungen übereinstimmen.",
+          "Ein nicht registriertes Untermodul ist deshalb kein Fehler, den eine Wertprüfung finden kann. Sein Forward Pass ist auf die letzte Stelle identisch — es fehlt allein in der Inventur. Der Optimizer baut sich, jeder registrierte Parameter bekommt einen Gradienten, und der Loss sinkt weiter, weil das Embedding und die Ausgabeprojektion auf das Vokabular zusammen schon genug Kapazität tragen. Auch load_state_dict(strict=True) nimmt es an: strict vergleicht zwei Schlüsselmengen, und beiden fehlen dieselben Einträge — ein Schlüssel, den niemand schreibt, fehlt niemandem. Es bleiben zwei Prüfungen, die jeden dieser Fälle fangen: .to(device) mit anschließender Device-Prüfung jedes benutzten Tensors, und der Werte-Rundlauf über Speichern, Neustart und Laden. Ohne ein zweites Gerät läuft davon nur der Rundlauf, und ein lokaler Testlauf auf dem Hauptprozessor hat keines. Die Parameterzahl gegen die selbst hergeleitete Formel P fängt drei von vier Fällen und kostet zwei Zeilen; blind ist sie allein bei einem Buffer, weil ein Buffer ohnehin kein Parameter ist."
         ],
         "pitfalls": [
           "Parameter in einer normalen Python-Liste oder nur als temporären Tensor halten: Das Modul registriert ihn dann möglicherweise nicht.",
           "optimizer.step vor backward oder ohne zero_grad ausführen: Der Zustandspfad entspricht dann nicht dem beabsichtigten Trainingsschritt.",
-          "Nur state_dict des Modells speichern und den Lauf als exakt fortsetzbar bezeichnen: Optimizer-Momente, Schedule, RNG und Datenposition fehlen."
+          "Nur state_dict des Modells speichern und den Lauf als exakt fortsetzbar bezeichnen: Optimizer-Momente, Schedule, RNG und Datenposition fehlen.",
+          "load_state_dict(strict=True) als Beweis für einen vollständigen Checkpoint lesen: strict prüft nur, dass beide Schlüsselmengen übereinstimmen, nicht dass sie vollständig sind."
         ],
         "checks": [
           "Worin unterscheiden sich Parameter, Buffer, Gradient und Optimizerzustand hinsichtlich Lernen und Speicherung?",
@@ -6993,7 +6995,7 @@
         {id:"Loss",title:"5 · Loss ist noch ein Vektor",code:"token_loss = per_token_loss(logits, labels)  # [B,T]\nloss = token_loss.mean(dim=0)                # [T]\nloss.backward()",options:[["correct","Beabsichtigte maskierte Reduktion und loss.ndim==0 · mit Handwerten und ungleichen Längen prüfen"],["batch","Jeder Loss muss Shape [B,T] behalten · backward ohne Änderung wiederholen"],["sum","mean ist in Language Models verboten · immer unnormalisiert summieren"]]}
       ];
       const caseMarkup=cases.map(item=>`<details class="answer-disclosure" data-transient-key="pt-kata-${item.id}"><summary>${esc(item.title)}</summary><div class="code-sample" data-no-i18n>${esc(item.code)}</div><label class="field">${esc(question)} <select class="select" id="ptCheck${item.id}"><option value="">Noch nicht gewählt</option>${item.options.map(([value,label])=>`<option value="${value}">${esc(label)}</option>`).join("")}</select></label></details>`).join("");
-      return `<div class="lab-layout"><div class="panel lab-controls"><h2>Fünf kleine Failure Traces</h2><p class="lab-note">Jeder Fall ist ein unabhängiges Toy-Beispiel. Suche nicht die schönste Umformulierung, sondern den gebrochenen Vertrag und den kleinsten Test, der ihn beweist.</p>${caseMarkup}<button class="button" id="pytorchDebugCheck" type="button">Alle fünf Diagnosen prüfen</button><div id="pytorchDebugResult" role="status" aria-live="polite"></div><details class="answer-disclosure" data-transient-key="pt-kata-rationale"><summary>Gemeinsame Herleitung öffnen</summary><ol class="steps"><li><strong>Registrierung:</strong> ModuleList, ModuleDict oder Modulattribut machen Untermodulparameter für Optimizer, Device-Wechsel und state_dict sichtbar.</li><li><strong>Zustand:</strong> Ein Buffer ist nicht trainierbar, folgt aber dem Modul. Ein Plain Tensor besitzt diesen Vertrag nicht.</li><li><strong>Layout:</strong> transpose kann eine View mit anderer Stride-Reihenfolge erzeugen; reshape darf kopieren, view nicht.</li><li><strong>Autograd:</strong> backward akkumuliert in .grad. zero_grad definiert die Grenze zwischen unabhängigen Updates.</li><li><strong>Reduction:</strong> Die Achse und Maske definieren das Lernziel. Ein zufällig skalarer Wert reicht nicht; Handwerte müssen die beabsichtigte Gewichtung beweisen.</li></ol></details></div><div class="lab-stage" role="region" aria-label="PyTorch Debugging-Leiter"><h2>Die schnelle Debugging-Leiter</h2><ol class="steps"><li><strong>Repräsentation:</strong> Shape, Dtype, Device, Strides und Achsenbedeutung notieren.</li><li><strong>Zustand:</strong> Parameter, Buffer, Submodule, Gradienten und Optimizerhistorie getrennt inventarisieren.</li><li><strong>Kleinster Test:</strong> Nicht das Gesamtmodell starten; einen handrechenbaren, nichtquadratischen oder zweiten Step isolieren.</li><li><strong>Beweis:</strong> Wert, Shape, Gradient, Registrierung oder Save/Reload mit der passenden Assertion prüfen.</li></ol><div class="calculation-ledger"><div class="calculation-row"><span>Test auswählen</span><strong data-no-i18n>pytest -q -k contract_name</strong></div><div class="calculation-row"><span>Tensorwerte vergleichen</span><strong data-no-i18n>torch.testing.assert_close(actual, expected)</strong></div><div class="calculation-row"><span>Registrierung prüfen</span><strong data-no-i18n>dict(model.named_parameters()) · model.state_dict()</strong></div><div class="calculation-row"><span>Gradienten prüfen</span><strong data-no-i18n>parameter.grad · finite difference</strong></div></div><div class="callout warning" style="margin-top:1rem">Die Snippets sind absichtlich isomorphe Toy-Fälle und keine Implementierungen aus dem Assignment.</div></div></div>`;
+      return `<div class="lab-layout"><div class="panel lab-controls"><h2>Fünf kleine Failure Traces</h2><p class="lab-note">Jeder Fall ist ein unabhängiges Toy-Beispiel. Suche nicht die schönste Umformulierung, sondern den gebrochenen Vertrag und den kleinsten Test, der ihn beweist.</p>${caseMarkup}<button class="button" id="pytorchDebugCheck" type="button">Alle fünf Diagnosen prüfen</button><div id="pytorchDebugResult" role="status" aria-live="polite"></div><details class="answer-disclosure" data-transient-key="pt-kata-rationale"><summary>Gemeinsame Herleitung öffnen</summary><ol class="steps"><li><strong>Registrierung:</strong> ModuleList, ModuleDict oder Modulattribut machen Untermodulparameter für Optimizer, Device-Wechsel und state_dict sichtbar.</li><li><strong>Zustand:</strong> Ein Buffer ist nicht trainierbar, folgt aber dem Modul. Ein Plain Tensor besitzt diesen Vertrag nicht.</li><li><strong>Layout:</strong> transpose kann eine View mit anderer Stride-Reihenfolge erzeugen; reshape darf kopieren, view nicht.</li><li><strong>Autograd:</strong> backward akkumuliert in .grad. zero_grad definiert die Grenze zwischen unabhängigen Updates.</li><li><strong>Reduction:</strong> Die Achse und Maske definieren das Lernziel. Ein zufällig skalarer Wert reicht nicht; Handwerte müssen die beabsichtigte Gewichtung beweisen.</li></ol></details><details class="answer-disclosure" data-transient-key="pt-kata-ladder"><summary>Die schnelle Debugging-Leiter öffnen</summary><ol class="steps"><li><strong>Repräsentation:</strong> Shape, Dtype, Device, Strides und Achsenbedeutung notieren.</li><li><strong>Zustand:</strong> Parameter, Buffer, Submodule, Gradienten und Optimizerhistorie getrennt inventarisieren.</li><li><strong>Kleinster Test:</strong> Nicht das Gesamtmodell starten; einen handrechenbaren, nichtquadratischen oder zweiten Step isolieren.</li><li><strong>Beweis:</strong> Wert, Shape, Gradient, Registrierung oder Save/Reload mit der passenden Assertion prüfen.</li></ol><div class="calculation-ledger"><div class="calculation-row"><span>Test auswählen</span><strong data-no-i18n>pytest -q -k contract_name</strong></div><div class="calculation-row"><span>Tensorwerte vergleichen</span><strong data-no-i18n>torch.testing.assert_close(actual, expected)</strong></div><div class="calculation-row"><span>Registrierung prüfen</span><strong data-no-i18n>dict(model.named_parameters()) · model.state_dict()</strong></div><div class="calculation-row"><span>Gradienten prüfen</span><strong data-no-i18n>parameter.grad · finite difference</strong></div></div><div class="callout warning" style="margin-top:1rem">Die Snippets sind absichtlich isomorphe Toy-Fälle und keine Implementierungen aus dem Assignment.</div></details><h2 style="margin-top:1.4rem">Und was davon sieht eine Prüfung?</h2><label class="field">Was gerechnet wird <select class="select" id="ptMode"><option value="contract" selected>Modus A: acht Prüfungen an einem wertgleichen Modell</option><option value="ledger">Modus B: wie viel Modell dabei stillsteht</option></select></label><div id="ptContractFields"><label class="field">Wie der Zustand abgelegt ist <select class="select" id="ptVariant">${PT_VARIANTS.map((entry,index)=>`<option value="${entry.key}" ${index===0?"selected":""}>${esc(localizedUi(entry.label))}</option>`).join("")}</select></label></div><div id="ptLedgerFields" hidden><label class="field">Modellgröße <select class="select" id="ptConfig">${PT_CONFIGS.map((entry,index)=>`<option value="${entry.key}" ${index===0?"selected":""}>${esc(localizedUi(entry.label))}</option>`).join("")}</select></label><label class="field">Was nicht registriert wurde <select class="select" id="ptGroup">${PT_GROUPS.map((entry,index)=>`<option value="${entry.key}" ${index===0?"selected":""}>${esc(localizedUi(entry.label))}</option>`).join("")}</select></label></div><p class="lab-note">Sage in Modus A vor jedem Wechsel voraus, welche der acht Prüfungen anschlägt. Vier der fünf Varianten sind fehlerhaft, und fünf Prüfungen bestehen bei allen vier.</p><fieldset class="question" style="margin-top:1rem"><legend><strong>Objektiver Transfer-Kurzcheck</strong></legend><p class="small muted">Direkt aus den angezeigten Zahlen ablesbar.</p><label class="field">6. Zwei Blöcke liegen in einer Python-Liste statt in einer nn.ModuleList. Welche Prüfungen bestehen trotzdem? <select class="select" id="ptCheckBlind"><option value="">Noch nicht gewählt</option><option value="blind">Alle fünf wertförmigen — auch load_state_dict(strict=True), weil strict zwei Schlüsselmengen vergleicht und beiden dieselben Einträge fehlen</option><option value="none">Keine · ein nicht registriertes Untermodul bricht sofort den Forward Pass</option><option value="forward">Nur der Wertvergleich; strict=True meldet die fehlenden Schlüssel</option></select></label><label class="field">7. Welche Prüfung fängt alle vier Fehler und läuft dabei auf der CPU? <select class="select" id="ptCheckCatch"><option value="">Noch nicht gewählt</option><option value="roundtrip">Speichern, neu starten, laden und die Ausgabewerte vergleichen</option><option value="migrate">.to(device) und danach jedes Tensor-Device prüfen</option><option value="count">Die Parameterzahl gegen die Formel P</option></select></label><button class="button" id="ptStateCheck" type="button">Kurzcheck prüfen</button><div id="ptStateCheckResult" role="status" aria-live="polite"></div></fieldset></div><div class="lab-stage" role="region" aria-label="Interaktive Rechnung zu Registrierung und Modellzustand" aria-live="polite" id="ptStage"></div></div>`;
     }
     function objectiveLabMarkup(id){
       const objective=LAB_OBJECTIVES[id],copy=objective?.[currentLanguage]||objective?.de;if(!copy)return "";
@@ -7079,7 +7081,7 @@
       if(id==="einsum-pattern"){["einsumOp","einsumLead","einsumPattern"].forEach(x=>document.getElementById(x).oninput=updateEinsumPattern);document.getElementById("einsumCheck").onclick=checkEinsumPattern;updateEinsumPattern()}
       if(id==="loss-and-clip"){["lossClipMode","lossScenario","lossVariant","clipMax","clipVariant"].forEach(x=>document.getElementById(x).oninput=updateLossClip);document.getElementById("lossClipCheck").onclick=checkLossClip;updateLossClip()}
       if(id==="dpo-loss"){["dpoCase","dpoVariant"].forEach(x=>document.getElementById(x).oninput=updateDpoLoss);document.getElementById("dpoCheck").onclick=checkDpoLoss;updateDpoLoss()}
-      if(id==="pytorch-debugger")document.getElementById("pytorchDebugCheck").onclick=checkPytorchDebugger;
+      if(id==="pytorch-debugger"){document.getElementById("pytorchDebugCheck").onclick=checkPytorchDebugger;["ptMode","ptVariant","ptConfig","ptGroup"].forEach(x=>document.getElementById(x).oninput=updatePytorchDebugger);document.getElementById("ptStateCheck").onclick=checkPytorchStateTransfer;updatePytorchDebugger()}
       if(id==="bpe"){document.getElementById("bpeReset").onclick=resetBpe;document.getElementById("bpeStep").onclick=stepBpe;["bpeMode","bpeSpecial"].forEach(x=>document.getElementById(x).oninput=resetBpe);resetBpe()}
       if(id==="bpe-encode"){["bpeEncMode","bpeEncCase","bpeEncVariant","bpeStreamVariant","bpeChunk"].forEach(x=>document.getElementById(x).oninput=updateBpeEncode);document.getElementById("bpeEncCheck").onclick=checkBpeEncode;updateBpeEncode()}
       if(id==="attention"){["attnQuery","attnTemp","attnMask"].forEach(x=>document.getElementById(x).oninput=updateAttention);updateAttention()}
@@ -7142,7 +7144,7 @@
       const presets={
         shapes:{shapeCheckQ:"correct",shapeCheckScores:"correct",shapeCheckScaling:"correct"},
         "einsum-pattern":{einsumCheckContract:"d_in",einsumCheckShape:"b33",einsumCheckDropped:"sum-dv"},
-        "pytorch-debugger":{ptCheckRegister:"correct",ptCheckDevice:"correct",ptCheckView:"correct",ptCheckGrad:"correct",ptCheckLoss:"correct"},
+        "pytorch-debugger":{ptCheckRegister:"correct",ptCheckDevice:"correct",ptCheckView:"correct",ptCheckGrad:"correct",ptCheckLoss:"correct",ptCheckBlind:"blind",ptCheckCatch:"roundtrip"},
         "triton-tile":{tritonCheckGrid:"3",tritonCheckValid:"5"},
         "online-softmax-kata":{onlineScore:"2",onlineCheckMax:"2",onlineCheckScale:"e-1",onlineCheckSum:"1.503",onlineCheckProb:"0.665"},
         "scaling-fit":{scaleFit0:"10",scaleFit1:"20",scaleFit2:"40",scaleFit3:"70",scaleFitBoundary:"boundary"},
@@ -7236,6 +7238,14 @@
     function bloomSuccessMarkup(){const tr=value=>esc(localizedUi(value));return `<div class="callout accent" style="margin-top:.7rem"><strong>${tr("✓ Bloom-Vertrag verstanden")}</strong><br>${tr("k*=(100/10)ln2≈6,93, also zuerst k=7 prüfen. Ein Nullbit beweist Abwesenheit; oberhalb des Optimums überwiegt zusätzliche Bitbelegung und die FPR steigt wieder.")}</div>`}
     function dedupSuccessMarkup(){const tr=value=>esc(localizedUi(value));return `<div class="callout accent" style="margin-top:.7rem"><strong>${tr("✓ Transfer-Kurzcheck bestanden")}</strong><br>${tr("Retrieval: A–B, B–C, A–D. Verification: A–B und B–C. Components: {A,B,C} und {D}.")}</div>`}
     function grpoSuccessMarkup(){const tr=value=>esc(localizedUi(value));return `<div class="callout accent" style="margin-top:.7rem"><strong>${tr("✓ Transfer-Kurzcheck bestanden")}</strong><br>${tr("μ=0.5, σ_sample=√(1/3)≈0.577 und A₁=(1−0.5)/0.577≈0.866. Das Sequenzmittel gibt jedem Token A₁/n₁; über n₁ Tokens bleibt das Gesamtgewicht A₁≈0.866.")}</div>`}
+    function pytorchStateSuccessMarkup(){const tr=value=>esc(localizedUi(value));return `<div class="callout accent" style="margin-top:.7rem"><strong>${tr("✓ Beide Zustandsfragen richtig")}</strong><br>${tr("Ein Untermodul in einer Python-Liste rechnet im Forward Pass mit und fehlt nur in der Inventur. Deshalb ist die Ausgabe auf die letzte Stelle identisch, der Optimizer baut sich, jeder registrierte Parameter bekommt einen Gradienten, und der Loss sinkt — im Toy-Fall um 67,3865 % statt um 72,9513 %, also sichtbar gesund. Auch load_state_dict(strict=True) nimmt es an, weil strict zwei Schlüsselmengen vergleicht und beide dieselben Einträge vermissen: ein Schlüssel, den niemand schreibt, fehlt niemandem. Alle vier Fehler fangen nur .to(device) und der Werte-Rundlauf über Speichern und Laden — und davon läuft auf der CPU allein der Rundlauf. Die Parameterzahl gegen die Formel P fängt drei der vier, kostet zwei Zeilen und ist blind allein beim Buffer, weil ein Buffer ohnehin kein Parameter ist.")}</div>`}
+    function checkPytorchStateTransfer(){
+      const blind=document.getElementById("ptCheckBlind").value,catcher=document.getElementById("ptCheckCatch").value,
+        result=document.getElementById("ptStateCheckResult"),tr=value=>esc(localizedUi(value));
+      if(!blind||!catcher){toast("Beantworte beide Fragen zum Modellzustand.");return}
+      if(blind==="blind"&&catcher==="roundtrip"){user.labChecks["pytorch-debugger"]=true;saveUser(true);result.innerHTML=pytorchStateSuccessMarkup();return}
+      result.innerHTML=`<div class="callout warning" style="margin-top:.7rem"><strong>${tr("Noch nicht.")}</strong><br>${tr("Stelle in Modus A nacheinander alle fünf Varianten ein und lies die Zeile „Alle fünf Varianten nebeneinander“ mit: bei jedem der vier Fehler schlagen höchstens drei der acht Prüfungen an. Vergleiche danach die Zeilen 6 bis 8 — nur zwei davon schlagen bei allen vier an, und nur eine davon braucht kein zweites Device.")}</div>`;
+    }
     function checkPytorchDebugger(){
       const ids=["Register","Device","View","Grad","Loss"],fields=ids.map(id=>document.getElementById(`ptCheck${id}`)),result=document.getElementById("pytorchDebugResult"),tr=value=>esc(localizedUi(value));
       if(fields.some(field=>!field.value)){toast("Beantworte alle fünf PyTorch-Diagnosen.");return}
@@ -12670,6 +12680,244 @@ p99 went from 12.4ms to 8.1ms but RSS is back to ~78MB, so it is a real tradeoff
       if(!grid||!buffer||!blind){toast("Beantworte alle drei Kurzchecks zu Grid, Partial-Buffer und dem blinden Fleck der Invariante.");return}
       if(grid==="3x3"&&buffer==="3x70"&&blind==="scale"){user.labChecks["kernel-contracts"]=true;saveUser(true);result.innerHTML=kernelContractsSuccessMarkup();return}
       result.innerHTML=`<div class="callout warning" style="margin-top:.7rem"><strong>${tr("Noch nicht.")}</strong><br>${tr("Die ersten beiden Antworten stehen in Modus A, wenn du R=37, D=70, BR=16 und BD=32 einstellst — runde jede Gridachse für sich. Für die dritte stelle in Modus B nacheinander alle fünf Varianten ein und lies die Zeile „Prüfung 1“ mit: zwei Varianten bestehen sie und fallen trotzdem beim Referenzvergleich durch.")}</div>`;
+    }
+
+    // ---- Lab: pytorch-debugger (Rechenfläche) --------------------------------------
+    // `pytorch-state` entscheidet 16,5 Punkte (a1:linear, a1:embedding, a1:checkpointing,
+    // a1:training_together, a5:aggregate_loss_across_microbatch_sequence,
+    // a5:grpo_train_step_standard_on_policy, a5:sft_script) und hatte als einziges Lab dieses
+    // Quiz ohne eine einzige gerechnete Zeile.
+    //
+    // Der Befund: ein Untermodul, das in einer Python-Liste statt in einer nn.ModuleList
+    // liegt, ist im Forward Pass **wertgleich**. Es fehlt nur in der Inventur. Alle fünf
+    // wertförmigen Prüfungen bestehen deshalb — einschließlich load_state_dict(strict=True),
+    // das genau deshalb blind ist, weil beide Schlüsselmengen denselben Fehler haben.
+    //
+    // Das Modell hier ist eine lineare Kette y = ((x·Wemb^T)·Wb1^T·Wb2^T ⊙ scale)·Whead^T.
+    // Sie ist absichtlich linear: der Gradient hat eine geschlossene Form, die der Guard
+    // durch zentrale finite Differenzen unabhängig nachrechnet. Die Zahlen wurden gegen
+    // echtes PyTorch 2.11 gehalten und stimmen auf sechs Nachkommastellen überein.
+    const PT_D=4;
+    const PT_N=6;
+    const PT_STEPS=120;
+    const PT_LR=0.05;
+    const PT_KEYS=["emb","b1","b2","head"];
+    function ptRng(seed){let state=seed;return()=>{state=(state*48271)%2147483647;return state/2147483647}}
+    function ptMat(rng,rows,cols){return Array.from({length:rows},()=>Array.from({length:cols},()=>Math.round((rng()*2-1)*8)/8))}
+    const PT_FIXTURE=(()=>{
+      const rng=ptRng(20260908),W0={};
+      for(const key of PT_KEYS)W0[key]=ptMat(rng,PT_D,PT_D);
+      const X=ptMat(rng,PT_N,PT_D),Y=ptMat(rng,PT_N,PT_D),fresh={};
+      for(const key of PT_KEYS)fresh[key]=ptMat(rng,PT_D,PT_D);
+      return {W0,X,Y,fresh,scale:[1,1,1,1],freshScale:[0.5,0.5,0.5,0.5]};
+    })();
+    // registered: die Gewichte, die in named_parameters() und im state_dict auftauchen.
+    // buffer: ob die Konstante scale als register_buffer statt als nacktes Tensorattribut liegt.
+    const PT_VARIANTS=[
+      {key:"ok",registered:["emb","b1","b2","head"],buffer:true,
+        label:"korrekt · nn.ModuleList für die Blöcke, register_buffer für die Konstante",
+        note:"Die Inventur stimmt mit dem Forward Pass überein. Nur dieser Fall besteht alle acht Prüfungen."},
+      {key:"list",registered:["emb","head"],buffer:true,
+        label:"self.blocks = [Block(), Block()] · eine gewöhnliche Python-Liste",
+        note:"Der klassische A1-Fehler. Die Blöcke rechnen mit, stehen aber in keiner Inventur — der Optimizer sieht sie nie, und trotzdem sinkt der Loss."},
+      {key:"dict",registered:["emb","head"],buffer:true,
+        label:"self.blocks = {\"0\": Block(), \"1\": Block()} · ein gewöhnliches Python-Dict",
+        note:"Derselbe Vertragsbruch in anderer Verpackung. Nur nn.ModuleDict registriert; ein gewöhnliches Dict nicht."},
+      {key:"rawparam",registered:["emb","b1","head"],buffer:true,
+        label:"ein Blockgewicht als torch.Tensor statt als nn.Parameter",
+        note:"Ein einzelnes Gewicht, nicht ein ganzes Untermodul. Es bekommt nie einen Gradienten und wird nie gespeichert."},
+      {key:"rawbuf",registered:["emb","b1","b2","head"],buffer:false,
+        label:"die Konstante als torch.Tensor statt als register_buffer",
+        note:"Die Parameterzahl bleibt richtig, weil ein Buffer ohnehin kein Parameter ist. Genau deshalb ist die Zählprüfung hier blind. Dieser Fall ist der schärfste der vier: sein Trainingslauf ist Bit für Bit der des korrekten Modells, denn ein Buffer wird ohnehin nie trainiert. Von jeder wertförmigen Beobachtung ist er ununterscheidbar — es trennen ihn allein die beiden Zustandsprüfungen."}
+    ];
+    const ptVariantOf=key=>PT_VARIANTS.find(entry=>entry.key===key)||PT_VARIANTS[0];
+    const ptMatmulT=(A,B)=>A.map(row=>B.map(col=>row.reduce((sum,value,k)=>sum+value*col[k],0)));
+    function ptForward(W,scale){
+      let h=ptMatmulT(PT_FIXTURE.X,W.emb);
+      h=ptMatmulT(h,W.b1);h=ptMatmulT(h,W.b2);
+      h=h.map(row=>row.map((value,j)=>value*scale[j]));
+      return ptMatmulT(h,W.head);
+    }
+    function ptLoss(W,scale){
+      const P=ptForward(W,scale);let sum=0;
+      for(let i=0;i<PT_N;i++)for(let j=0;j<PT_D;j++)sum+=(P[i][j]-PT_FIXTURE.Y[i][j])**2;
+      return sum/(PT_N*PT_D);
+    }
+    // Geschlossene Form für die lineare Kette. Der Guard bildet dieselben Gradienten
+    // stattdessen durch zentrale finite Differenzen des Loss.
+    function ptGrads(W,scale){
+      const A=ptMatmulT(PT_FIXTURE.X,W.emb),B=ptMatmulT(A,W.b1),C0=ptMatmulT(B,W.b2),
+        C=C0.map(row=>row.map((value,j)=>value*scale[j])),P=ptMatmulT(C,W.head);
+      const outer=(dOut,In)=>dOut[0].map((_,o)=>In[0].map((_,k)=>dOut.reduce((sum,row,i)=>sum+row[o]*In[i][k],0))),
+        back=(dOut,Wt)=>dOut.map(row=>Wt[0].map((_,k)=>row.reduce((sum,value,o)=>sum+value*Wt[o][k],0)));
+      const dP=P.map((row,i)=>row.map((value,j)=>2*(value-PT_FIXTURE.Y[i][j])/(PT_N*PT_D))),g={};
+      g.head=outer(dP,C);
+      const dC0=back(dP,W.head).map(row=>row.map((value,j)=>value*scale[j]));
+      g.b2=outer(dC0,B);
+      const dB=back(dC0,W.b2);g.b1=outer(dB,A);
+      const dA=back(dB,W.b1);g.emb=outer(dA,PT_FIXTURE.X);
+      return g;
+    }
+    // Genau das, was load_state_dict(strict=True) tut: zwei sortierte Schlüsselmengen
+    // vergleichen. Die Länge allein genügt nicht — zwei gleich lange Mengen können
+    // verschiedene Schlüssel tragen.
+    const ptSameKeys=(a,b)=>a.length===b.length&&a.every((key,index)=>key===b[index]);
+    const ptClone=W=>Object.fromEntries(PT_KEYS.map(key=>[key,W[key].map(row=>row.slice())]));
+    function ptTrain(variant){
+      const W=ptClone(PT_FIXTURE.W0),scale=PT_FIXTURE.scale.slice(),first=ptLoss(W,scale);
+      for(let step=0;step<PT_STEPS;step++){
+        const g=ptGrads(W,scale);
+        for(const key of variant.registered)
+          for(let i=0;i<PT_D;i++)for(let j=0;j<PT_D;j++)W[key][i][j]-=PT_LR*g[key][i][j];
+      }
+      const last=ptLoss(W,scale);
+      return {first,last,reduction:100*(1-last/first),W};
+    }
+    const PT_EXPECTED=PT_KEYS.length*PT_D*PT_D;
+    // Ein Modell wird hier als das dargestellt, was PyTorch daraus macht: eine Inventur
+    // (params/buffers) und die Tensoren, die der Forward Pass zwar benutzt, die aber in
+    // keiner Inventur stehen. Der Forward sammelt aus beiden Töpfen — genau deshalb ist er
+    // wertgleich, während jede Inventurprüfung etwas anderes sieht.
+    function ptModel(variant,W,scale){
+      const params={},strays={};
+      for(const key of PT_KEYS)(variant.registered.includes(key)?params:strays)[key]=W[key];
+      const buffers=variant.buffer?{scale}:{},strayScale=variant.buffer?{}:{scale};
+      return {params,strays,buffers,strayScale,
+        weights:()=>Object.fromEntries(PT_KEYS.map(key=>[key,params[key]||strays[key]])),
+        scale:()=>(variant.buffer?buffers.scale:strayScale.scale),
+        stateKeys:()=>[...Object.keys(params),...Object.keys(buffers)].sort(),
+        scalars:()=>Object.values(params).reduce((sum,m)=>sum+m.length*m[0].length,0),
+        strayCount:()=>Object.keys(strays).length+Object.keys(strayScale).length};
+    }
+    function ptVerdicts(variantKey){
+      const variant=ptVariantOf(variantKey);
+      const reference=ptForward(PT_FIXTURE.W0,PT_FIXTURE.scale);
+      const model=ptModel(variant,ptClone(PT_FIXTURE.W0),PT_FIXTURE.scale.slice());
+      const mine=ptForward(model.weights(),model.scale());
+      let maxDiff=0;
+      for(let i=0;i<PT_N;i++)for(let j=0;j<PT_D;j++)maxDiff=Math.max(maxDiff,Math.abs(mine[i][j]-reference[i][j]));
+      const trained=ptTrain(variant),scalars=model.scalars();
+      // Der Gradient entsteht für jeden Tensor im Graphen; die Inventurprüfung sieht nur die
+      // registrierten. Deshalb besteht sie, obwohl die stillgelegten Tensoren nie aktualisiert werden.
+      const g=ptGrads(ptClone(PT_FIXTURE.W0),PT_FIXTURE.scale),
+        gradient=variant.registered.every(key=>g[key]&&g[key].every(row=>row.every(Number.isFinite)));
+      // Speichern, in einem frischen Prozess neu bauen, laden — und die Werte vergleichen.
+      const savedModel=ptModel(variant,trained.W,PT_FIXTURE.scale.slice()),
+        freshModel=ptModel(variant,ptClone(PT_FIXTURE.fresh),PT_FIXTURE.freshScale.slice());
+      const savedKeys=savedModel.stateKeys(),freshKeys=freshModel.stateKeys();
+      // strict=True vergleicht Schlüsselmengen. Beide Seiten sind auf dieselbe Weise falsch.
+      const strict=ptSameKeys(savedKeys,freshKeys);
+      const loaded=freshModel.weights(),loadedScale=[...freshModel.scale()];
+      for(const key of savedKeys)if(key!=="scale")loaded[key]=savedModel.params[key].map(row=>row.slice());
+      if(savedKeys.includes("scale"))for(let j=0;j<PT_D;j++)loadedScale[j]=savedModel.buffers.scale[j];
+      const savedOut=ptForward(savedModel.weights(),savedModel.scale()),reloadedOut=ptForward(loaded,loadedScale);
+      let roundDiff=0;
+      for(let i=0;i<PT_N;i++)for(let j=0;j<PT_D;j++)roundDiff=Math.max(roundDiff,Math.abs(savedOut[i][j]-reloadedOut[i][j]));
+      const stray=model.strayCount(),strayWeights=Object.keys(model.strays);
+      return {variant,maxDiff,scalars,tensors:Object.keys(model.params).length,trained,roundDiff,stray,strayWeights,
+        savedKeys,
+        checks:{
+          forward:maxDiff===0,
+          optimizer:Object.keys(model.params).length>0,
+          gradient,
+          descent:trained.last<trained.first,
+          strict,
+          count:scalars===PT_EXPECTED,
+          migrate:stray===0,
+          roundtrip:roundDiff===0
+        }};
+    }
+    const PT_CHECKS=[
+      {key:"forward",label:"1 · Ausgabewerte gegen eine Referenz",detail:"torch.testing.assert_close(model(x), expected)"},
+      {key:"optimizer",label:"2 · Optimizer lässt sich bauen",detail:"AdamW(model.parameters())  # no exception"},
+      {key:"gradient",label:"3 · jeder Parameter hat einen Gradienten",detail:"all(p.grad is not None for p in model.parameters())"},
+      {key:"descent",label:"4 · der Loss sinkt über die Schritte",detail:"loss[-1] < loss[0]"},
+      {key:"strict",label:"5 · load_state_dict(strict=True) nimmt es an",detail:"model.load_state_dict(torch.load(path), strict=True)"},
+      {key:"count",label:"6 · Parameterzahl gegen die Formel",detail:"sum(p.numel() for p in model.parameters()) == P"},
+      {key:"migrate",label:"7 · .to(device) bewegt wirklich alles",detail:"model.to(dev); {t.device for t in used} == {dev}"},
+      {key:"roundtrip",label:"8 · Speichern, neu starten, laden, Werte vergleichen",detail:"assert_close(model(x), reloaded(x))"}
+    ];
+    // Modus B: dieselbe A1-Parameterformel wie im Lab transformer-ledger,
+    // P = 2VD + L(4D²+3DF+2D) + D, aufgeteilt in registrierte und stillgelegte Gruppen.
+    const PT_CONFIGS=[
+      {key:"toy",V:1000,D:64,F:192,L:3,label:"V=1000, D=64, F=192, L=3 · der Fall aus dem Transformer-Ledger"},
+      {key:"tiny",V:10000,D:512,F:1344,L:4,label:"V=10000, D=512, F=1344, L=4 · A1 §7.2.1, TinyStories"},
+      {key:"owt",V:32000,D:768,F:3072,L:12,label:"V=32000, D=768, F=3072, L=12 · A1 OpenWebText"}
+    ];
+    const PT_GROUPS=[
+      {key:"blocks",label:"alle Transformer-Blöcke · self.layers = [Block() for _ in range(L)]"},
+      {key:"attn",label:"nur die vier Attention-Matrizen je Block"},
+      {key:"ffn",label:"nur die drei SwiGLU-Matrizen je Block"},
+      {key:"norms",label:"nur die RMSNorm-Gains"}
+    ];
+    const ptConfigOf=key=>PT_CONFIGS.find(entry=>entry.key===key)||PT_CONFIGS[0];
+    const ptGroupOf=key=>PT_GROUPS.find(entry=>entry.key===key)||PT_GROUPS[0];
+    function ptLedger(configKey,groupKey){
+      const c=ptConfigOf(configKey),group=ptGroupOf(groupKey);
+      const embed=c.V*c.D,head=c.V*c.D,attn=c.L*4*c.D*c.D,ffn=c.L*3*c.D*c.F,
+        blockNorms=c.L*2*c.D,finalNorm=c.D,norms=blockNorms+finalNorm;
+      const total=embed+head+attn+ffn+norms;
+      const frozen=group.key==="blocks"?attn+ffn+blockNorms:group.key==="attn"?attn:group.key==="ffn"?ffn:norms;
+      return {c,group,embed,head,attn,ffn,blockNorms,finalNorm,norms,total,frozen,
+        trainedShare:100*(total-frozen)/total,frozenShare:100*frozen/total};
+    }
+    function ptRead(id,binding){return binding&&Object.prototype.hasOwnProperty.call(binding,id)?binding[id]:document.getElementById(id).value}
+    function ptStageMarkup(binding){
+      const tr=value=>esc(localizedUi(value)),mode=ptRead("ptMode",binding),
+        mark=flag=>flag?tr("besteht"):tr("schlägt an");
+      if(mode==="ledger"){
+        const L=ptLedger(ptRead("ptConfig",binding),ptRead("ptGroup",binding)),int=value=>fixedNum(value,0);
+        return `<h2>${tr("Wie viel Modell dabei stillsteht")}</h2>`+
+          `<p class="small muted">${tr("Dieselbe A1-Formel wie im Transformer-Ledger: P = 2VD + L(4D²+3DF+2D) + D. Aufgeteilt danach, was in der Inventur steht und was nur mitrechnet.")}</p>`+
+          `<div class="calculation-ledger">`+
+          `<div class="calculation-row"><span>${tr("Input-Embedding · VD")}</span><strong data-ptembed="1">${int(L.embed)}</strong></div>`+
+          `<div class="calculation-row"><span>${tr("LM Head · VD")}</span><strong data-pthead="1">${int(L.head)}</strong></div>`+
+          `<div class="calculation-row"><span>${tr("Attention über alle Blöcke · L·4D²")}</span><strong data-ptattn="1">${int(L.attn)}</strong></div>`+
+          `<div class="calculation-row"><span>${tr("SwiGLU über alle Blöcke · L·3DF")}</span><strong data-ptffn="1">${int(L.ffn)}</strong></div>`+
+          `<div class="calculation-row"><span>${tr("RMSNorm-Gains · L·2D + D")}</span><strong data-ptnorms="1">${int(L.norms)}</strong></div>`+
+          `<div class="calculation-row"><span>${tr("Parameter insgesamt · P")}</span><strong data-pttotal="1">${int(L.total)}</strong></div>`+
+          `<div class="calculation-row"><span>${tr("davon nicht registriert und damit eingefroren")}</span><strong data-ptfrozen="1">${int(L.frozen)}</strong></div>`+
+          `<div class="calculation-row"><span>${tr("eingefrorener Anteil")}</span><strong data-ptfrozenshare="1">${fixedNum(L.frozenShare,4)} %</strong></div>`+
+          `<div class="calculation-row"><span>${tr("Anteil, der tatsächlich trainiert")}</span><strong data-pttrainedshare="1">${fixedNum(L.trainedShare,4)} %</strong></div>`+
+          `</div>`+
+          (L.frozenShare>50
+            ?`<div class="callout warning" style="margin-top:1rem"><strong>${tr("Mehr als die Hälfte des Modells trainiert nicht.")}</strong> ${tr("Und der Loss sinkt trotzdem, weil das Embedding und die Ausgabeprojektion auf das Vokabular zusammen schon genug Kapazität tragen. Modus A rechnet genau das an der kleinen Kette vor: dieselbe Verwechslung senkt den Loss dort um 67,3865 % statt um 72,9513 % — sichtbar gesund, nur eben schlechter. Genau deshalb ist „der Loss geht runter“ kein Beleg dafür, dass das Modell vollständig trainiert.")}</div>`
+            :`<div class="callout accent" style="margin-top:1rem"><strong>${tr("Ein kleiner Anteil, und trotzdem entscheidend.")}</strong> ${tr("Eine Prüfung, die nur ungefähr die richtige Parameterzahl erwartet, übersieht diesen Fall vollständig. Die RMSNorm-Gains sind wenige Zahlen, aber sie skalieren jeden Residualbeitrag — bleiben sie auf ihrem Initialwert, fehlt dem Modell eine Freiheit, die A1 ausdrücklich verlangt.")}</div>`)+
+          `<div class="shape-change"><strong>${tr("Was die Zahl praktisch bedeutet")}</strong><span>${tr("Die eingefrorenen Gewichte behalten ihre Initialisierung über den gesamten Lauf. Sie sind kein Rauschen, sondern eine feste zufällige Projektion — das Modell lernt, um sie herum zu arbeiten. Der Loss sinkt, die Kurve sieht gesund aus, und der Endwert liegt schlechter, als er müsste, ohne dass irgendetwas nach einem Fehler aussieht.")}</span></div>`;
+      }
+      const state=ptVerdicts(ptRead("ptVariant",binding)),variant=state.variant;
+      const checkRows=PT_CHECKS.map(check=>
+        `<div class="calculation-row"><span>${tr(check.label)}<br><span class="small muted" data-no-i18n>${esc(check.detail)}</span></span><strong data-ptcheck="${check.key}">${mark(state.checks[check.key])}</strong></div>`).join("");
+      const overview=PT_VARIANTS.map(entry=>{
+        const value=ptVerdicts(entry.key),caught=PT_CHECKS.filter(check=>!value.checks[check.key]).length;
+        return `<div class="calculation-row"><span>${tr(entry.label)}</span><strong data-ptsummary="${entry.key}">${fixedNum(value.scalars,0)} ${tr("Parameterskalare")} · ${fixedNum(caught,0)} ${tr("von 8 Prüfungen schlagen an")}</strong></div>`;
+      }).join("");
+      const blind=state.checks.forward&&!state.checks.roundtrip;
+      return `<h2>${tr("Acht Prüfungen an einem wertgleichen Modell")}</h2>`+
+        `<p class="small muted">${tr("Alle fünf Varianten tragen dieselben Zahlen in denselben Matrizen. Sie unterscheiden sich ausschließlich darin, was in der Inventur steht.")}</p>`+
+        `<div class="calculation-ledger">`+
+        `<div class="calculation-row"><span>${tr("registrierte Parametertensoren")}</span><strong data-pttensors="1">${fixedNum(state.tensors,0)} ${tr("von")} ${fixedNum(PT_KEYS.length,0)}</strong></div>`+
+        `<div class="calculation-row"><span>${tr("Parameterskalare im state_dict")}</span><strong data-ptscalars="1">${fixedNum(state.scalars,0)} ${tr("von")} ${fixedNum(PT_EXPECTED,0)}</strong></div>`+
+        `<div class="calculation-row"><span>${tr("im Forward benutzt, aber in keiner Inventur")}</span><strong data-ptstray="1">${fixedNum(state.stray,0)}</strong></div>`+
+        `<div class="calculation-row"><span>${tr("größter Betrag |y − y_korrekt|")}</span><strong data-ptmaxdiff="1">${fixedNum(state.maxDiff,12)}</strong></div>`+
+        `<div class="calculation-row"><span>${tr("Loss vor dem Training")}</span><strong data-ptfirst="1">${fixedNum(state.trained.first,6)}</strong></div>`+
+        `<div class="calculation-row"><span>${tr("Loss nach 120 SGD-Schritten")}</span><strong data-ptlast="1">${fixedNum(state.trained.last,6)}</strong></div>`+
+        `<div class="calculation-row"><span>${tr("Lossreduktion")}</span><strong data-ptreduction="1">${fixedNum(state.trained.reduction,4)} %</strong></div>`+
+        `<div class="calculation-row"><span>${tr("größter Betrag nach Speichern und Laden")}</span><strong data-ptround="1">${fixedNum(state.roundDiff,6)}</strong></div>`+
+        `</div>`+
+        `<h3>${tr("Was jede einzelne Prüfung sagt")}</h3><div class="calculation-ledger">${checkRows}</div>`+
+        `<p class="lab-note">${tr(variant.note)}</p>`+
+        `<h3>${tr("Alle fünf Varianten nebeneinander")}</h3><div class="calculation-ledger">${overview}</div>`+
+        (blind
+          ?`<div class="callout warning" style="margin-top:1rem"><strong>${tr("Fünf Prüfungen bestehen, und das Modell ist trotzdem kaputt.")}</strong> ${tr("Der Forward Pass ist auf die letzte Stelle identisch, der Optimizer baut sich, jeder registrierte Parameter hat einen Gradienten, und der Loss sinkt. Auch load_state_dict(strict=True) nimmt es an — strict vergleicht zwei Schlüsselmengen, und beide Seiten sind auf dieselbe Weise falsch. Ein Schlüssel, den niemand schreibt, fehlt niemandem.")}</div>`
+          :`<div class="callout accent" style="margin-top:1rem"><strong>${tr("Inventur und Forward Pass stimmen überein.")}</strong> ${tr("Nur in diesem Fall ist jeder Tensor, den der Forward Pass benutzt, auch ein Parameter oder ein Buffer. Das ist die Eigenschaft, die alle acht Prüfungen gemeinsam beschreiben.")}</div>`)+
+        `<div class="shape-change"><strong>${tr("Die zwei Prüfungen, die alles fangen")}</strong><span>${tr("Nur .to(device) und der Werte-Rundlauf über Speichern und Laden schlagen bei allen vier Fehlern an. Von beiden läuft nur der Rundlauf auf der CPU — .to(device) braucht ein zweites Device oder einen zweiten Dtype, und genau den hat ein lokaler Testlauf nicht. Die Parameterzahl gegen die Formel fängt drei der vier und ist zwei Zeilen lang; blind ist sie allein beim Buffer, weil ein Buffer ohnehin kein Parameter ist.")}</span></div>`;
+    }
+    function updatePytorchDebugger(){
+      const mode=document.getElementById("ptMode").value;
+      document.getElementById("ptContractFields").hidden=mode!=="contract";
+      document.getElementById("ptLedgerFields").hidden=mode!=="ledger";
+      document.getElementById("ptStage").innerHTML=ptStageMarkup();
     }
 
     // ---- Lab: mask-pii -------------------------------------------------------------

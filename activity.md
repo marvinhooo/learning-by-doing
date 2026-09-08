@@ -467,3 +467,42 @@ Iteration Counter: 1
 - Kein Browsertest (in geplanten Laeufen gesperrt).
 - Offen: **sechs Labs ohne rechnende Flaeche** (~38 Punkte), naechster `pytorch-debugger` (16,5, einziges Lab von `pytorch-state`), dann `distributed-runtime` (10) und `transformer-ledger` (8); die drei Konzepte ohne Lab entscheiden null Probleme; `renderFormulaDetail` bleibt eine Sackgasse; `origin/main` steht auf `2ed21e7`, **v100 bis v103 ungepusht**.
 
+
+## 2026-09-08 - Der Test, den PyTorch selbst nicht bestehen laesst (geplanter Deep Review, v104)
+
+- Ausgangslage: zugewiesener Worktree auf v99, Kettenkopf auf v103 (`90c76c2`,
+  `claude/nostalgic-rubin-6ddab0`) - Fast-Forward, kein Merge. Kein Codex aktiv.
+  `origin/main` steht weiter auf `2ed21e7`; v100 bis v104 sind ungepusht.
+- Gewaehlter Hebel: `pytorch-debugger`, das einzige Lab von `pytorch-state` und damit
+  entscheidend fuer 16,5 Punkte (a1:linear 1, a1:embedding 1, a1:checkpointing 1,
+  a1:training_together 4, a5:aggregate_loss_across_microbatch_sequence 0,5,
+  a5:grpo_train_step_standard_on_policy 5, a5:sft_script 4). Bis v103 fuenf Auswahlfragen
+  ohne eine einzige gerechnete Zeile. Gegenprobe nach der v100-Regel: kein anderes Lab
+  fuehrt das Konzept.
+- Befund: ein Untermodul in einer Python-Liste statt in einer nn.ModuleList ist im Forward
+  Pass wertgleich - es fehlt allein in der Inventur. Fuenf wertfoermige Pruefungen bestehen
+  deshalb bei allen vier Fehlern, darunter `load_state_dict(strict=True)`, das genau deshalb
+  blind ist, weil es zwei Schluesselmengen vergleicht, denen dieselben Eintraege fehlen.
+  Alle vier fangen nur `.to(device)` und der Werte-Rundlauf ueber Speichern und Laden; ohne
+  zweites Geraet laeuft davon nur der Rundlauf. Die Parameterzahl gegen die Formel P faengt
+  drei der vier und ist blind genau beim Buffer.
+- Das Lab bekommt eine rechnende Flaeche in zwei Modi. Modus A stellt fuenf
+  Speichervarianten denselben acht Pruefungen gegenueber; Modus B teilt die
+  A1-Parameterformel P=2VD+L(4D²+3DF+2D)+D in registrierte und stillgelegte Gruppen auf.
+  Bei A1 §7.2.1 (V=10000, D=512, F=1344, L=4) frieren 12.455.936 von 22.696.448 Parametern
+  ein - 54,8806 Prozent, und der Loss sinkt trotzdem.
+- Die Zahlen des Labs wurden gegen echtes PyTorch 2.11 gehalten: dieselben fuenf Varianten,
+  dieselben Gewichte, Uebereinstimmung auf sechs Nachkommastellen bei jeder Variante.
+- Konzeptseite `pytorch-state` in beiden Sprachen um ein viertes `details`-Element und einen
+  vierten Pitfall erweitert; beide nennen die Blindheit von strict=True ausdruecklich.
+- Guard-Suite 55 -> 56 Bloecke gruen, neuer Block `state contract` (286 Checks) auf einem
+  anderen Rechenweg als die App: Gradienten durch zentrale finite Differenzen, Parametertotal
+  aus einer Stueckliste Matrix fuer Matrix. `lab render sweep` 56 -> 57 von 63 Labs,
+  `lab prose anchors` 56 -> 57 Karten, `LR_NO_STAGE` 7 -> 6. Cache-Bump auf v84 (4 Stellen).
+  Laborzahl unveraendert 63 - es kam kein Lab dazu, eines wurde rechnend.
+- Mutationstest: 20 Mutationen, 18 gefangen, 2 inert mit gemessenem Grund. Zwei echte
+  Luecken gefunden und geschlossen (der Guard leitete seine Erwartung aus `variant.registered`
+  ab und verglich sie gegen eine App, die dasselbe Feld liest; und die Schluesselmengen-
+  Vergleichung liess sich auf einen Laengenvergleich abschwaechen, ohne dass eine Variante
+  das gezeigt haette). Kontrolle vor und nach allen Laeufen gruen.
+- Kein Browsertest - in geplanten Laeufen gesperrt.
