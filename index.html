@@ -873,7 +873,7 @@
       *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
     }
   </style>
-  <script src="i18n-en.js?v=84"></script>
+  <script src="i18n-en.js?v=85"></script>
   <script src="config.js"></script>
   <script src="vendor/supabase.js"></script>
 </head>
@@ -2799,21 +2799,26 @@
         "details": [
           "Ein Rank bezeichnet einen Prozess innerhalb einer Process Group; world_size ist die Mitgliederzahl genau dieser Gruppe. In einem 4D-Layout gilt W_total=d·t·p für Daten-, Tensor- und Pipelineparallelgrad. Nur d vergrößert den globalen Datenbatch: B_global=B_micro·accum·d. Tensor- und Pipeline-Ranks teilen dasselbe Beispiel beziehungsweise Modell und dürfen nicht noch einmal als unabhängige Datenkopien gezählt werden.",
           "Collectives sind verteilte Kontrollflussverträge. Gleiche Operation, gleiche Tensorform und kompatible Reihenfolge müssen auf allen Gruppenmitgliedern auftreten, sonst kann ein Rank auf eine Nachricht warten, die ein anderer nie sendet. async_op liefert einen Handle, aber keine abgeschlossenen Gradienten. Vor Wiederverwendung des Buffers oder Optimizer-Step braucht es wait beziehungsweise eine nachweisbare Stream-Abhängigkeit.",
-          "DDP hält Parameter repliziert, berechnet lokale Losses und synchronisiert Gradienten über Buckets, sobald ihre Parameter im Backward bereit sind. Kleine Buckets starten früh, zahlen aber häufiger Latenz; große Buckets amortisieren Latenz, beginnen jedoch später. Für einen Ring bewegt All-Reduce pro Rank ungefähr 2(W−1)M/W Bytes, Reduce-Scatter oder All-Gather jeweils (W−1)M/W. Der kritische Pfad lässt sich als T_step≈T_compute+max(0,T_comm−T_overlap) prüfen."
+          "DDP hält Parameter repliziert, berechnet lokale Losses und synchronisiert Gradienten über Buckets, sobald ihre Parameter im Backward bereit sind. Kleine Buckets starten früh, zahlen aber häufiger Latenz; große Buckets amortisieren Latenz, beginnen jedoch später. Für einen Ring bewegt All-Reduce pro Rank ungefähr 2(W−1)M/W Bytes, Reduce-Scatter oder All-Gather jeweils (W−1)M/W. Der kritische Pfad lässt sich als T_step≈T_compute+max(0,T_comm−T_overlap) prüfen.",
+          "Eine gemessene Collective-Zeit trägt zwei Bandbreiten, und sie stützen entgegengesetzte Sätze. S/T sagt, wie schnell der eigene Tensor fertig wird; S/T·2(W−1)/W rechnet das Volumen zurück, das ein Rank im Ring tatsächlich sendet, und ist deshalb die Zahl, die zwei World Sizes vergleichbar macht. Die Zeit selbst zerfällt in einen Latenzterm 2(W−1)·α und einen Übertragungsterm 2(W−1)/W·S/β. Welcher überwiegt, entscheidet die Tensorgröße, und die Grenze liegt bei S=α·W·β, in der sich der Ringfaktor vollständig herauskürzt; unterhalb davon sagt auch die Busbandbreite nichts mehr über die Verbindung. Gemessen wird beides nur mit torch.cuda.synchronize() vor jeder Zeitnahme, denn auch bei async_op=False kehrt der Aufruf zurück, sobald das Collective eingereiht ist."
         ],
         "pitfalls": [
           "World Size pauschal als Gesamtzahl aller Geräte einsetzen; für Batch, Collective und Sharding kann jeweils eine andere Process Group maßgeblich sein.",
-          "Einen zurückgegebenen async-Handle als Fertigstellung behandeln und Parameter aktualisieren, bevor die Gradientsynchronisation tatsächlich abgeschlossen ist."
+          "Einen zurückgegebenen async-Handle als Fertigstellung behandeln und Parameter aktualisieren, bevor die Gradientsynchronisation tatsächlich abgeschlossen ist.",
+          "Aus einer Tabelle von S/T über die World Size auf die Verbindung schließen. Ein Ring bewegt bei mehr Ranks mehr Volumen, deshalb fällt S/T auch dann, wenn die Leitung gleich ausgelastet ist – und in latenzgebundenen Größen fällt die Busbandbreite ebenfalls, ohne dass sich an der Leitung etwas ändert.",
+          "Die nach dem Backward Pass gemessene Kommunikationszeit für den Betrag halten, den man einsparen kann. Wird dasselbe Volumen gestartet, sobald jeder Gradient bereit ist, verdeckt der noch laufende Backward Pass fast alles davon. Übrig bleibt kein Rest, sondern genau das Collective des zuletzt fertigen Gradienten."
         ],
         "checks": [
           "Wie groß sind Gesamt-World-Size und globaler Batch bei d=4, t=4, p=2, B_micro=2 und accumulation=4?",
-          "Welche Bedingungen verhindern einen Collective-Deadlock, und wie erscheint Overlap im kritischen Pfad?"
+          "Welche Bedingungen verhindern einen Collective-Deadlock, und wie erscheint Overlap im kritischen Pfad?",
+          "Welche der beiden Bandbreiten macht zwei World Sizes vergleichbar, und ab welcher Tensorgröße sagt sie überhaupt etwas über die Verbindung?"
         ],
         "formulas": ["global-batch","distributed-critical-path","ring-allreduce"],
         "sources": ["l07","l08","a2"],
         "answers": [
           "Die Gesamtzahl der Ranks ist 4·4·2=32. Der globale Datenbatch ist dagegen nur 2·4·4=32 Beispiele pro Optimizer-Step, weil Tensor- und Pipelineparallelismus dieselben Beispiele verarbeiten und den Datenbatch nicht vervielfachen.",
-          "Alle Mitglieder derselben Gruppe müssen kompatible Collectives mit denselben Shapes und in derselben Reihenfolge aufrufen; asynchrone Arbeit muss vor abhängiger Nutzung abgeschlossen sein. Nur der Anteil T_overlap kann Kommunikation verdecken, sodass nicht verdeckte Zeit als max(0,T_comm−T_overlap) zum Compute addiert wird."
+          "Alle Mitglieder derselben Gruppe müssen kompatible Collectives mit denselben Shapes und in derselben Reihenfolge aufrufen; asynchrone Arbeit muss vor abhängiger Nutzung abgeschlossen sein. Nur der Anteil T_overlap kann Kommunikation verdecken, sodass nicht verdeckte Zeit als max(0,T_comm−T_overlap) zum Compute addiert wird.",
+          "Die Busbandbreite S/T·2(W−1)/W, weil sie das Volumen zurückrechnet, das der Ring bei W Ranks tatsächlich bewegt; das nackte S/T fällt mit der Rankzahl auch bei gleich ausgelasteter Leitung. Eine Aussage über die Verbindung ist sie erst oberhalb von S=α·W·β – darunter ist die Zeit überwiegend Startlatenz, und dann fallen beide Bandbreiten."
         ]
       },
       {
@@ -5213,13 +5218,13 @@
         transferQuestion:"Warum braucht dw einen zweiten Reduktionsschritt, dX aber nicht?"
       },
       {
-        id:"distributed-runtime",title:"Distributed Runtime Gate",module:"distributed",time:"10 min",desc:"Trenne Gesamt-World-Size, Datenbatch, Collective-Reihenfolge, async-Lebenszeit und Overlap.",
-        mental:"Process Groups definieren, wer an welchem Collective teilnimmt. Das Parallelitätsprodukt zählt Prozesse, aber nur der Datenparallelgrad zählt unabhängige Beispiele. Ein asynchron gestarteter Collective ist erst nach wait oder einer bewiesenen Abhängigkeit abgeschlossen.",
-        formula:"W_total=d·t·p  ·  B_global=B_micro·accum·d  ·  T_step≈T_compute+max(0,T_comm−T_overlap)",
-        symbols:[["d,t,p","Daten-, Tensor- und Pipelineparallelgrad."],["accum","Microbatches pro Update."],["async handle","Startnachweis, kein Fertignachweis."],["T_overlap","tatsächlich gleichzeitig ausgeführte Kommunikation."]],
-        observe:"Setze d=4, t=4, p=2, B_micro=2 und accumulation=4. Begründe anschließend die letzte sichere wait-Grenze vor dem Optimizer-Step.",
-        misconception:"Gesamt-World-Size und Datenparallel-World-Size sind nicht austauschbar; async_op=true macht den nachfolgenden Tensorzugriff nicht automatisch sicher.",
-        transferQuestion:"Wie kann ein kleinerer DDP-Bucket zugleich früheren Overlap und schlechtere Latenzamortisation erzeugen?"
+        id:"distributed-runtime",title:"All-Reduce: was es kostet und wann es anfällt",module:"distributed",time:"16 min",desc:"Rechne die All-Reduce-Tabelle aus A2 §5.1.1 Zelle für Zelle und lies daneben, an welcher Stelle des Schritts die Kommunikation überhaupt anfällt. Dieselbe Messung trägt zwei Bandbreiten, die entgegengesetzte Sätze stützen – und von A2s zwei Verbesserungen an naive_ddp ist die eine 8,7368 % der freiliegenden Kommunikation wert und die andere 99,2843 %.",
+        mental:"Ein Collective kostet zwei Dinge, die sich völlig verschieden verhalten. Der Latenzterm 2(d−1)·α hängt allein an der Rankzahl, der Übertragungsterm 2(d−1)/d · S/β zusätzlich an der Größe. Deshalb trägt eine gemessene Zeit T zwei Bandbreiten: S/T sagt, wie schnell dein Tensor fertig wird, und S/T · 2(d−1)/d sagt, wie stark die Leitung ausgelastet ist. Bei 1024 MiB im Node fällt die erste von 448,1219 auf 266,6475 GB/s, wenn du von zwei auf sechs Ranks gehst, während die zweite von 448,1219 auf 444,4125 GB/s fällt – dieselbe Messung, und die eine Zahl sagt „skaliert schlecht“, die andere „die Leitung ist gleich ausgelastet, der Ring bewegt nur mehr“. Welche gilt, entscheidet der Latenzanteil: bei 1 MiB sind das 81,1019 % der Zeit, und dann fällt auch die Busbandbreite. Die Grenze zwischen beiden Bereichen ist S* = α·d·β, und in ihr kürzt sich der Ringfaktor vollständig heraus. Die zweite Hälfte ist die Zeit, an der kommuniziert wird. A2 verbessert naive_ddp zweimal: §5.3.1 fasst die Aufrufe zusammen, §5.3.2 startet sie früher. Auf der Konfiguration des Handouts liegen bei naive_ddp 32,2372 % des Schritts frei; das Zusammenfassen nimmt davon 8,7368 %, das Vorziehen 99,2843 % – und beide bewegen exakt dieselben Bytes.",
+        formula:"T = 2(d−1)·α + 2(d−1)/d · S/β  ·  algbw = S/T  ·  busbw = algbw · 2(d−1)/d  ·  S* = α·d·β  ·  T_step = T_bwd + freiliegend  ·  freiliegend ≥ max(T_comm − T_bwd, Dauer des letzten Collectives)",
+        symbols:[["α","Startlatenz eines Collectives, unabhängig von der Tensorgröße. Ein Ring-All-Reduce besteht aus 2(d−1) Schritten und zahlt sie deshalb 2(d−1)-mal. Genau dieser Term fehlt im Nachbarlab comm-crossover, das ohne Startlatenz rechnet."],["β","Egress-Bandbreite eines einzelnen Geräts in Byte/s – wie schnell ein Rank senden kann, nicht die aufsummierte Bandbreite der Verbindung. Dieselben Werte wie in comm-crossover: 450 GB/s im Node, 25 GB/s zwischen Nodes."],["S","Größe des all-reduzierten Tensors in Byte. A2 §5.1.1 verlangt 1 MB, 10 MB, 100 MB und 1 GB; hier als Zweierpotenzen gelesen, also 1 MiB bis 1024 MiB."],["d","Zahl der Ranks in dieser Process Group. A2 verlangt 2, 4 und 6."],["algbw","S/T, die naheliegende Bandbreite: mein Tensor, geteilt durch die gemessene Zeit. Sie fällt mit d, auch wenn die Leitung gleich schnell bleibt."],["busbw","algbw · 2(d−1)/d, also das Volumen zurückgerechnet, das ein Rank im Ring tatsächlich sendet. Das ist die Zahl, die zwei Rankzahlen vergleichbar macht."],["S*","α·d·β, die Größe, ab der der Übertragungsterm den Latenzterm überholt. Der Ringfaktor 2(d−1) steht auf beiden Seiten und verschwindet."],["freiliegend","Der Teil der Kommunikationszeit, der über das Ende des Backward Pass hinausragt und den Schritt verlängert. Alles davor ist verdeckt, nicht gespart."],["Bucket","Eine Gruppe von Gradiententensoren, die gemeinsam all-reduziert werden. Ein Bucket startet, sobald sein spätester Gradient fertig ist – große Buckets zahlen weniger Latenz und warten dafür länger."]],
+        observe:"Beginne in Modus A im Node bei 1024 MiB und geh die Rankzahlen durch: in der unteren Tabelle fällt die mittlere Spalte von 448,1219 auf 266,6475 GB/s, die rechte von 448,1219 auf 444,4125. Stelle dann auf 1 MiB und wiederhole es – jetzt fällt auch die rechte Spalte, und die Zeile darüber sagt warum: 81,1019 % Latenzanteil. Vergleiche die Zeile mit S* = α·d·β; bei 1 MiB liegst du darunter, bei 100 MiB darüber. Schalte danach die Messung auf „ohne synchronize“: alle vier Zeilen tragen dieselbe Zeit, und die abgeleitete Bandbreite wächst von 209,7152 auf 214.748,3648 GB/s, ohne dass sich irgendetwas an der Verbindung geändert hätte. Wechsle dann in Modus B und lies zuerst das Modell: 291 Gradiententensoren, davon 226 Matrizen und 65 RMSNorm-Gains, zusammen 3.406.809.600 Parameter, und ein Backward Pass von 69,7715 ms. Geh die sechs Zeitpläne durch und achte auf die Spalte „freiliegend“: naive_ddp und der flache Fall liegen dicht beieinander, der überlappte fällt auf 0,2376 ms. Lies dann die Zeile „letztes Collective“ – sie trägt dieselbe Zahl. Wechsle zum Schluss auf die Verbindung zwischen Nodes und geh dieselben sechs Pläne noch einmal durch; jetzt gewinnt ein anderer.",
+        misconception:"Der erste Irrtum ist, S/T für „die Bandbreite“ zu halten. Sie ist eine gültige Zahl, aber sie vergleicht zwei Rankzahlen nicht, weil ein Ring bei mehr Ranks mehr Volumen bewegt; wer sie über d plottet, schreibt einen Satz über die Verbindung hin, der in Wahrheit über den Algorithmus spricht. Der zweite Irrtum ist, die Busbandbreite für die immer richtige Antwort zu halten – bei 1 MiB ist die Zeit zu über vier Fünfteln Latenz, und dann sagt auch sie nichts über die Leitung. Der dritte betrifft die Messung selbst: torch.cuda.synchronize() ist auch bei async_op=False nötig, weil der Aufruf zurückkehrt, sobald das Collective eingereiht ist. Ohne ihn misst du in jeder Zelle dieselbe Konstante, und die kleinste Zelle liest sich dabei völlig plausibel. Der vierte ist, die freiliegende Zeit nach dem Überlappen für „den Rest der Kommunikation“ zu halten. Sie ist genau ein Collective – das des Embeddings, dessen Gradient erst am Ende des Backward Pass existiert. Und der Zeitplan hat zwei Untergrenzen: die Leitung kann höchstens die Dauer des Backward Pass verdecken, und das letzte Collective kann nicht früher starten als sein Gradient. Welche der beiden bindet, entscheidet, ob eine andere Bucketgröße überhaupt etwas ändern kann.",
+        transferQuestion:"Du hast naive_ddp implementiert, benchmarkst den Schritt wie verlangt und misst, dass 32,2372 % des Schritts auf die Gradientenkommunikation entfallen. Ein Kommilitone sagt, mehr sei da nicht zu holen, weil die Bytes ja fest sind. Warum ist das falsch, und welche einzelne Zahl entscheidet, ob eine kleinere Bucketgröße bei dir noch etwas bringt?"
       },
       {
         id:"scaling-transfer",title:"μP, WSD & Scaling Fit Gate",module:"scaling",time:"12 min",desc:"Prüfe Offset-Fit, Lecture-11-μP-Rollen und die Finalitätsgrenze eines WSD-Checkpoints.",
@@ -5507,7 +5512,7 @@
       "grpo": "Bei Group Relative Policy Optimization wird ein Rewardunterschied innerhalb jeder Promptgruppe durch deren Standardabweichung geteilt. Derselbe absolute Abstand erhält dadurch in einer Gruppe mit kleiner Streuung ein größeres Gewicht und in einer Gruppe mit großer Streuung ein kleineres, sodass Promptgruppen nach ihrer Rewardstreuung neu gewichtet werden. Haben alle Antworten einer Gruppe denselben Reward, ist der zentrierte Zähler null und die Gruppe liefert trotz Stabilisierungsterm kein relatives Lernsignal.",
       "transformer-ledger": "Bei verdoppeltem T verdoppeln sich die Projektions-, SwiGLU- und LM-Head-Terme, weil sie jede zusätzliche Tokenzeile einmal verarbeiten. Der Term 4T²D aus QKᵀ und PV vervierfacht sich, weil Query- und Keypositionsachse wachsen. Parameterzahlen bleiben vollständig unverändert.",
       "kernel-contracts": "dX_rd=g_r·w_d gehört genau zu einem Outputelement und kann ohne konkurrierende Schreiber pro Tile erzeugt werden. In dw_d=Σ_r X_rd·g_r tragen dagegen alle Zeilentiles zum selben Feature d bei. Ohne Atomics schreibt deshalb jedes Zeilentile einen Partial-Wert, der anschließend über die Tileachse reduziert wird.",
-      "distributed-runtime": "Ein kleiner Bucket kann starten, sobald seine wenigen Gradienten bereit sind, und dadurch mehr Backward-Compute überlappen. Gleichzeitig gibt es mehr Collective-Aufrufe und jeder transportiert weniger Bytes, sodass der feste Latenzterm α häufiger und relativ stärker bezahlt wird. Das Optimum muss gemessen werden.",
+      "distributed-runtime": "Falsch ist es, weil die gemessenen 32,2372 % nicht die Bytes messen, sondern den Zeitpunkt. Bei naive_ddp startet das erste Collective, wenn der letzte Gradient fertig ist – die gesamte Kommunikationszeit liegt deshalb hinter dem Backward Pass und verlängert den Schritt. Werden dieselben Collectives gestartet, sobald ihr Gradient bereit ist, verdeckt der noch laufende Backward Pass sie; im Node bleiben von 32,2372 % genau 0,3393 % übrig, ohne dass ein einziges Byte weniger bewegt wird. Die Zahl, die über die Bucketgröße entscheidet, ist die freiliegende Zeit im Vergleich zu ihren beiden Untergrenzen: T_comm − T_bwd auf der einen Seite, die Dauer des letzten Collectives auf der anderen. Steht die freiliegende Zeit schon auf der zweiten – im Node sind das die 0,2376 ms des Embedding-Gradienten –, kann keine kleinere Bucketgröße mehr etwas ändern, weil dieser Gradient vor dem Ende des Backward Pass gar nicht existiert. Bindet dagegen die erste, ist die Leitung der Engpass, und dann hilft weder ein anderer Bucket noch ein anderer Zeitplan, sondern nur weniger zu senden.",
       "scaling-transfer": "Gefittet wird log(L_opt−E), nicht log L_opt. Ein verändertes E verschiebt vor allem kleine Restabstände stark und verändert dadurch die Steigung γ im Lograum. Weil dieselbe Fitkurve mit gekoppelten E- und γ-Werten plausibel aussehen kann, braucht die Extrapolation beschränkte Offsets oder Sensitivitätsintervalle.",
       "moe-routing": "Perfekte Expertbalance zählt Assignments pro Expert, aber nicht automatisch Bytes, Topologie oder Expert-zu-Gerät-Zuordnung. Mehrere gleich belastete Experts können auf demselben Gerät liegen, Tokenziele können ungleich über Links verteilt sein, und ein langsamer Rank oder ungünstige All-to-All-Route kann weiterhin den Straggler bestimmen.",
       "rlvr-system-transfer": "DPO benötigt log π_current(chosen|x), log π_current(rejected|x), log π_ref(chosen|x) und log π_ref(rejected|x), jeweils nur über echte Antworttokens. Die feste Reference definiert die unveränderte Ausgangsbasis; würde sie mittrainiert, könnte sich der Vergleichsmaßstab mit der Policy bewegen und das angegebene DPO-Ziel ändern."
@@ -5533,18 +5538,6 @@
           {prompt:"Forward FLOPs per block",options:[["3670016","3,670,016"],["1310720","1,310,720"],["8388608","8,388,608"]]},
           {prompt:"Total forward FLOPs including LM head",options:[["15106048","15,106,048"],["8138752","8,138,752"],["12010048","12,010,048"]]}
         ],hint:"Count SwiGLU as three matrices and add the untied LM head only after L·F_block.",success:"Parameters, per-block FLOPs, and total FLOPs match the complete A1 ledger."},answers:["288192","3670016","15106048"]
-      },
-      "distributed-runtime": {
-        de:{title:"Fester Distributed-Fall · d=4, t=4, p=2, B_micro=2, accum=4",questions:[
-          {prompt:"Gesamtzahl Ranks",options:[["32","32"],["16","16"],["64","64"]]},
-          {prompt:"Globaler Datenbatch",options:[["32","32 Beispiele"],["256","256 Beispiele"],["8","8 Beispiele"]]},
-          {prompt:"Sichere Grenze vor optimizer.step()",options:[["wait","Alle abhängigen Gradient-Handles abgeschlossen"],["launch","Collectives nur gestartet"],["forward","Forward beendet"]]}
-        ],hint:"t und p vervielfachen Ranks, nicht unabhängige Daten; async bedeutet gestartet, nicht fertig.",success:"Parallelitätsprodukt, Datenbatch und asynchrone Lebenszeit sind korrekt unterschieden."},
-        en:{title:"Fixed distributed case · d=4, t=4, p=2, B_micro=2, accum=4",questions:[
-          {prompt:"Total ranks",options:[["32","32"],["16","16"],["64","64"]]},
-          {prompt:"Global data batch",options:[["32","32 examples"],["256","256 examples"],["8","8 examples"]]},
-          {prompt:"Safe boundary before optimizer.step()",options:[["wait","All dependent gradient handles completed"],["launch","Collectives merely launched"],["forward","Forward completed"]]}
-        ],hint:"t and p multiply ranks, not independent data; async means launched, not completed.",success:"The parallelism product, data batch, and asynchronous lifetime are correctly distinguished."},answers:["32","32","wait"]
       },
       "scaling-transfer": {
         de:{title:"Lecture-11-Transfer · Breitenverhältnis r=4",questions:[
@@ -6013,7 +6006,7 @@
     function updateProgressUI(){}
     function toggleBookmark(type,id,focusSelector=""){ const key=type+":"+id; user.bookmarks=user.bookmarks.includes(key)?user.bookmarks.filter(x=>x!==key):[...user.bookmarks,key]; saveUser(true); toast(user.bookmarks.includes(key)?"Gespeichert":"Lesezeichen entfernt"); renderCurrent(); if(focusSelector)document.querySelector(focusSelector)?.focus(); }
     function isBookmarked(type,id){ return user.bookmarks.includes(type+":"+id); }
-    const OBJECTIVE_LAB_IDS = new Set(["pytorch-debugger","shapes","einsum-pattern","loss-and-clip","bpe-encode","rope-rotation","triton-tile","online-softmax-kata","scaling-fit","filtering-mechanics","bloom-filter","dedup-pipeline","dpo-loss","policy-loss-tracer","grpo","norm-and-ffn","comm-crossover","answer-parsing","decode-sampling","winrate-lc","batch-windows","mixed-precision","checkpoint-segments","shard-ledger","offpolicy-clip","advantage-normalizers","microbatch-denominator","baseline-variance","lsh-bands","quality-threshold","compression-ratio","resume-contract","ablation-controls","position-signal","stability-edge","pipeline-yield","decay-horizon","run-budget-ledger","target-config","run-plan","seed-variance","kernel-contracts",...Object.keys(LAB_OBJECTIVES)]);
+    const OBJECTIVE_LAB_IDS = new Set(["pytorch-debugger","shapes","einsum-pattern","loss-and-clip","bpe-encode","rope-rotation","triton-tile","online-softmax-kata","scaling-fit","filtering-mechanics","bloom-filter","dedup-pipeline","dpo-loss","policy-loss-tracer","grpo","norm-and-ffn","comm-crossover","answer-parsing","decode-sampling","winrate-lc","batch-windows","mixed-precision","checkpoint-segments","shard-ledger","offpolicy-clip","advantage-normalizers","microbatch-denominator","baseline-variance","lsh-bands","quality-threshold","compression-ratio","resume-contract","ablation-controls","position-signal","stability-edge","pipeline-yield","decay-horizon","run-budget-ledger","target-config","run-plan","seed-variance","kernel-contracts","distributed-runtime",...Object.keys(LAB_OBJECTIVES)]);
     function labHasObjectiveCheck(id){return OBJECTIVE_LAB_IDS.has(id)}
     function labCheckPassed(id){return labHasObjectiveCheck(id)&&Boolean(user.labChecks[id])}
 
@@ -6986,6 +6979,9 @@
     let dedupLabStep=0;
     function labPrimerMarkup(lab){return `<section class="lab-intro"><p class="eyebrow">${currentLanguage==="en"?"Goal and prediction":"Ziel & Vorhersage"}</p><p>${esc(lab.mental)}</p><p class="lab-prediction"><strong>${currentLanguage==="en"?"Before using the controls:":"Vor dem Regler:"}</strong> ${esc(lab.observe)}</p></section><details class="lab-formula-recall" data-transient-key="lab-formula" ${appState.openLabFormulaIds.has(lab.id)?"open":""}><summary><span class="lab-formula-summary"><span class="lab-formula-label">${currentLanguage==="en"?"Understand the names first; show the general rule afterwards":"Erst die Namen verstehen; danach die allgemeine Regel anzeigen"}</span></span><span class="accordion-chevron" aria-hidden="true">⌄</span></summary><div class="lab-formula-body"><h3>${currentLanguage==="en"?"1 · Names in this experiment":"1 · Namen in diesem Experiment"}</h3><dl class="lab-symbol-list">${lab.symbols.map(([symbol,meaning])=>`<dt>${esc(symbol)}</dt><dd>${esc(meaning)}</dd>`).join("")}</dl><h3>${currentLanguage==="en"?"2 · General rule":"2 · Allgemeine Regel"}</h3><div class="formula-display" role="math">${esc(lab.formula)}</div><div class="callout warning" style="margin-top:.8rem"><strong>${currentLanguage==="en"?"Common mistake:":"Typische Fehlannahme:"}</strong> ${esc(lab.misconception)}</div></div></details>`;}
     function renderLabDetail(el,lab){if(!lab)return;const mod=byId(MODULES,lab.module),objective=labHasObjectiveCheck(lab.id),passed=labCheckPassed(lab.id);el.innerHTML=`${backButton("labs","Labs")}<div class="view-header" style="margin-top:1rem"><p class="eyebrow">${currentLanguage==="en"?"Interactive experiment":"Interaktives Experiment"} · ${esc(lab.time)}</p><h1>${esc(lab.title)}</h1><p class="lede">${esc(lab.desc)}</p></div>${labPrimerMarkup(lab)}<div id="labMount">${labMarkup(lab.id)}</div><div class="panel" style="margin-top:1rem"><h3>Transfer</h3><p class="muted">${currentLanguage==="en"?"Reason first, then reveal the explanation and compare causes rather than wording.":"Begründe zuerst gedanklich, öffne dann die Lösungsidee und vergleiche Ursachen statt Formulierungen."}</p><p class="self-check-question" id="labTransfer">${esc(lab.transferQuestion)}</p>${answerDisclosure(lab.transferAnswer,currentLanguage==="en"?"Show explanation":"Lösungsidee anzeigen")}${objective?`<div class="callout ${passed?"accent":""}" style="margin-top:.8rem"><strong>${passed?(currentLanguage==="en"?"✓ Fixed-answer short check passed":"✓ Fest auswertbarer Kurzcheck bestanden"):(currentLanguage==="en"?"Fixed-answer short check available":"Fest auswertbarer Kurzcheck verfügbar")}</strong><p class="small muted" style="margin:.35rem 0 0">${currentLanguage==="en"?"This status comes only from the keyed answers inside the experiment. There is no separate completion button.":"Dieser Status stammt nur aus den fest hinterlegten Antworten im Experiment. Es gibt keinen zusätzlichen Abschluss-Button."}</p></div>`:`<div class="callout" style="margin-top:.8rem">${currentLanguage==="en"?"This is a guided experiment without a completion claim.":"Dies ist ein geführtes Experiment ohne Abschlussbehauptung."}</div>`}</div><div class="panel" style="margin-top:1rem"><h3>${currentLanguage==="en"?"Sources":"Quellen"}</h3><div class="meta-row">${(mod?.sources||[]).map(id=>sourceAnchor(id)).join("")}</div></div>`;bindBack(el);const formulaRecall=el.querySelector(".lab-formula-recall");formulaRecall.ontoggle=()=>{if(formulaRecall.open)appState.openLabFormulaIds.add(lab.id);else appState.openLabFormulaIds.delete(lab.id)};initLab(lab.id)}
+    function distributedRuntimeMarkup(){
+      return `<div class="lab-layout"><div class="panel lab-controls"><h2>A2 · Kommunikationszeit und der Zeitpunkt, an dem sie anfällt</h2><label class="field">Was gerechnet wird <select class="select" id="drMode"><option value="grid" selected>Modus A: die All-Reduce-Tabelle aus §5.1.1</option><option value="plan">Modus B: wann im Schritt kommuniziert wird</option></select></label><label class="field">Verbindung <select class="select" id="drHw">${DR_HW.map((entry,index)=>`<option value="${entry.key}" ${index===0?"selected":""}>${esc(localizedUi(entry.label))}</option>`).join("")}</select></label><label class="field">Ranks d <select class="select" id="drRanks">${DR_RANKS.map((ranks,index)=>`<option value="${ranks}" ${index===0?"selected":""}>${ranks}</option>`).join("")}</select></label><div id="drGridFields"><label class="field">Tensorgröße <select class="select" id="drSize">${DR_SIZES.map(mib=>`<option value="${mib}" ${mib===1024?"selected":""}>${mib} MiB</option>`).join("")}</select></label><label class="field">Wie gemessen wird <select class="select" id="drTimer"><option value="synced" selected>mit torch.cuda.synchronize() vor jeder Zeitnahme</option><option value="unsynced">ohne synchronize · der Aufruf kehrt beim Einreihen zurück</option></select></label></div><div id="drPlanFields" hidden><label class="field">Zeitplan <select class="select" id="drPlan">${DR_SCHEDULES.map((entry,index)=>`<option value="${entry.key}" ${index===0?"selected":""}>${esc(localizedUi(entry.label))}</option>`).join("")}</select></label></div><p class="lab-note">Sage in Modus A vor jedem Wechsel der Rankzahl voraus, welche der beiden Bandbreiten sich bewegt. Sage in Modus B voraus, welcher der sechs Zeitpläne der beste ist – bei NVLink und zwischen Nodes ist es nicht derselbe.</p><fieldset class="question" style="margin-top:1rem"><legend><strong>Objektiver Transfer-Kurzcheck</strong></legend><p class="small muted">Direkt aus den angezeigten Zahlen ablesbar.</p><label class="field">1. Bei 1024 MiB fällt S/T von d = 2 auf d = 6 deutlich, die Busbandbreite kaum. Warum? <select class="select" id="drCheckBw"><option value="">Noch nicht gewählt</option><option value="bus">Weil die Busbandbreite das Volumen 2(d−1)/d·S zurückrechnet, das der Ring bei d Ranks tatsächlich bewegt – die Leitung ist in beiden Fällen gleich ausgelastet</option><option value="latency">Weil bei 1024 MiB die Latenz 2(d−1)·α den Schritt bestimmt und mit d wächst</option><option value="link">Weil mehr Ranks sich dieselbe Leitung teilen und jeder weniger Bandbreite bekommt</option></select></label><label class="field">2. Im überlappten Plan je Tensor bleibt eine kleine Zeit frei. Was ist sie? <select class="select" id="drCheckFloor"><option value="">Noch nicht gewählt</option><option value="embedding">Genau das All-Reduce des Embedding-Gradienten – der letzte, den der Backward Pass fertigstellt</option><option value="rest">Der Rest der Kommunikation, den die Rechenzeit nicht mehr aufnehmen konnte</option><option value="latency">Die Summe der 291 Latenzterme, die auch bei Overlap anfallen</option></select></label><button class="button" id="drCheck" type="button">Kurzcheck prüfen</button><div id="drCheckResult" role="status" aria-live="polite"></div></fieldset></div><div class="lab-stage" role="region" aria-label="Interaktive Rechnung zu All-Reduce-Kosten und DDP-Zeitplan" aria-live="polite" id="drStage"></div></div>`;
+    }
     function pytorchDebuggerMarkup(){
       const question="Welche Diagnose plus kleinster Test passen?",cases=[
         {id:"Register",title:"1 · Unregistrierte Layer",code:"class Stack(nn.Module):\n    def __init__(self):\n        super().__init__()\n        self.layers = [nn.Linear(4, 4)]",options:[["correct","Layer fehlen in named_parameters/state_dict · ModuleList verwenden und Parameternamen prüfen"],["backward","backward kann keine Python-Listen verarbeiten · nur den Loss testen"],["device","Listen verschieben sich automatisch, aber Linear braucht einen Buffer · Outputshape testen"]]},
@@ -7014,6 +7010,7 @@
 
     function labMarkup(id){
       if(LAB_OBJECTIVES[id])return objectiveLabMarkup(id);
+      if(id==="distributed-runtime") return distributedRuntimeMarkup();
       if(id==="kernel-contracts") return `<div class="lab-layout"><div class="panel lab-controls"><h2>A2 · 2D-Kernel und das Backward-Gate</h2><label class="field">Was gerechnet wird <select class="select" id="kcMode"><option value="grid" selected>Modus A: Grid, Randtiles und der Partial-Buffer</option><option value="gate">Modus B: welche Prüfung welchen Backward-Fehler sieht</option></select></label><div id="kcGridFields"><label class="field">Matrixform <select class="select" id="kcShape">${KC_SHAPES.map((entry,index)=>`<option value="${entry.key}" ${index===0?"selected":""}>${esc(localizedUi(entry.label))}</option>`).join("")}</select></label><label class="field">Tilegrößen <select class="select" id="kcTile">${KC_TILES.map((entry,index)=>`<option value="${entry.key}" ${index===0?"selected":""}>${esc(localizedUi(entry.label))}</option>`).join("")}</select></label></div><div id="kcGateFields" hidden><label class="field">Fall <select class="select" id="kcCase">${KC_CASES.map((entry,index)=>`<option value="${entry.key}" ${index===0?"selected":""}>${esc(localizedUi(entry.label))}</option>`).join("")}</select></label><label class="field">Backward-Variante <select class="select" id="kcVariant">${KC_VARIANTS.map((entry,index)=>`<option value="${entry.key}" ${index===0?"selected":""}>${esc(localizedUi(entry.label))}</option>`).join("")}</select></label></div><p class="lab-note">Sage in Modus B vor jedem Wechsel voraus, welche der drei Prüfungen anschlägt. Zwei der vier Fehler bestehen die erste Prüfung — finde sie, bevor du sie einstellst.</p><fieldset class="question" style="margin-top:1rem"><legend><strong>Objektiver Transfer-Kurzcheck</strong></legend><p class="small muted">Fester Fall: R=37, D=70, BR=16, BD=32. Alles direkt aus den angezeigten Zahlen ablesbar.</p><label class="field">1. 2D-Launchgrid <select class="select" id="kcCheckGrid"><option value="">Noch nicht gewählt</option><option value="3x3">3 × 3 Programs · jede Achse für sich aufgerundet</option><option value="3x5">3 × 5 Programs</option><option value="2x3">2 × 3 Programs</option></select></label><label class="field">2. Partial-Buffer für dw ohne Atomics <select class="select" id="kcCheckBuffer"><option value="">Noch nicht gewählt</option><option value="3x70">[3, 70] · eine Zeile je Zeilentile, volle Featurebreite</option><option value="9x70">[9, 70]</option><option value="37x3">[37, 3]</option></select></label><label class="field">3. Welchen Fehler kann rowsum(dS) ≈ 0 grundsätzlich nicht sehen? <select class="select" id="kcCheckBlind"><option value="">Noch nicht gewählt</option><option value="scale">Einen vergessenen oder verdoppelten Faktor 1/√d in dQ und dK — er ändert die Skala von dS nicht, die Zeilensumme bleibt auf Maschinengenauigkeit dieselbe</option><option value="dterm">Einen vergessenen D-Term, weil rowsum(O⊙dO) selbst eine Zeilensumme ist</option><option value="mask">Eine falsche kausale Maske, weil maskierte Positionen ohnehin null sind</option></select></label><button class="button" id="kcCheck" type="button">Kurzcheck prüfen</button><div id="kcCheckResult" role="status" aria-live="polite"></div></fieldset></div><div class="lab-stage" role="region" aria-label="Interaktive Rechnung zu 2D-Grid und Flash-Backward" aria-live="polite" id="kcStage"></div></div>`;
       if(id==="shapes") return `<div class="lab-layout"><div class="panel lab-controls"><h2>Eingaben</h2><div class="lab-quick-result" id="shapeQuick" role="status" aria-live="polite"></div><label class="field">Batchgröße B <input id="shapeB" type="range" min="1" max="8" value="3"><output id="shapeBOut">3</output></label><label class="field">Tokens pro Sequenz T <input id="shapeT" type="range" min="2" max="32" value="11"><output id="shapeTOut">11</output></label><label class="field">Modelldimension D <select class="select" id="shapeD"><option>64</option><option>128</option><option selected>256</option><option>512</option></select></label><label class="field">Attention Heads H <select class="select" id="shapeH"><option>1</option><option>2</option><option>4</option><option selected>8</option></select></label><p class="lab-note">Ändere genau einen Wert. Lies danach jede Shape mit ihren Achsennamen, nicht nur als Zahlenfolge.</p><fieldset class="question" style="margin-top:1rem"><legend><strong>Transfer-Kurzcheck ohne Regler</strong></legend><p class="small muted">Fester Fall: B=2, T=5, D=12 und H=3. Leite d_head und die Shapes zuerst selbst her.</p><label class="field">Q nach Head-Aufteilung <select class="select" id="shapeCheckQ"><option value="">Noch nicht gewählt</option><option value="correct">[2,3,5,4] = [B,H,T,d_head]</option><option value="copy">[2,3,5,12]</option><option value="swap">[2,5,3,4]</option></select></label><label class="field">QKᵀ Compatibility Scores <select class="select" id="shapeCheckScores"><option value="">Noch nicht gewählt</option><option value="correct">[2,3,5,5] = [B,H,T_query,T_key]</option><option value="features">[2,3,5,4]</option><option value="flat">[2,5,12]</option></select></label><label class="field">Nur T wird von 5 auf 10 verdoppelt <select class="select" id="shapeCheckScaling"><option value="">Noch nicht gewählt</option><option value="correct">X-Elemente ×2 · Score-Elemente ×4 · Gewichte unverändert</option><option value="all2">Alles einschließlich Gewichte ×2</option><option value="scores2">X- und Score-Elemente ×2 · Gewichte ×2</option></select></label><button class="button" id="shapeCheck" type="button">Kurzcheck prüfen</button><div id="shapeCheckResult" role="status" aria-live="polite"></div></fieldset></div><div class="lab-stage" role="region" aria-label="Interaktives Ergebnis" id="shapeStage"></div></div>`;
       if(id==="loss-and-clip") return `<div class="lab-layout"><div class="panel lab-controls"><h2>Schritt und Variante</h2><label class="field">Welcher A1-Schritt <select class="select" id="lossClipMode"><option value="loss" selected>Cross-Entropy · adapters.run_cross_entropy</option><option value="clip">Globales Gradient Clipping · adapters.run_gradient_clipping</option></select></label><div id="lossFields"><label class="field">Eingabefall <select class="select" id="lossScenario">${Object.entries(LOSS_CASES).map(([key,item],index)=>`<option value="${key}" ${index===0?"selected":""}>${esc(localizedUi(item.label))}</option>`).join("")}</select></label><label class="field">Gewählte Implementierung <select class="select" id="lossVariant">${LOSS_VARIANTS.map((variant,index)=>`<option value="${variant.key}" ${index===0?"selected":""}>${esc(localizedUi(variant.label))}</option>`).join("")}</select></label></div><div id="clipFields" hidden><label class="field">Maximale Gesamtnorm M <input id="clipMax" type="range" min="2" max="20" step="1" value="10"><output id="clipMaxOut">10</output></label><label class="field">Gewählte Implementierung <select class="select" id="clipVariant">${CLIP_VARIANTS.map((variant,index)=>`<option value="${variant.key}" ${index===0?"selected":""}>${esc(localizedUi(variant.label))}</option>`).join("")}</select></label></div><p class="lab-note">Sage vor jedem Wechsel voraus, ob sich das Ergebnis überhaupt ändert. Fast jede falsche Variante sieht bei mindestens einer Einstellung völlig korrekt aus – genau das ist der Inhalt dieses Labs.</p><fieldset class="question" style="margin-top:1rem"><legend><strong>Objektiver Transfer-Kurzcheck</strong></legend><p class="small muted">Feste Fälle ohne Regler. Leite zuerst selbst her.</p><label class="field">1. Ohne Abziehen des Maximums bei Logits um 100: Was liefert float32? <select class="select" id="lossCheckOverflow"><option value="">Noch nicht gewählt</option><option value="nan">exp läuft über nach unendlich; unendlich geteilt durch unendlich ergibt NaN</option><option value="same">Denselben Wert; Softmax ist verschiebungsinvariant</option><option value="zero">Exakt null, weil alle Exponenten gleich groß sind</option></select></label><label class="field">2. Welche der beiden A1-Regeln verhindert unendlich bei einem sehr sicheren Fehlurteil? <select class="select" id="lossCheckUnderflow"><option value="">Noch nicht gewählt</option><option value="cancel">log und exp kürzen, statt die Wahrscheinlichkeit zwischendurch zu bilden</option><option value="max">Das Maximum abziehen</option><option value="mean">Über die Batchachse mitteln statt summieren</option></select></label><label class="field">3. Was ändert Clipping pro Tensor gegenüber globalem Clipping zusätzlich zur Länge? <select class="select" id="lossCheckDirection"><option value="">Noch nicht gewählt</option><option value="direction">Die Richtung des Gesamtgradienten</option><option value="nothing">Nichts; nur die Rechenzeit</option><option value="sign">Das Vorzeichen einzelner Gradienten</option></select></label><button class="button" id="lossClipCheck" type="button">Kurzcheck prüfen</button><div id="lossClipCheckResult" role="status" aria-live="polite"></div></fieldset></div><div class="lab-stage" role="region" aria-label="Interaktiver Loss- und Clipping-Rechner" aria-live="polite" id="lossClipStage"></div></div>`;
@@ -7116,6 +7113,7 @@
       if(id==="causal-invariance"){["cmMode","cmVariant","cmLength","cmProbe","cmDepth","cmLossLength"].forEach(x=>document.getElementById(x).oninput=updateCausalInvariance);document.getElementById("cmCheck").onclick=checkCausalInvariance;updateCausalInvariance()}
       if(id==="target-shift"){["tsMode","tsCorpus","tsRule","tsSize","tsBlock","tsDraws"].forEach(x=>document.getElementById(x).oninput=updateTargetShift);document.getElementById("tsCheck").onclick=checkTargetShift;updateTargetShift()}
       if(id==="init-scale"){["isMode","isTable","isSample","isVarTable","isTolerance"].forEach(x=>document.getElementById(x).oninput=updateInitScale);document.getElementById("isCheck").onclick=checkInitScale;updateInitScale()}
+      if(id==="distributed-runtime"){["drMode","drHw","drRanks","drSize","drTimer","drPlan"].forEach(x=>document.getElementById(x).oninput=updateDistributedRuntime);document.getElementById("drCheck").onclick=checkDistributedRuntime;updateDistributedRuntime()}
       if(id==="kernel-contracts"){["kcMode","kcShape","kcTile","kcCase","kcVariant"].forEach(x=>document.getElementById(x).oninput=updateKernelContracts);document.getElementById("kcCheck").onclick=checkKernelContracts;updateKernelContracts()}
       if(id==="seed-variance"){["svMode","svSigma","svSeeds","svValset","svSharing","svArms"].forEach(x=>document.getElementById(x).oninput=updateSeedVariance);document.getElementById("svCheck").onclick=checkSeedVariance;updateSeedVariance()}
       if(id==="mask-pii"){["piiMode","piiKind","piiVariant","piiSetting"].forEach(x=>document.getElementById(x).oninput=updateMaskPii);document.getElementById("piiCheck").onclick=checkMaskPii;updateMaskPii()}
@@ -7209,6 +7207,7 @@
       if(id==="causal-invariance"){updateCausalInvariance();document.getElementById("cmCheckResult").innerHTML=causalInvarianceSuccessMarkup()}
       if(id==="target-shift"){updateTargetShift();document.getElementById("tsCheckResult").innerHTML=targetShiftSuccessMarkup()}
       if(id==="init-scale"){updateInitScale();document.getElementById("isCheckResult").innerHTML=initScaleSuccessMarkup()}
+      if(id==="distributed-runtime"){["drCheckBw","drCheckFloor"].forEach((x,index)=>{const field=document.getElementById(x);if(field)field.value=["bus","embedding"][index]});updateDistributedRuntime();document.getElementById("drCheckResult").innerHTML=distributedRuntimeSuccessMarkup()}
       if(id==="kernel-contracts"){["kcCheckGrid","kcCheckBuffer","kcCheckBlind"].forEach((x,i)=>{const f=document.getElementById(x);if(f)f.value=["3x3","3x70","scale"][i]});updateKernelContracts();document.getElementById("kcCheckResult").innerHTML=kernelContractsSuccessMarkup()}
       if(id==="seed-variance"){updateSeedVariance();document.getElementById("svCheckResult").innerHTML=seedVarianceSuccessMarkup()}
       if(id==="mask-pii"){updateMaskPii();document.getElementById("piiCheckResult").innerHTML=maskPiiSuccessMarkup()}
@@ -12918,6 +12917,198 @@ p99 went from 12.4ms to 8.1ms but RSS is back to ~78MB, so it is a real tradeoff
       document.getElementById("ptContractFields").hidden=mode!=="contract";
       document.getElementById("ptLedgerFields").hidden=mode!=="ledger";
       document.getElementById("ptStage").innerHTML=ptStageMarkup();
+    }
+
+    // ---- Lab: distributed-runtime (Rechenfläche) ------------------------------------
+    // `distributed-runtime` entscheidet 10 Punkte (a2:distributed_communication_single_node
+    // und a2:naive_ddp) und ist das einzige Lab dieses Konzepts. Es war ein Quiz über
+    // World Size, Batch und async-Handles — ohne eine einzige gerechnete Zeile.
+    //
+    // Der Befund hat zwei Hälften, und beide hängen am Latenzterm α, den das Nachbarlab
+    // comm-crossover ausdrücklich weglässt.
+    //
+    // Erstens: A2s erste Aufgabe verlangt als Abgabe *Sätze* über eine Tabelle. Dieselbe
+    // Tabelle trägt zwei Bandbreiten. S/T („algbw") fällt bei 1 GiB von 448,1219 auf
+    // 266,6475 GB/s, wenn man von 2 auf 6 Ranks geht — das sieht nach schlechter
+    // Skalierung aus. Die Busbandbreite, also algbw · 2(d−1)/d, steht dabei auf
+    // 448,1219 gegen 444,4125: die Leitung ist gleich ausgelastet, und die zusätzliche
+    // Zeit ist exakt das Volumen, das der Ring mehr bewegen muss. Bei 1 MiB fällt aber
+    // auch die Busbandbreite, weil dort 81,1019 % der Zeit reine Latenz sind. Welche
+    // Lesart gilt, entscheidet die Größe — und die Grenze ist S* = α·d·β, in der der
+    // Ringfaktor 2(d−1) sich vollständig herauskürzt.
+    //
+    // Zweitens: A2 verbessert naive_ddp in zwei Schritten, §5.3.1 flach und §5.3.2
+    // überlappt. Auf der Konfiguration des Handouts (xl, 1 Node × 2 GPUs) sind die
+    // beiden 2,9000 ms und 32,9552 ms wert, also 8,7368 % und 99,2843 % der freiliegenden
+    // Kommunikation. Der Schritt, der nichts an den bewegten Bytes ändert, ist der, der
+    // wirkt — und was übrig bleibt, ist genau ein einziges Collective: das des
+    // Embeddings, das vor dem Ende des Backward Pass gar nicht bereitstehen kann.
+    const DR_D=2560;const DR_F=10240;const DR_L=32;const DR_V=10000;const DR_CTX=512;const DR_B=4;
+    // Dieselbe Gerätekennzahl wie im Lab comm-crossover: C = 4·10^14 FLOP/s, Egress
+    // 450 GB/s im Node und 25 GB/s zwischen Nodes. Die Latenzen sind Modellwerte.
+    const DR_C=4e14;const DR_ENQUEUE=5e-6;const DR_BYTES=4;
+    const DR_HW=[
+      {key:"node",label:"Ein Node · NVLink · α = 5 µs, β = 450 GB/s",alpha:5e-6,beta:450e9},
+      {key:"cluster",label:"Zwischen Nodes · Ethernet · α = 30 µs, β = 25 GB/s",alpha:30e-6,beta:25e9}
+    ];
+    const DR_SIZES=[1,10,100,1024];
+    const DR_RANKS=[2,4,6];
+    const drHwOf=key=>DR_HW.find(entry=>entry.key===key)||DR_HW[0];
+    // Ring-All-Reduce als Reduce-Scatter plus All-Gather: 2(d−1) Schritte, in denen jeder
+    // Rank je ein Stück der Größe S/d sendet. Volumen pro Rank 2(d−1)/d · S, Latenz 2(d−1)·α.
+    const drRing=(S,d,hw)=>2*(d-1)*hw.alpha+(2*(d-1)/d)*(S/hw.beta);
+    function drCell(mib,d,hw){
+      const S=mib*1048576,time=drRing(S,d,hw),latency=2*(d-1)*hw.alpha,ringFactor=2*(d-1)/d;
+      return {mib,d,S,floats:S/DR_BYTES,time,latency,transfer:time-latency,
+        latencyShare:100*latency/time,ringFactor,
+        alg:S/time,bus:(S/time)*ringFactor,
+        // Ohne torch.cuda.synchronize() misst der Timer, wann der Aufruf in die Queue
+        // gelegt wurde — eine von S unabhängige Konstante.
+        unsynced:DR_ENQUEUE,unsyncedAlg:S/DR_ENQUEUE};
+    }
+    // Die Grenze zwischen latenz- und bandbreitengebunden. Aus 2(d−1)α = 2(d−1)/d · S/β
+    // fällt der Ringfaktor auf beiden Seiten weg; übrig bleibt S = α·d·β.
+    const drCrossover=(d,hw)=>hw.alpha*d*hw.beta;
+    // Die Gradiententensoren des xl-Modells in der Reihenfolge, in der der Backward Pass
+    // sie fertigstellt: erst der LM Head, dann Block 31 bis 0, zuletzt das Embedding.
+    // Innerhalb eines Pre-Norm-Blocks: Down-Projektion, Gate und Up, der FFN-Gain, dann
+    // die Ausgabeprojektion, V, K, Q und der Attention-Gain.
+    const DR_TENSORS=(()=>{
+      const list=[{name:"lm_head",p:DR_D*DR_V},{name:"norm_final",p:DR_D}];
+      for(let layer=DR_L-1;layer>=0;layer--){
+        list.push({name:`block${layer}.w3`,p:DR_F*DR_D},{name:`block${layer}.w2`,p:DR_D*DR_F},
+          {name:`block${layer}.w1`,p:DR_D*DR_F},{name:`block${layer}.norm_ffn`,p:DR_D},
+          {name:`block${layer}.o_proj`,p:DR_D*DR_D},{name:`block${layer}.v_proj`,p:DR_D*DR_D},
+          {name:`block${layer}.k_proj`,p:DR_D*DR_D},{name:`block${layer}.q_proj`,p:DR_D*DR_D},
+          {name:`block${layer}.norm_attn`,p:DR_D});
+      }
+      list.push({name:"embedding",p:DR_V*DR_D});
+      return list;
+    })();
+    const DR_PARAMS=DR_TENSORS.reduce((sum,tensor)=>sum+tensor.p,0);
+    const DR_GRAD_BYTES=DR_PARAMS*DR_BYTES;
+    const DR_TOKENS=DR_B*DR_CTX;
+    // Backward Pass ≈ 4·N·Tokens FLOPs, dieselbe Zählung wie im Ressourcenrechner.
+    const DR_BWD_FLOPS=4*DR_PARAMS*DR_TOKENS;
+    const DR_TBWD=DR_BWD_FLOPS/DR_C;
+    const DR_SCHEDULES=[
+      {key:"naive",mode:"after",bucket:0,
+        label:"naive_ddp · nach dem Backward, ein All-Reduce je Tensor",
+        note:"§5.2 des Handouts. Alle Gradienten sind fertig, bevor das erste Collective startet — es überlappt nichts, und die Latenz wird 291-mal bezahlt."},
+      {key:"flat",mode:"flat",bucket:Infinity,
+        label:"flach · nach dem Backward, ein einziges All-Reduce",
+        note:"§5.3.1: alle Gradienten in einen Puffer, ein Aufruf. Das bewegt exakt dieselben Bytes und spart allein die 290 zusätzlichen Latenzen."},
+      {key:"tensor",mode:"overlap",bucket:0,
+        label:"überlappt · ein All-Reduce je Tensor, sobald er bereit ist",
+        note:"§5.3.2: jeder Gradient startet sein Collective, sobald der Backward Pass ihn fertig hat. Dieselben Bytes, dieselbe Aufrufzahl wie naive — und fast nichts davon liegt noch frei."},
+      {key:"b25",mode:"overlap",bucket:25*1048576,
+        label:"überlappt · Buckets zu 25 MiB (PyTorchs Default)",
+        note:"bucket_cap_mb=25. Im xl-Modell ist schon die kleinste Gewichtsmatrix 25 MiB groß, also bekommt jede der 226 Matrizen ihren eigenen Bucket; gruppiert werden nur die 65 RMSNorm-Gains."},
+      {key:"b250",mode:"overlap",bucket:250*1048576,
+        label:"überlappt · Buckets zu 250 MiB",
+        note:"Zehnmal PyTorchs Default. Ab hier fasst ein Bucket wirklich mehrere Matrizen zusammen — und wartet damit auf die späteste von ihnen."},
+      {key:"b4096",mode:"overlap",bucket:4096*1048576,
+        label:"überlappt · Buckets zu 4 GiB",
+        note:"Fast der flache Fall, nur mit Overlap. Vier Collectives, und das letzte trägt ein Viertel des Modells, das erst am Ende des Backward Pass vollständig ist."}
+    ];
+    const drScheduleOf=key=>DR_SCHEDULES.find(entry=>entry.key===key)||DR_SCHEDULES[0];
+    // Der Zeitplan eines Schritts. Ein Bucket startet, sobald sein spätestes Mitglied
+    // bereit ist und die Leitung frei wird; die Leitung führt genau ein Collective
+    // gleichzeitig aus. Bereitschaftszeit proportional zur bis dahin erzeugten
+    // Parametermenge — das ist die Modellannahme dieses Labs.
+    function drSchedule(scheduleKey,d,hw){
+      const chosen=drScheduleOf(scheduleKey);
+      let seen=0;const ready=DR_TENSORS.map(tensor=>{seen+=tensor.p;return DR_TBWD*seen/DR_PARAMS});
+      const buckets=[];let current=[],bytes=0;
+      DR_TENSORS.forEach((tensor,index)=>{
+        current.push(index);bytes+=tensor.p*DR_BYTES;
+        if(chosen.mode!=="flat"&&bytes>=chosen.bucket){buckets.push({indices:current,bytes});current=[];bytes=0}
+      });
+      if(current.length)buckets.push({indices:current,bytes});
+      const floor=chosen.mode==="after"?DR_TBWD:0;
+      let link=0,total=0,idle=0;
+      for(const bucket of buckets){
+        const cost=drRing(bucket.bytes,d,hw),
+          available=Math.max(ready[bucket.indices[bucket.indices.length-1]],floor),
+          start=Math.max(available,link);
+        idle+=start-link;link=start+cost;total+=cost;
+      }
+      const exposed=Math.max(0,link-DR_TBWD),last=buckets[buckets.length-1];
+      return {schedule:chosen,buckets:buckets.length,total,exposed,idle,
+        step:DR_TBWD+exposed,share:100*exposed/(DR_TBWD+exposed),
+        lastCost:drRing(last.bytes,d,hw),lastBytes:last.bytes,
+        // Zwei Untergrenzen. Die Leitung kann höchstens die Dauer des Backward Pass
+        // verstecken; und das letzte Collective kann frühestens beginnen, wenn der
+        // letzte Gradient fertig ist. Welche der beiden bindet, ist die ganze Frage.
+        capacityFloor:total-DR_TBWD,tailFloor:drRing(last.bytes,d,hw)};
+    }
+    function drRead(id,binding){return binding&&Object.prototype.hasOwnProperty.call(binding,id)?binding[id]:document.getElementById(id).value}
+    function drStageMarkup(binding){
+      const tr=value=>esc(localizedUi(value)),mode=drRead("drMode",binding),
+        hw=drHwOf(drRead("drHw",binding)),d=Number(drRead("drRanks",binding))||2,
+        ms=value=>`${fixedNum(value*1000,4)} ms`,gbs=value=>`${fixedNum(value/1e9,4)} GB/s`,
+        int=value=>fixedNum(value,0),pct=value=>`${fixedNum(value,4)} %`;
+      if(mode==="grid"){
+        const timer=drRead("drTimer",binding),size=Number(drRead("drSize",binding))||1024,
+          cells=DR_SIZES.map(mib=>drCell(mib,d,hw)),cell=cells.find(entry=>entry.mib===size)||cells[0],
+          across=DR_RANKS.map(ranks=>drCell(size,ranks,hw)),cross=drCrossover(d,hw);
+        const sizeRows=cells.map(entry=>`<div class="calculation-row"><span>${int(entry.mib)} MiB · ${int(entry.floats)} float32 · ${entry.S>=cross?tr("bandbreitengebunden"):tr("latenzgebunden")}</span><strong data-drgrid="${entry.mib}">${ms(entry.time)} · ${gbs(entry.alg)} · ${gbs(entry.bus)} · ${pct(entry.latencyShare)}</strong></div>`).join("");
+        const acrossRows=across.map(entry=>`<div class="calculation-row"><span>d = ${int(entry.d)} · ${tr("Ringfaktor")} 2(d−1)/d = ${fixedNum(entry.ringFactor,4)}</span><strong data-dracross="${entry.d}">${ms(entry.time)} · ${gbs(entry.alg)} · ${gbs(entry.bus)}</strong></div>`).join("");
+        const first=across[0],last=across[across.length-1],
+          algDrop=100*(1-last.alg/first.alg),busDrop=100*(1-last.bus/first.bus);
+        const timerBlock=timer==="unsynced"
+          ? `<h3>${tr("Derselbe Lauf ohne torch.cuda.synchronize()")}</h3><p class="small muted">${tr("Der Aufruf kehrt zurück, sobald das Collective in der Queue liegt. Gemessen wird dann eine von der Tensorgröße unabhängige Konstante.")}</p><div class="calculation-ledger">`+
+            cells.map(entry=>`<div class="calculation-row"><span>${int(entry.mib)} MiB · ${tr("gemessen")} · ${tr("daraus abgeleitete algbw")}</span><strong data-drunsync="${entry.mib}">${ms(entry.unsynced)} · ${gbs(entry.unsyncedAlg)}</strong></div>`).join("")+
+            `</div><div class="shape-change"><strong>${tr("Falsch in jeder Zelle, auffällig nur in einer")}</strong><span>${tr("Die kleinste Zeile liest")} ${gbs(cells[0].unsyncedAlg)} ${tr("gegen die wahren")} ${gbs(cells[0].alg)} — ${tr("das ist Faktor")} ${fixedNum(cells[0].unsyncedAlg/cells[0].alg,4)} ${tr("und liegt trotzdem unter der Bandbreite der Verbindung, besteht also jede Plausibilitätsprüfung. Die größte Zeile liest")} ${gbs(cells[cells.length-1].unsyncedAlg)} ${tr("und damit das")} ${fixedNum(cells[cells.length-1].unsyncedAlg/hw.beta,4)}-${tr("fache der Verbindung selbst. Wer nur eine kleine Größe misst, sieht den Fehler nie.")}</span></div>`
+          : `<div class="shape-change"><strong>${tr("Zwei Lesarten derselben Tabelle")}</strong><span>${tr("Von d = 2 auf d = 6 fällt S/T um")} ${pct(algDrop)} ${tr("und die Busbandbreite um")} ${pct(busDrop)}. ${tr("Die erste Zahl sagt „mehr Ranks, schlechtere Skalierung“, die zweite sagt „die Leitung ist gleich ausgelastet, der Ring bewegt nur mehr“. Beide stehen in derselben Messung. Welche gilt, entscheidet der Latenzanteil in der Zeile darüber.")}</span></div>`;
+        return `<h2>${tr("Die Tabelle, die A2 §5.1.1 verlangt")}</h2>`+
+          `<p class="small muted">${tr("Ring-All-Reduce")}: T = 2(d−1)·α + 2(d−1)/d · S/β · ${tr(hw.label)}</p>`+
+          `<h3>${tr("Alle vier Größen bei")} d = ${int(d)}</h3><p class="small muted">${tr("Zeit · algbw = S/T · busbw = algbw · 2(d−1)/d · Latenzanteil")}</p>`+
+          `<div class="calculation-ledger">${sizeRows}</div>`+
+          `<div class="calculation-ledger"><div class="calculation-row"><span>${tr("Grenze latenz- gegen bandbreitengebunden · S* = α·d·β")}</span><strong data-drcross="1">${fixedNum(cross/1048576,4)} MiB</strong></div>`+
+          `<div class="calculation-row"><span>${tr("gewählte Größe · Latenz · Übertragung")}</span><strong data-drsplit="1">${int(cell.mib)} MiB · ${ms(cell.latency)} · ${ms(cell.transfer)}</strong></div></div>`+
+          `<h3>${int(size)} MiB ${tr("über alle Rankzahlen")}</h3><p class="small muted">${tr("Zeit · algbw · busbw")}</p><div class="calculation-ledger">${acrossRows}</div>`+
+          timerBlock+
+          `<p class="lab-note">${tr("Im Ringfaktor 2(d−1) kürzt sich die Grenze vollständig heraus: aus 2(d−1)·α = 2(d−1)/d · S/β folgt S = α·d·β. Wo die Grenze liegt, hängt deshalb nicht am Ringalgorithmus, sondern nur an Latenz, Rankzahl und Bandbreite.")}</p>`;
+      }
+      const key=drRead("drPlan",binding),plan=drSchedule(key,d,hw),
+        all=DR_SCHEDULES.map(entry=>drSchedule(entry.key,d,hw)),
+        naive=all[0],flat=all[1],overlap=all[2];
+      const rows=all.map(entry=>`<div class="calculation-row"><span>${tr(entry.schedule.label)}${entry.schedule.key===key?" ★":""}</span><strong data-drplan="${entry.schedule.key}">${int(entry.buckets)} · ${ms(entry.total)} · ${ms(entry.exposed)} · ${pct(entry.share)}</strong></div>`).join("");
+      const best=all.reduce((low,entry)=>entry.exposed<low.exposed?entry:low,all[0]);
+      return `<h2>${tr("Wann kommuniziert wird")}</h2>`+
+        `<p class="small muted">${tr("xl aus A2 Tabelle 1")}: D = ${int(DR_D)}, F = ${int(DR_F)}, L = ${int(DR_L)}, V = ${int(DR_V)}, ${tr("Batch")} ${int(DR_B)} × ${int(DR_CTX)} ${tr("Token")} · ${tr(hw.label)} · d = ${int(d)}</p>`+
+        `<div class="calculation-ledger">`+
+        `<div class="calculation-row"><span>${tr("Gradiententensoren · davon Matrizen · davon RMSNorm-Gains")}</span><strong data-drtensors="1">${int(DR_TENSORS.length)} · ${int(DR_TENSORS.filter(t=>t.p>DR_D).length)} · ${int(DR_TENSORS.filter(t=>t.p===DR_D).length)}</strong></div>`+
+        `<div class="calculation-row"><span>${tr("Parameter · Gradientenbytes in FP32")}</span><strong data-drbytes="1">${int(DR_PARAMS)} · ${int(DR_GRAD_BYTES)}</strong></div>`+
+        `<div class="calculation-row"><span>${tr("größter Tensor · kleinste Matrix · ein RMSNorm-Gain")}</span><strong data-drsizes="1">${int(DR_F*DR_D*DR_BYTES)} · ${int(DR_D*DR_D*DR_BYTES)} · ${int(DR_D*DR_BYTES)} ${tr("Byte")}</strong></div>`+
+        `<div class="calculation-row"><span>${tr("Backward Pass · 4·N·Token / C")}</span><strong data-drtbwd="1">${ms(DR_TBWD)}</strong></div>`+
+        `</div>`+
+        `<h3>${tr(plan.schedule.label)}</h3><div class="calculation-ledger">`+
+        `<div class="calculation-row"><span>${tr("Collectives · Kommunikationszeit insgesamt")}</span><strong data-drtotal="1">${int(plan.buckets)} · ${ms(plan.total)}</strong></div>`+
+        `<div class="calculation-row"><span>${tr("freiliegend · Schrittdauer · Anteil am Schritt")}</span><strong data-drexposed="1">${ms(plan.exposed)} · ${ms(plan.step)} · ${pct(plan.share)}</strong></div>`+
+        `<div class="calculation-row"><span>${tr("letztes Collective · seine Bytes")}</span><strong data-drlast="1">${ms(plan.lastCost)} · ${int(plan.lastBytes)}</strong></div>`+
+        `<div class="calculation-row"><span>${tr("Untergrenze Leitung · Untergrenze letztes Collective")}</span><strong data-drfloor="1">${ms(Math.max(0,plan.capacityFloor))} · ${ms(plan.tailFloor)}</strong></div>`+
+        `</div><p class="lab-note">${tr(plan.schedule.note)}</p>`+
+        `<h3>${tr("Alle sechs Zeitpläne nebeneinander")}</h3><p class="small muted">${tr("Collectives · Kommunikationszeit · freiliegend · Anteil am Schritt")}</p><div class="calculation-ledger">${rows}</div>`+
+        `<div class="shape-change"><strong>${tr("Was die beiden Verbesserungen des Handouts wirklich wert sind")}</strong><span>${tr("Flach statt einzeln spart")} ${ms(naive.exposed-flat.exposed)} ${tr("und damit")} ${pct(100*(naive.exposed-flat.exposed)/naive.exposed)} ${tr("der freiliegenden Kommunikation; überlappt statt danach spart")} ${ms(naive.exposed-overlap.exposed)} ${tr("und damit")} ${pct(100*(naive.exposed-overlap.exposed)/naive.exposed)}. ${tr("Beide bewegen exakt dieselben Bytes. Der beste der sechs Pläne hier ist")} „${tr(best.schedule.label)}“ ${tr("mit")} ${ms(best.exposed)}.`+
+        `</span></div>`+
+        `<p class="lab-note">${tr("A2 endet beim Overlap je Tensor; die Bucketzeilen darüber sind das, was torch.nn.parallel.DistributedDataParallel darauf noch aufsetzt, und stehen hier, weil sie zeigen, wo diese Schraube etwas bewegt und wo nicht.")}</p>`+
+        `<p class="lab-note">${tr("Zwei Untergrenzen begrenzen jeden Zeitplan. Die Leitung kann höchstens die Dauer des Backward Pass verstecken, also bleibt mindestens T_comm − T_bwd frei; und das letzte Collective kann frühestens starten, wenn der letzte Gradient fertig ist, also bleibt mindestens seine eigene Dauer frei. Welche der beiden bindet, sagt dir, welche Reparatur überhaupt etwas bringt.")}</p>`;
+    }
+    function updateDistributedRuntime(){
+      const mode=document.getElementById("drMode").value;
+      document.getElementById("drGridFields").hidden=mode!=="grid";
+      document.getElementById("drPlanFields").hidden=mode!=="plan";
+      document.getElementById("drStage").innerHTML=drStageMarkup();
+    }
+    function distributedRuntimeSuccessMarkup(){const tr=value=>esc(localizedUi(value));return `<div class="callout accent" style="margin-top:.7rem"><strong>${tr("✓ Transfer-Kurzcheck bestanden")}</strong><br>${tr("Beide Antworten hängen daran, dass eine Zeitmessung allein noch keine Aussage ist. Die Busbandbreite bleibt fast konstant, weil sie das Volumen zurückrechnet, das der Ring bei d Ranks mehr bewegen muss; S/T tut das nicht und sieht deshalb wie schlechtere Skalierung aus. Und die freiliegende Zeit nach dem Überlappen ist nicht der Rest der Kommunikation, sondern genau ein Collective: das des Embeddings, dessen Gradient erst am Ende des Backward Pass existiert. Deshalb ändert eine kleinere Bucketgröße daran nichts mehr, während eine größere den Anfang dieses letzten Collectives nach hinten schiebt.")}</div>`}
+    function checkDistributedRuntime(){
+      const bandwidth=document.getElementById("drCheckBw").value,floor=document.getElementById("drCheckFloor").value,
+        result=document.getElementById("drCheckResult"),tr=value=>esc(localizedUi(value));
+      if(!bandwidth||!floor){toast("Beantworte beide Kurzchecks zur Bandbreite und zur Untergrenze.");return}
+      if(bandwidth==="bus"&&floor==="embedding"){user.labChecks["distributed-runtime"]=true;saveUser(true);result.innerHTML=distributedRuntimeSuccessMarkup();return}
+      result.innerHTML=`<div class="callout warning" style="margin-top:.7rem"><strong>${tr("Noch nicht.")}</strong><br>${tr("Stelle in Modus A die Größe auf 1024 MiB und lies die untere Tabelle über alle Rankzahlen: die mittlere Zahl fällt deutlich, die rechte kaum. Wechsle dann in Modus B, wähle den überlappten Plan je Tensor und vergleiche die Zeile „letztes Collective“ mit der Zeile „freiliegend“ — sie tragen dieselbe Zahl.")}</div>`;
     }
 
     // ---- Lab: mask-pii -------------------------------------------------------------

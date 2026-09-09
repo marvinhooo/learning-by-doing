@@ -468,6 +468,62 @@ Iteration Counter: 1
 - Offen: **sechs Labs ohne rechnende Flaeche** (~38 Punkte), naechster `pytorch-debugger` (16,5, einziges Lab von `pytorch-state`), dann `distributed-runtime` (10) und `transformer-ledger` (8); die drei Konzepte ohne Lab entscheiden null Probleme; `renderFormulaDetail` bleibt eine Sackgasse; `origin/main` steht auf `2ed21e7`, **v100 bis v103 ungepusht**.
 
 
+## 2026-09-09 - Dieselbe Messung, zwei entgegengesetzte Saetze (geplanter Deep Review, v105)
+
+- Ausgangslage: zugewiesener Worktree auf v99, Kettenkopf auf v104 (`f328637`,
+  `claude/mystifying-cannon-664e47`) - Fast-Forward, kein Merge. Kein Codex aktiv.
+  `origin/main` steht weiter auf `2ed21e7`; v100 bis v105 sind ungepusht.
+- Gewaehlter Hebel: `distributed-runtime`, das einzige Lab seines Konzepts und damit
+  entscheidend fuer 10 Punkte (a2:distributed_communication_single_node 5,
+  a2:naive_ddp 5). Die Zahl wurde aus HANDOUT_PROBLEMS, PROBLEM_CONCEPTS und
+  LAB_CONCEPTS neu gerechnet statt aus dem Vorgaengerreport uebernommen; dieselbe
+  Messung reproduziert v104s 16,5 fuer `pytorch-state` als Kontrolle. Das Lab war ein
+  Quiz aus drei Auswahlfragen ohne eine gerechnete Zeile.
+- Befund A: eine gemessene All-Reduce-Zeit traegt zwei Bandbreiten, und sie stuetzen
+  entgegengesetzte Saetze. Bei 1024 MiB im Node faellt S/T von d=2 auf d=6 um 40,4967 %,
+  die Busbandbreite um 0,8278 % - die Leitung ist gleich ausgelastet, der Ring bewegt nur
+  mehr. Bei 1 MiB faellt auch die Busbandbreite (61,8617 %), weil 81,1019 % der Zeit reine
+  Latenz sind; die flache Lesart gilt also nicht immer. Die Grenze liegt bei S* = a*d*b,
+  aus der sich der Ringfaktor 2(d-1) vollstaendig herauskuerzt. Dazu die Messfalle:
+  ohne torch.cuda.synchronize() misst der Timer die Enqueue-Zeit, also in jeder Zelle
+  dieselbe Konstante - die kleinste Zeile liest dabei 209,7152 statt 85,0415 GB/s und
+  bleibt unter der Bandbreite der Verbindung, besteht also jede Plausibilitaetspruefung.
+- Befund B: A2 verbessert naive_ddp zweimal, und die beiden sind sehr verschieden viel
+  wert. Auf der Konfiguration des Handouts (xl, 1 Node x 2 GPUs) liegen bei naive_ddp
+  32,2372 % des Schritts frei; Zusammenfassen zu einem flachen All-Reduce nimmt davon
+  8,7368 % (und ist exakt die Latenz der 290 entfernten Aufrufe), Vorziehen ins Backward
+  nimmt 99,2843 % - ohne ein Byte weniger zu bewegen. Uebrig bleiben 0,2376 ms, und das
+  ist bitgenau das All-Reduce des Embedding-Gradienten, der vor dem Ende des Backward Pass
+  gar nicht existiert. Zwischen Nodes bringt derselbe Overlap nur 12,3095 %, weil dort die
+  Kapazitaetsgrenze bindet; dort gewinnen erst Buckets zu 250 MiB.
+- Gebaut: `distributed-runtime` behaelt seinen Kurzcheck und bekommt eine rechnende
+  Flaeche in zwei Modi - Modus A die 4x3-Tabelle aus A2 5.1.1 mit Zeit, algbw, busbw,
+  Latenzanteil, Regimemarkierung, Crossover und einem Schalter fuer den unsynchronisierten
+  Timer; Modus B das xl-Modell (291 Gradiententensoren, 226 Matrizen, 65 RMSNorm-Gains,
+  3.406.809.600 Parameter) gegen sechs Zeitplaene mit Collectives, Kommunikationszeit,
+  freiliegender Zeit und beiden Untergrenzen. Zwei neue Kurzcheckfragen auf den Befund.
+- Konzeptseite `distributed-runtime` in beiden Sprachen um ein viertes `details`-Element,
+  zwei Pitfalls und eine Check-Frage samt Antwort erweitert.
+- Guard-Suite 56 -> 57 Bloecke gruen, neuer Block `ddp schedule` (975 Checks) auf einem
+  anderen Rechenweg als die App: die Ringkosten Runde fuer Runde statt geschlossen, der
+  Zeitplan als explizite Belegungsliste der Leitung statt als laufendes max(), das
+  Parametertotal aus einer Stueckliste, der Crossover durch Bisektion. `lab render sweep`
+  57 -> 58 von 63 Labs, `lab prose anchors` 57 -> 58 Karten, `LR_NO_STAGE` 6 -> 5.
+  Cache-Bump auf v85 (4 Stellen). Laborzahl unveraendert 63.
+- `panel i18n` erweitert: der Guard sah nur inline gebaute Panels und damit zwei Labs gar
+  nicht (pytorch-debugger, distributed-runtime). Jetzt 55 -> 57 Panels, 995 -> 1017
+  Textknoten - und er fand sofort einen untersetzten String.
+- Mutationstest: 22 Mutationen, 22 gefangen, 0 entkommen. Der erste Lauf liess drei
+  entkommen, zwei davon echte Luecken: `lastCost`/`lastBytes` lasen sich auf den *ersten*
+  Bucket umschreiben, ohne dass etwas anschlug, weil lm_head und Embedding beide V*D gross
+  sind; und die deklarierte Bucketgroesse eines Zeitplans war an nichts gebunden, sodass
+  "25 MiB (PyTorchs Default)" 250 MiB rechnen konnte. Beide Felder werden jetzt gegen die
+  Zeitleiste gehalten, und jedes Label wird gegen seinen eigenen Wert geprueft. Die dritte
+  (`idle` verworfen) war inert, weil das Feld nirgends gelesen wurde - es wird jetzt gegen
+  die Zeitleiste geprueft und ist damit gefangen. Kontrolle vor und nach allen Laeufen gruen.
+- Kein Browsertest - in geplanten Laeufen gesperrt. Ersatz: alle Zustaende beider Modi in
+  beiden Sprachen headless gerendert und gelesen.
+
 ## 2026-09-08 - Der Test, den PyTorch selbst nicht bestehen laesst (geplanter Deep Review, v104)
 
 - Ausgangslage: zugewiesener Worktree auf v99, Kettenkopf auf v103 (`90c76c2`,

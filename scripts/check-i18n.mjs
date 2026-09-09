@@ -629,7 +629,6 @@ if (Math.abs(scoreGradients.reduce((sum, value) => sum + value, 0)) > 1e-12) thr
 
 for (const [id, answers] of Object.entries({
   "transformer-ledger":["288192","3670016","15106048"],
-  "distributed-runtime":["32","32","wait"],
   "scaling-transfer":["hidden","readout","decayed"],
   "moe-routing":["4","2","alpha"],
   "rlvr-system-transfer":["dr","surrogate","four"]
@@ -8471,21 +8470,35 @@ function panelStaticText(start) {
   return body;
 }
 
-const panelHits = [...source.matchAll(/if\(id==="([a-z0-9-]+)"\) return `/gu)];
+const panelHits = [...source.matchAll(/if\(id==="([a-z0-9-]+)"\) return `/gu)]
+  .map(hit => ({ id: hit[1], start: hit.index + hit[0].length }));
+// Two labs build their panel in a named function instead of inline -- pytorch-debugger and
+// distributed-runtime. Until this version they were simply absent from this guard, so the
+// German their controls print reached an English reader unchecked. The function's own template
+// is opened here and swept exactly like an inline one.
+const panelFunctions = [...source.matchAll(/if\(id==="([a-z0-9-]+)"\) return (\w+)\(\);/gu)];
+for (const hit of panelFunctions) {
+  const declaration = sliceDeclaration(source, hit[2]);
+  const backtick = declaration.indexOf("`");
+  if (backtick < 0) throw new Error(`panel i18n: ${hit[2]} builds no template, so the ${hit[1]} panel cannot be swept`);
+  panelHits.push({ id: hit[1], start: source.indexOf(declaration) + backtick + 1 });
+}
 if (panelHits.length < 40)
   throw new Error(`panel i18n: only ${panelHits.length} lab panels found, the markup builder must have changed shape`);
+if (panelFunctions.length < 2)
+  throw new Error(`panel i18n: only ${panelFunctions.length} function-built panels found, the two known ones must stay swept`);
 let panelNodes = 0, panelGerman = 0;
 const panelLabs = new Set();
 for (const hit of panelHits) {
-  const body = panelStaticText(hit.index + hit[0].length);
+  const body = panelStaticText(hit.start);
   for (const node of body.matchAll(/>([^<>]+)</gu)) {
     const text = decodeEntities(node[1].replace(/\s+/gu, " ").trim());
     if (text.length < 3 || !GERMAN_WORDS.test(text)) continue;
     panelGerman++;
-    panelLabs.add(hit[1]);
+    panelLabs.add(hit.id);
     const english = panelTranslator(text);
     if (GERMAN_WORDS.test(english))
-      throw new Error(`panel i18n: the ${hit[1]} panel prints "${text.slice(0, 80)}" and an English reader still reads German there`);
+      throw new Error(`panel i18n: the ${hit.id} panel prints "${text.slice(0, 80)}" and an English reader still reads German there`);
     panelNodes++;
   }
 }
@@ -9772,8 +9785,11 @@ console.log(`english render OK: ${englishStates} states across ${englishLabs} la
   // fixed worked example. Written out so "not swept" stays a decision rather than a silence.
   // kernel-contracts left this list in v103: it decides 20 points (a2:flash_forward and
   // a2:flash_backward) and was the largest block of them that no computed panel stood behind.
+  // distributed-runtime left it in v105 for the same reason: 10 points
+  // (a2:distributed_communication_single_node and a2:naive_ddp), and no other lab carries
+  // that concept.
   const LR_NO_STAGE = ["policy-loss-tracer", "transformer-ledger",
-    "distributed-runtime", "scaling-transfer", "moe-routing", "rlvr-system-transfer"];
+    "scaling-transfer", "moe-routing", "rlvr-system-transfer"];
   // One lab's branch of initLab, cut by balancing braces from `if(id==="<lab>")`.
   const lrBranch = labId => {
     const marker = source.indexOf(`if(id==="${labId}"){`);
@@ -11927,4 +11943,411 @@ ${sliceDeclaration(source, "piiCountTrap")}
   scChecks += 1;
 
   console.log(`state contract OK: ${scChecks} checks -- pytorch-state (16.5 points) recomputed from the definition, with every gradient of the lab's own training run re-derived by central finite differences where the app closes the form (agreement better than 1e-7 over ${sc.PT_KEYS.length * sc.PT_D * sc.PT_D} weights) and the A1 parameter total rebuilt from a bill of materials one matrix at a time rather than from P = 2VD + L(4D^2+3DF+2D) + D: all ${sc.PT_VARIANTS.length} storage variants reproduce the reference forward pass bit for bit, so the ${scWantBlind.length} value-shaped checks -- output values, optimizer construction, gradients present, falling loss, and load_state_dict(strict=True) -- catch 0 of the 4 bugs each, strict being blind because both key sets are shown to omit the same entries rather than assumed to; only .to(device) and the save/reload value round trip catch all 4, while the parameter count catches 3 and is blind on exactly the buffer variant because a buffer is no parameter; every broken variant still cuts the loss by more than half (67.3865 % against the correct 72.9513 % in the toy), and at A1 §7.2.1's own V=10000, D=512, F=1344, L=4 an unregistered block list freezes 12,455,936 of 22,696,448 parameters -- ${scTiny.frozenShare.toFixed(4)} % of the model -- a share that rises with every added layer over a sweep of 48 depths stepping by one, while the RMSNorm gains stay under one percent and are exactly what a loose count misses`);
+}
+
+// ---- ddp schedule: what a timing does not say ------------------------------------------------
+// `distributed-runtime` is the only lab of its concept, which decides 10 points
+// (a2:distributed_communication_single_node, 5, and a2:naive_ddp, 5). Until v105 it was a
+// three-question quiz about world size, batch and async handles, with no computed line.
+//
+// Two findings now rest on this block, and both live in the latency term the neighbouring lab
+// comm-crossover leaves out by name.
+//
+// One: A2's first problem asks for *sentences* about a table, and the same table carries two
+// bandwidths. S/T falls hard with the rank count while the bus bandwidth barely moves -- in the
+// bandwidth-bound rows. In the latency-bound rows the bus bandwidth falls too, so the reading
+// rule is regime-dependent, and the boundary between the regimes is S* = a*d*b, out of which the
+// ring factor 2(d-1) cancels completely.
+//
+// Two: A2 improves naive_ddp twice, and the two improvements are worth very different amounts.
+// Batching the calls fights only the latency; overlapping fights the whole exposed time, without
+// changing a single byte. What is left after overlapping is one collective, not a remainder.
+//
+// The route here differs from the app's wherever it can. The app closes the form of the ring
+// cost; the guard walks the 2(d-1) ring rounds one at a time. The app resolves the schedule with
+// a running max(); the guard replays it as an explicit list of busy intervals on the link and
+// reads the exposure off the timeline. The parameter total is rebuilt from a bill of materials
+// rather than from P = 2VD + L(4D^2+3DF+2D) + D. The crossover is found by bisection over sizes
+// instead of being read out of the formula, and both floors are held in both directions.
+{
+  const drNames = ["DR_D", "DR_F", "DR_L", "DR_V", "DR_CTX", "DR_B", "DR_C", "DR_ENQUEUE", "DR_BYTES",
+    "DR_HW", "DR_SIZES", "DR_RANKS", "drHwOf", "drRing", "drCell", "drCrossover", "DR_TENSORS",
+    "DR_PARAMS", "DR_GRAD_BYTES", "DR_TOKENS", "DR_BWD_FLOPS", "DR_TBWD", "DR_SCHEDULES",
+    "drScheduleOf", "drSchedule"];
+  const dr = runInNewContext(`${numberPrelude}${drNames.map(name => sliceDeclaration(source, name)).join("\n")}; ({${drNames.join(",")}})`, {});
+  // The guard formats independently of the app: the stage renders under the en-US locale the
+  // prelude pins, so the expected strings are built here with the same locale and nothing else
+  // shared. A drift in the app's own fixedNum would show up as a mismatched cell.
+  const drFixed = (value, digits) => Number(value).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  let drChecks = 0;
+  const drFail = message => { throw new Error(`ddp schedule: ${message}`); };
+  const drClose = (a, b, tol, what) => { if (!(Math.abs(a - b) <= tol)) drFail(`${what}: ${a} against ${b}`); drChecks += 1; };
+  // Bandwidths are numbers around 1e11, so an absolute tolerance says nothing about them.
+  const drRel = (a, b, tol, what) => { if (!(Math.abs(a - b) <= tol * Math.max(1, Math.abs(b)))) drFail(`${what}: ${a} against ${b}`); drChecks += 1; };
+
+  // --- route 1: the ring cost, one round at a time ---------------------------------------------
+  // A ring all-reduce is a reduce-scatter followed by an all-gather: 2(d-1) rounds, and in each
+  // round every rank sends one chunk of S/d bytes. Summing the rounds must land on the closed
+  // form the app uses. This is what makes the factor 2(d-1)/d a derived quantity here rather
+  // than a constant somebody typed.
+  const drRounds = (S, d, hw) => {
+    let time = 0;
+    for (let round = 0; round < 2 * (d - 1); round++) time += hw.alpha + (S / d) / hw.beta;
+    return time;
+  };
+  for (const hw of dr.DR_HW) for (const d of [2, 3, 4, 5, 6, 8, 16]) for (const mib of [0.25, 1, 10, 100, 1024, 4096]) {
+    const S = mib * 1048576;
+    drClose(dr.drRing(S, d, hw), drRounds(S, d, hw), 1e-15, `ring cost at d=${d}, ${mib} MiB on ${hw.key}`);
+  }
+  // A single rank sends 2(d-1)/d * S bytes in total. Counted, not asserted.
+  for (const d of [2, 4, 6]) {
+    let sent = 0;
+    for (let round = 0; round < 2 * (d - 1); round++) sent += 1 / d;
+    drClose(sent, 2 * (d - 1) / d, 1e-15, `ring volume per rank at d=${d}`);
+  }
+
+  // --- route 2: the crossover, found rather than read -------------------------------------------
+  // S* = a*d*b is the size at which the latency term 2(d-1)*a equals the transfer term
+  // 2(d-1)/d * S/b. The ring factor stands on both sides, so it must cancel: the boundary is
+  // the same for every ring length. Here it is located by bisection on the difference, so the
+  // claim rests on a search rather than on the algebra it is supposed to confirm.
+  for (const hw of dr.DR_HW) for (const d of [2, 3, 4, 6, 8]) {
+    const gap = S => 2 * (d - 1) * hw.alpha - (2 * (d - 1) / d) * (S / hw.beta);
+    let low = 1, high = 1e12;
+    if (!(gap(low) > 0 && gap(high) < 0)) drFail(`the crossover is not bracketed at d=${d} on ${hw.key}`);
+    for (let step = 0; step < 200; step++) { const mid = (low + high) / 2; if (gap(mid) > 0) low = mid; else high = mid; }
+    const found = (low + high) / 2;
+    drClose(found / dr.drCrossover(d, hw), 1, 1e-9, `crossover by bisection at d=${d} on ${hw.key}`);
+    // and the latency share is exactly one half there -- the definition of the boundary.
+    drClose(dr.drCell(found / 1048576, d, hw).latencyShare, 50, 1e-6, `latency share at S* (d=${d}, ${hw.key})`);
+  }
+  // The boundary does not depend on the ring factor: at fixed d the same S* comes out of a
+  // hypothetical collective with any number of rounds, because the factor divides out.
+  for (const hw of dr.DR_HW) for (const d of [2, 4, 6]) for (const rounds of [1, 2, 7]) {
+    const solved = hw.alpha * d * hw.beta;
+    drClose(rounds * hw.alpha - (rounds / d) * (solved / hw.beta), 0, 1e-12, `S* is ring-independent (d=${d}, ${rounds} rounds, ${hw.key})`);
+  }
+
+  // --- the two readings, measured on both sides -------------------------------------------------
+  // The claim the lab prints: in the bandwidth-bound row the bus bandwidth is nearly flat over
+  // the rank count while S/T is not, and in the latency-bound row neither is. Both halves are
+  // required -- a guard that only checked the first would let the lab teach the flat reading as
+  // if it always held.
+  const drSpread = (mib, hw) => {
+    const cells = dr.DR_RANKS.map(d => dr.drCell(mib, d, hw));
+    const drop = values => 100 * (1 - values[values.length - 1] / values[0]);
+    return { alg: drop(cells.map(cell => cell.alg)), bus: drop(cells.map(cell => cell.bus)), cells };
+  };
+  {
+    const wide = drSpread(1024, dr.DR_HW[0]), narrow = drSpread(1, dr.DR_HW[0]);
+    if (!(wide.alg > 40)) drFail(`at 1024 MiB S/T must fall by more than 40 % over the rank counts, it falls by ${wide.alg}`);
+    if (!(wide.bus < 1)) drFail(`at 1024 MiB the bus bandwidth must stay within 1 %, it falls by ${wide.bus}`);
+    if (!(narrow.bus > 50)) drFail(`at 1 MiB the bus bandwidth must fall too, it falls by ${narrow.bus}`);
+    // and the regime marker separates them: every cell of the wide row is below 2 % latency,
+    // every cell of the narrow row above 50 %.
+    for (const cell of wide.cells) { if (!(cell.latencyShare < 2)) drFail(`1024 MiB at d=${cell.d} is not bandwidth-bound (${cell.latencyShare} %)`); drChecks += 1; }
+    for (const cell of narrow.cells) { if (!(cell.latencyShare > 50)) drFail(`1 MiB at d=${cell.d} is not latency-bound (${cell.latencyShare} %)`); drChecks += 1; }
+    // the regime label the lab prints must agree with the crossover on every cell it renders
+    for (const hw of dr.DR_HW) for (const d of dr.DR_RANKS) for (const mib of dr.DR_SIZES) {
+      const cell = dr.drCell(mib, d, hw), bound = cell.S >= dr.drCrossover(d, hw);
+      if (bound !== (cell.latencyShare <= 50)) drFail(`the regime label disagrees with the latency share at ${mib} MiB, d=${d}, ${hw.key}`);
+      drChecks += 1;
+    }
+    drChecks += 3;
+  }
+  // busbw is algbw times the ring factor, and the ring factor is what a rank really sends.
+  for (const hw of dr.DR_HW) for (const d of dr.DR_RANKS) for (const mib of dr.DR_SIZES) {
+    const cell = dr.drCell(mib, d, hw);
+    drRel(cell.bus, cell.alg * 2 * (d - 1) / d, 1e-12, `busbw factor at ${mib} MiB, d=${d}`);
+    drRel(cell.latency + cell.transfer, cell.time, 1e-15, `latency plus transfer at ${mib} MiB, d=${d}`);
+  }
+
+  // --- the unsynchronized timer -----------------------------------------------------------------
+  // Without torch.cuda.synchronize() the call returns when the collective is queued, so the
+  // measured time is a constant. Two properties follow and both are checked: the number does not
+  // depend on the rank count or the size, and the bandwidth derived from it is exactly linear in
+  // S. The second is what makes the table's *shape* the giveaway rather than any single cell.
+  {
+    const seen = new Set();
+    for (const hw of dr.DR_HW) for (const d of dr.DR_RANKS) for (const mib of dr.DR_SIZES) {
+      seen.add(dr.drCell(mib, d, hw).unsynced); drChecks += 1;
+    }
+    if (seen.size !== 1) drFail(`the unsynchronized time must be one constant, found ${seen.size}`);
+    const base = dr.drCell(1, 2, dr.DR_HW[0]).unsyncedAlg;
+    for (const mib of dr.DR_SIZES) drRel(dr.drCell(mib, 6, dr.DR_HW[1]).unsyncedAlg, base * mib, 1e-12, `unsynchronized algbw is linear in S at ${mib} MiB`);
+    // The smallest row is the one that passes a sanity check: it stays under the link bandwidth,
+    // while the largest row reads a multiple of it. That is why measuring one small size hides
+    // the error entirely.
+    const smallest = dr.drCell(dr.DR_SIZES[0], 2, dr.DR_HW[0]), largest = dr.drCell(dr.DR_SIZES[dr.DR_SIZES.length - 1], 2, dr.DR_HW[0]);
+    if (!(smallest.unsyncedAlg < dr.DR_HW[0].beta)) drFail("the smallest unsynchronized row should still look plausible");
+    if (!(largest.unsyncedAlg > 100 * dr.DR_HW[0].beta)) drFail("the largest unsynchronized row should be absurd");
+    if (!(smallest.unsyncedAlg > smallest.alg)) drFail("the unsynchronized reading should overstate the bandwidth");
+    drChecks += 3;
+  }
+
+  // --- the model: a bill of materials ------------------------------------------------------------
+  // The app builds its tensor list layer by layer and sums it. Here the same total is assembled
+  // from the A2 Table 1 shapes one matrix at a time, and separately from the closed A1 formula,
+  // so a typo in the list cannot agree with itself.
+  {
+    const V = dr.DR_V, D = dr.DR_D, F = dr.DR_F, L = dr.DR_L;
+    const bill = [["embedding", V * D], ["lm_head", V * D], ["attention", L * 4 * D * D],
+      ["swiglu", L * 3 * D * F], ["block norms", L * 2 * D], ["final norm", D]];
+    const billTotal = bill.reduce((sum, entry) => sum + entry[1], 0);
+    const closed = 2 * V * D + L * (4 * D * D + 3 * D * F + 2 * D) + D;
+    if (billTotal !== closed) drFail(`the bill of materials (${billTotal}) and the closed A1 formula (${closed}) disagree`);
+    if (dr.DR_PARAMS !== billTotal) drFail(`the tensor list sums to ${dr.DR_PARAMS}, the bill of materials to ${billTotal}`);
+    if (dr.DR_TENSORS.length !== 2 + 9 * L + 1) drFail(`the xl model must hold ${2 + 9 * L + 1} gradient tensors, the list holds ${dr.DR_TENSORS.length}`);
+    if (dr.DR_TENSORS.filter(t => t.p === D).length !== 2 * L + 1) drFail("the RMSNorm gains are miscounted");
+    if (dr.DR_GRAD_BYTES !== dr.DR_PARAMS * 4) drFail("FP32 gradients are four bytes per parameter");
+    // The backward pass is finished exactly when the last tensor is ready, and the ready times
+    // are non-decreasing -- otherwise a bucket could be launched before its members exist.
+    let seen = 0; const ready = dr.DR_TENSORS.map(t => { seen += t.p; return dr.DR_TBWD * seen / dr.DR_PARAMS; });
+    for (let i = 1; i < ready.length; i++) { if (!(ready[i] > ready[i - 1])) drFail(`ready times are not increasing at ${i}`); drChecks += 1; }
+    drClose(ready[ready.length - 1], dr.DR_TBWD, 1e-15, "the last gradient is ready exactly at the end of the backward pass");
+    drClose(dr.DR_TBWD, 4 * dr.DR_PARAMS * dr.DR_B * dr.DR_CTX / dr.DR_C, 1e-18, "the backward pass follows 4*N*tokens/C");
+    drChecks += 5;
+  }
+
+  // --- route 3: the schedule, replayed as a timeline ----------------------------------------------
+  // The app resolves the schedule with a running max() over bucket start times. Here every
+  // collective is placed as an explicit busy interval on a single link, the intervals are checked
+  // for overlap, and the exposure is read off the end of the last one. Same answer, different
+  // machinery -- and the interval list is what makes "one collective at a time" a checked
+  // property rather than an assumption.
+  const drTimeline = (key, d, hw) => {
+    const plan = dr.drScheduleOf(key);
+    let seen = 0; const ready = dr.DR_TENSORS.map(t => { seen += t.p; return dr.DR_TBWD * seen / dr.DR_PARAMS; });
+    const groups = []; let current = [], bytes = 0;
+    dr.DR_TENSORS.forEach((tensor, index) => {
+      current.push(index); bytes += tensor.p * 4;
+      if (plan.mode !== "flat" && bytes >= plan.bucket) { groups.push({ indices: current, bytes }); current = []; bytes = 0; }
+    });
+    if (current.length) groups.push({ indices: current, bytes });
+    const intervals = []; let free = 0;
+    for (const group of groups) {
+      const earliest = plan.mode === "after" ? dr.DR_TBWD : ready[group.indices[group.indices.length - 1]];
+      const start = Math.max(earliest, free), end = start + dr.drRing(group.bytes, d, hw);
+      intervals.push({ start, end, bytes: group.bytes, earliest });
+      free = end;
+    }
+    for (let i = 1; i < intervals.length; i++)
+      if (intervals[i].start < intervals[i - 1].end - 1e-15) drFail(`two collectives overlap on the link in ${key}`);
+    for (const interval of intervals)
+      if (interval.start < interval.earliest - 1e-15) drFail(`a collective in ${key} starts before its gradients exist`);
+    return { intervals, groups, exposed: Math.max(0, intervals[intervals.length - 1].end - dr.DR_TBWD),
+      total: intervals.reduce((sum, interval) => sum + (interval.end - interval.start), 0),
+      bytes: groups.reduce((sum, group) => sum + group.bytes, 0) };
+  };
+  for (const hw of dr.DR_HW) for (const d of dr.DR_RANKS) for (const plan of dr.DR_SCHEDULES) {
+    const mine = drTimeline(plan.key, d, hw), theirs = dr.drSchedule(plan.key, d, hw);
+    drClose(mine.exposed, theirs.exposed, 1e-12, `exposed time for ${plan.key} at d=${d} on ${hw.key}`);
+    drClose(mine.total, theirs.total, 1e-12, `communication total for ${plan.key} at d=${d} on ${hw.key}`);
+    if (mine.groups.length !== theirs.buckets) drFail(`bucket count for ${plan.key}: ${mine.groups.length} against ${theirs.buckets}`);
+    // Every schedule moves exactly the same gradient bytes. If this ever failed, the comparison
+    // between them would be measuring the payload rather than the schedule.
+    if (mine.bytes !== dr.DR_GRAD_BYTES) drFail(`${plan.key} moves ${mine.bytes} bytes instead of ${dr.DR_GRAD_BYTES}`);
+    drChecks += 2;
+  }
+
+  // --- the two floors, and which of them binds -------------------------------------------------
+  // exposed >= T_comm - T_bwd, because the link can be busy for at most the backward pass before
+  // the step would have ended anyway; and exposed >= the duration of the last collective, because
+  // that collective cannot start before the last gradient exists. Both hold for every schedule.
+  // Which one is actually reached is the whole content of the lab, so it is not enough to check
+  // that both are respected -- each one is shown to be the binding one somewhere.
+  {
+    for (const hw of dr.DR_HW) for (const d of dr.DR_RANKS) for (const plan of dr.DR_SCHEDULES) {
+      const result = dr.drSchedule(plan.key, d, hw), timeline = drTimeline(plan.key, d, hw);
+      const last = timeline.intervals[timeline.intervals.length - 1], tail = last.end - last.start;
+      const idle = timeline.intervals.reduce((sum, interval, index) =>
+        sum + (index ? interval.start - timeline.intervals[index - 1].end : interval.start), 0);
+      // The exact identity behind both bounds: the link finishes at total + idle, so nothing
+      // about the exposure is a tolerance -- the two floors are what remains when idle is
+      // dropped and when everything but the last interval is dropped.
+      drRel(result.exposed, Math.max(0, timeline.total + idle - dr.DR_TBWD), 1e-12,
+        `${plan.key} at d=${d} on ${hw.key}: exposed is total + idle - T_bwd`);
+      if (result.exposed < result.total - dr.DR_TBWD - 1e-12) drFail(`${plan.key} at d=${d} on ${hw.key} falls below the capacity floor`);
+      if (plan.mode !== "after" && result.exposed < tail - 1e-12) drFail(`${plan.key} at d=${d} on ${hw.key} falls below its own last collective`);
+      // Every field the app carries out of the schedule is compared against the timeline, not
+      // just the one the reader happens to look at first. A mutation test found this: reading
+      // the *first* bucket instead of the last is invisible in the per-tensor schedule, where
+      // the lm_head and the embedding are both V*D and therefore the same size, and it only
+      // shows in a schedule whose first and last bucket differ.
+      if (result.lastBytes !== last.bytes) drFail(`${plan.key} at d=${d} on ${hw.key} reports ${result.lastBytes} bytes in its last collective, the timeline ends on ${last.bytes}`);
+      drRel(result.tailFloor, tail, 1e-12, `${plan.key} at d=${d} on ${hw.key}: the tail floor is the last interval`);
+      drRel(result.idle, idle, 1e-12, `${plan.key} at d=${d} on ${hw.key}: idle time on the link`);
+      drRel(result.capacityFloor, result.total - dr.DR_TBWD, 1e-12, `${plan.key} at d=${d} on ${hw.key}: the capacity floor is T_comm - T_bwd`);
+      drChecks += 3;
+    }
+    // Inside the node the per-tensor schedule sits exactly on its last collective, and the
+    // capacity floor is negative there -- the link could have hidden everything.
+    const nodePerTensor = dr.drSchedule("tensor", 2, dr.drHwOf("node"));
+    if (!(nodePerTensor.capacityFloor < 0)) drFail("inside the node the capacity floor should be slack");
+    drRel(nodePerTensor.exposed, nodePerTensor.tailFloor, 1e-15, "inside the node the last collective is the binding floor");
+    // Between nodes it is the other way round: the capacity floor is what is reached, to within
+    // the idle time before the first gradient exists, and the tail is an order of magnitude below.
+    const clusterPerTensor = dr.drSchedule("tensor", 2, dr.drHwOf("cluster"));
+    const clusterGap = 100 * (clusterPerTensor.exposed - clusterPerTensor.capacityFloor) / clusterPerTensor.exposed;
+    if (!(clusterGap > 0 && clusterGap < 1)) drFail(`between nodes the capacity floor should be the binding one, the gap is ${clusterGap} %`);
+    if (!(clusterPerTensor.tailFloor * 10 < clusterPerTensor.exposed)) drFail("between nodes the tail floor should be far below the exposure");
+    drChecks += 4;
+  }
+
+  // --- what the handout's two improvements are worth ------------------------------------------------
+  // Inside the node the exposed time collapses; between nodes it barely moves, because the link
+  // itself is the wall. Both directions matter: a lab that only showed the node case would teach
+  // "overlap solves it", which is false as soon as the link is the bottleneck.
+  const drNode = key => dr.drSchedule(key, 2, dr.drHwOf("node"));
+  const drCluster = key => dr.drSchedule(key, 2, dr.drHwOf("cluster"));
+  const drShare = (before, after) => 100 * (before.exposed - after.exposed) / before.exposed;
+  const nodeNaive = drNode("naive"), nodeFlat = drNode("flat"), nodeOverlap = drNode("tensor");
+  const clusterNaive = drCluster("naive"), clusterOverlap = drCluster("tensor");
+  const drFlatGain = drShare(nodeNaive, nodeFlat), drOverlapGain = drShare(nodeNaive, nodeOverlap);
+  if (!(drFlatGain < 10)) drFail(`flattening should buy less than a tenth of the exposure, it buys ${drFlatGain} %`);
+  if (!(drOverlapGain > 99)) drFail(`overlapping should buy more than 99 %, it buys ${drOverlapGain} %`);
+  if (!(drOverlapGain / drFlatGain > 10)) drFail("the two improvements should differ by more than an order of magnitude");
+  if (!(drShare(clusterNaive, clusterOverlap) < 20)) drFail("between nodes overlapping must not look like a solution");
+  // The flat case saves exactly the latency of the 290 calls it removes and nothing else.
+  drClose(nodeNaive.exposed - nodeFlat.exposed, (nodeNaive.buckets - 1) * 2 * (2 - 1) * dr.drHwOf("node").alpha, 1e-12,
+    "flattening saves exactly the latency of the calls it removes");
+  // What is left after overlapping is one collective: the embedding's.
+  const drEmbeddingBytes = dr.DR_V * dr.DR_D * 4;
+  drClose(nodeOverlap.exposed, dr.drRing(drEmbeddingBytes, 2, dr.drHwOf("node")), 1e-15,
+    "the residual exposure inside the node is the embedding's own all-reduce");
+  drClose(nodeOverlap.lastBytes, drEmbeddingBytes, 0, "the last bucket of the per-tensor schedule is the embedding");
+  drChecks += 4;
+
+  // --- the bucket size: what it can and cannot move --------------------------------------------------
+  // PyTorch's default cap is below every weight matrix of the xl model, so it groups nothing but
+  // the RMSNorm gains. Scanned rather than asserted: the bucket count is constant from one byte
+  // up to the smallest matrix, and the exposure inside the node is flat over that whole range.
+  {
+    const smallestMatrix = dr.DR_D * dr.DR_D * 4;
+    const countFor = cap => {
+      let groups = 0, bytes = 0;
+      for (const tensor of dr.DR_TENSORS) { bytes += tensor.p * 4; if (bytes >= cap) { groups += 1; bytes = 0; } }
+      return groups + (bytes ? 1 : 0);
+    };
+    const matrices = dr.DR_TENSORS.filter(t => t.p > dr.DR_D).length, gain = dr.DR_D * 4;
+    // Every cap from just above one RMSNorm gain up to the smallest weight matrix leaves the same
+    // 226 buckets: each matrix is already too large to share, and only the gains ride along.
+    for (const cap of [gain + 1, 1048576, 25 * 1048576, smallestMatrix]) {
+      if (countFor(cap) !== matrices) drFail(`a cap of ${cap} bytes should leave ${matrices} buckets, it leaves ${countFor(cap)}`);
+      drChecks += 1;
+    }
+    // Both edges of that plateau, held in both directions: at a gain's own size every tensor
+    // flushes alone, and one byte past the smallest matrix the count starts falling.
+    if (countFor(gain) !== dr.DR_TENSORS.length) drFail(`a cap of one gain should leave every tensor alone, it leaves ${countFor(gain)}`);
+    if (countFor(smallestMatrix + 1) >= matrices) drFail("just past the smallest matrix the bucket count must start falling");
+    drChecks += 2;
+    // The interior optimum the lab's own transfer question asks about exists -- but only where the
+    // link is the bottleneck, and it is worth single-digit percent. Found by scanning caps rather
+    // than by trusting the six the panel offers.
+    const scan = hw => {
+      const caps = [];
+      for (let mib = 1; mib <= 8192; mib *= 2) caps.push(mib * 1048576);
+      const results = caps.map(cap => {
+        const probe = { key: "probe", mode: "overlap", bucket: cap, label: "probe", note: "probe" };
+        dr.DR_SCHEDULES.push(probe);
+        const out = dr.drSchedule("probe", 2, hw);
+        dr.DR_SCHEDULES.pop();
+        return { cap, exposed: out.exposed };
+      });
+      const best = results.reduce((low, entry) => entry.exposed < low.exposed ? entry : low, results[0]);
+      return { results, best };
+    };
+    // Each offered schedule is held against its own declared cap, so a cap that drifts away
+    // from the label above it is a failure rather than a quietly different table. The 25 MiB
+    // entry additionally has to be PyTorch's real default and has to leave every weight matrix
+    // alone, which is exactly what its note claims.
+    for (const plan of dr.DR_SCHEDULES) {
+      if (plan.mode !== "overlap") continue;
+      const want = plan.bucket ? countFor(plan.bucket) : dr.DR_TENSORS.length;
+      const got = dr.drSchedule(plan.key, 2, dr.drHwOf("node")).buckets;
+      if (got !== want) drFail(`${plan.key} declares a cap of ${plan.bucket} bytes but produces ${got} buckets instead of ${want}`);
+      const named = plan.label.match(/(\d+)\s*(MiB|GiB)/u);
+      if (named) {
+        const declared = Number(named[1]) * (named[2] === "GiB" ? 1073741824 : 1048576);
+        if (plan.bucket !== declared) drFail(`${plan.key} is labelled ${named[0]} and caps at ${plan.bucket} bytes`);
+      }
+      drChecks += 1;
+    }
+    const drDefault = dr.DR_SCHEDULES.find(plan => plan.key === "b25");
+    if (!drDefault || drDefault.bucket !== 25 * 1048576)
+      drFail("the schedule that names PyTorch's default must cap at bucket_cap_mb=25, that is 25 MiB");
+    if (dr.drSchedule("b25", 2, dr.drHwOf("node")).buckets !== matrices)
+      drFail(`PyTorch's default must leave all ${matrices} weight matrices in their own buckets`);
+    drChecks += 2;
+    const nodeScan = scan(dr.drHwOf("node")), clusterScan = scan(dr.drHwOf("cluster"));
+    if (nodeScan.best.cap !== nodeScan.results[0].cap) drFail("inside the node the smallest bucket should already be optimal");
+    if (clusterScan.best.cap === clusterScan.results[0].cap) drFail("between nodes the optimum should be an interior one");
+    if (clusterScan.best.cap === clusterScan.results[clusterScan.results.length - 1].cap) drFail("between nodes the largest bucket should not be optimal");
+    const clusterGain = 100 * (1 - clusterScan.best.exposed / clusterScan.results[0].exposed);
+    if (!(clusterGain > 0 && clusterGain < 10)) drFail(`the interior optimum should be real but small, it is ${clusterGain} %`);
+    drChecks += 5;
+  }
+
+  // --- every printed cell is pinned to the expression it interpolates ---------------------------------
+  // A number that is only computed is not yet a number the reader sees. Each anchor below is read
+  // out of the rendered German stage and compared with the value recomputed here.
+  {
+    const drRender = (binding) => {
+      const stage = runInNewContext(
+        `${numberPrelude}${["esc", "localizedUi", "translateUiValue"].map(() => "").join("")}` +
+        `const esc=value=>String(value);const localizedUi=value=>value;` +
+        drNames.map(name => sliceDeclaration(source, name)).join("\n") + "\n" +
+        sliceDeclaration(source, "drRead") + "\n" + sliceDeclaration(source, "drStageMarkup") +
+        `; drStageMarkup(${JSON.stringify(binding)})`, {});
+      return stage;
+    };
+    const cell = (html, key, digits) => {
+      const hit = html.match(new RegExp(`data-${key}="[^"]*"[^>]*>([^<]*)<`, "u"));
+      if (!hit) drFail(`the stage prints no ${key} anchor`);
+      return hit[1];
+    };
+    const gridHtml = drRender({ drMode: "grid", drHw: "node", drRanks: "2", drSize: "1024", drTimer: "synced" });
+    const acrossFor = rank => {
+      const hit = gridHtml.match(new RegExp(`data-dracross="${rank}"[^>]*>([^<]*)<`, "u"));
+      if (!hit) drFail(`the stage prints no across anchor for d=${rank}`);
+      return hit[1];
+    };
+    for (const rank of dr.DR_RANKS) {
+      const want = dr.drCell(1024, rank, dr.drHwOf("node"));
+      const parts = acrossFor(rank).split(" · ");
+      const wanted = [`${drFixed(want.time * 1000, 4)} ms`, `${drFixed(want.alg / 1e9, 4)} GB/s`, `${drFixed(want.bus / 1e9, 4)} GB/s`];
+      if (parts.length !== 3 || parts.some((part, index) => part.trim() !== wanted[index]))
+        drFail(`the across row for d=${rank} prints "${acrossFor(rank)}" instead of "${wanted.join(" · ")}"`);
+      drChecks += 1;
+    }
+    if (cell(gridHtml, "drcross") !== `${drFixed(dr.drCrossover(2, dr.drHwOf("node")) / 1048576, 4)} MiB`)
+      drFail(`the crossover cell prints ${cell(gridHtml, "drcross")}`);
+    const unsyncedHtml = drRender({ drMode: "grid", drHw: "node", drRanks: "2", drSize: "1024", drTimer: "unsynced" });
+    for (const mib of dr.DR_SIZES) {
+      const hit = unsyncedHtml.match(new RegExp(`data-drunsync="${mib}"[^>]*>([^<]*)<`, "u"));
+      if (!hit) drFail(`no unsynchronized anchor for ${mib} MiB`);
+      if (!hit[1].includes(`${drFixed(dr.drCell(mib, 2, dr.drHwOf("node")).unsyncedAlg / 1e9, 4)} GB/s`))
+        drFail(`the unsynchronized row for ${mib} MiB prints ${hit[1]}`);
+      drChecks += 1;
+    }
+    const planHtml = drRender({ drMode: "plan", drHw: "node", drRanks: "2", drPlan: "tensor" });
+    for (const plan of dr.DR_SCHEDULES) {
+      const hit = planHtml.match(new RegExp(`data-drplan="${plan.key}"[^>]*>([^<]*)<`, "u"));
+      if (!hit) drFail(`no schedule anchor for ${plan.key}`);
+      const want = dr.drSchedule(plan.key, 2, dr.drHwOf("node"));
+      const wanted = `${drFixed(want.buckets, 0)} · ${drFixed(want.total * 1000, 4)} ms · ${drFixed(want.exposed * 1000, 4)} ms · ${drFixed(want.share, 4)} %`;
+      if (hit[1].replace(" ★", "").trim() !== wanted) drFail(`the ${plan.key} row prints "${hit[1]}" instead of "${wanted}"`);
+      drChecks += 1;
+    }
+    // The line the transfer check sends the reader to: "last collective" and "exposed" carry the
+    // same number in the per-tensor overlapped schedule, and that is the whole answer.
+    const exposedCell = cell(planHtml, "drexposed"), lastCell = cell(planHtml, "drlast");
+    if (exposedCell.split(" · ")[0] !== lastCell.split(" · ")[0])
+      drFail(`the exposed cell (${exposedCell}) and the last-collective cell (${lastCell}) must open with the same figure`);
+    if (!planHtml.includes(drFixed(dr.DR_PARAMS, 0))) drFail("the stage does not print the parameter total");
+    if (!planHtml.includes(drFixed(dr.DR_TENSORS.length, 0))) drFail("the stage does not print the tensor count");
+    drChecks += 3;
+  }
+
+  console.log(`ddp schedule OK: ${drChecks} checks -- distributed-runtime (10 points) recomputed from the definition, with the ring cost walked one of its 2(d-1) rounds at a time where the app closes the form, the schedule replayed as an explicit list of busy intervals on the link (checked for overlap and for starting before their gradients exist) where the app runs a max(), and the xl parameter total rebuilt from a bill of materials rather than from P = 2VD + L(4D^2+3DF+2D) + D: at 1024 MiB inside the node S/T falls ${drSpread(1024, dr.DR_HW[0]).alg.toFixed(4)} % over the rank counts while the bus bandwidth falls ${drSpread(1024, dr.DR_HW[0]).bus.toFixed(4)} %, and at 1 MiB the bus bandwidth falls ${drSpread(1, dr.DR_HW[0]).bus.toFixed(4)} % as well because over four fifths of that time is latency -- so the flat reading is held in both directions rather than taught as a rule; the boundary S* = a*d*b is located by bisection over 10 hardware/rank pairs instead of read out of the algebra, and shown to be the same for a collective of 1, 2 or 7 rounds; of A2's two improvements to naive_ddp, flattening is worth ${drFlatGain.toFixed(4)} % of the exposed time and is exactly the latency of the ${nodeNaive.buckets - 1} calls it removes, while overlapping is worth ${drOverlapGain.toFixed(4)} % and moves not one byte less, leaving ${(nodeOverlap.exposed * 1000).toFixed(4)} ms that is bit-for-bit the embedding gradient's own all-reduce; between nodes the same overlap buys only ${drShare(clusterNaive, clusterOverlap).toFixed(4)} % because the capacity floor binds instead, and both floors are shown to be reached by some schedule rather than merely respected by all; PyTorch's 25 MiB cap is scanned against four other caps and leaves all ${dr.DR_TENSORS.filter(t => t.p > dr.DR_D).length} weight matrices in their own buckets, grouping nothing but the ${2 * dr.DR_L + 1} RMSNorm gains`);
 }
