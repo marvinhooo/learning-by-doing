@@ -627,8 +627,11 @@ const softmaxProjection = probabilities.reduce((sum, value, index) => sum + valu
 const scoreGradients = probabilities.map((value, index) => value * (upstream[index] - softmaxProjection));
 if (Math.abs(scoreGradients.reduce((sum, value) => sum + value, 0)) > 1e-12) throw new Error("FlashAttention backward row-sum invariant regression");
 
+// transformer-ledger left this map in v106: its three fixed answers were the toy case's
+// parameter, block and forward totals, and the lab now computes them instead of offering
+// them. The three numbers above are still asserted, and the `ledger shares` block below
+// holds the lab's own arithmetic against them.
 for (const [id, answers] of Object.entries({
-  "transformer-ledger":["288192","3670016","15106048"],
   "scaling-transfer":["hidden","readout","decayed"],
   "moe-routing":["4","2","alpha"],
   "rlvr-system-transfer":["dr","surrogate","four"]
@@ -9788,7 +9791,10 @@ console.log(`english render OK: ${englishStates} states across ${englishLabs} la
   // distributed-runtime left it in v105 for the same reason: 10 points
   // (a2:distributed_communication_single_node and a2:naive_ddp), and no other lab carries
   // that concept.
-  const LR_NO_STAGE = ["policy-loss-tracer", "transformer-ledger",
+  // transformer-ledger left this list in v106: `a1:transformer_accounting` is 5 points and
+  // the largest written problem in A1, its deliverable is a component breakdown rather than
+  // one number, and no other lab carries that concept.
+  const LR_NO_STAGE = ["policy-loss-tracer",
     "scaling-transfer", "moe-routing", "rlvr-system-transfer"];
   // One lab's branch of initLab, cut by balancing braces from `if(id==="<lab>")`.
   const lrBranch = labId => {
@@ -11943,6 +11949,417 @@ ${sliceDeclaration(source, "piiCountTrap")}
   scChecks += 1;
 
   console.log(`state contract OK: ${scChecks} checks -- pytorch-state (16.5 points) recomputed from the definition, with every gradient of the lab's own training run re-derived by central finite differences where the app closes the form (agreement better than 1e-7 over ${sc.PT_KEYS.length * sc.PT_D * sc.PT_D} weights) and the A1 parameter total rebuilt from a bill of materials one matrix at a time rather than from P = 2VD + L(4D^2+3DF+2D) + D: all ${sc.PT_VARIANTS.length} storage variants reproduce the reference forward pass bit for bit, so the ${scWantBlind.length} value-shaped checks -- output values, optimizer construction, gradients present, falling loss, and load_state_dict(strict=True) -- catch 0 of the 4 bugs each, strict being blind because both key sets are shown to omit the same entries rather than assumed to; only .to(device) and the save/reload value round trip catch all 4, while the parameter count catches 3 and is blind on exactly the buffer variant because a buffer is no parameter; every broken variant still cuts the loss by more than half (67.3865 % against the correct 72.9513 % in the toy), and at A1 §7.2.1's own V=10000, D=512, F=1344, L=4 an unregistered block list freezes 12,455,936 of 22,696,448 parameters -- ${scTiny.frozenShare.toFixed(4)} % of the model -- a share that rises with every added layer over a sweep of 48 depths stepping by one, while the RMSNorm gains stay under one percent and are exactly what a loose count misses`);
+}
+
+
+// ---- ledger shares: the deliverable is a breakdown, not a sum -------------------------------
+// `transformer-ledger` is the only lab of its concept and decides 5 points
+// (a1:transformer_accounting), the largest written problem in A1. Until v106 it was a
+// three-question quiz over one toy configuration with no computed line, and neither of the four
+// GPT-2 sizes the problem actually names appeared anywhere in the app.
+//
+// A1 asks for five things: (a) the parameter count and its FP32 memory, (b) the list of matrix
+// multiplies and their total, (c) which part costs the most, (d) the same as a *share of the
+// total* for small, medium and large plus how those shares move with size, and (e) the same
+// model at context length 16,384. Two findings rest on this block.
+//
+// One: at fixed context the attention scores' share *falls* as the model grows, which is the
+// opposite of what "attention is the quadratic part" suggests. The ratio to the projections is
+// 4LT^2 D / 8LTD^2 = T/(2D) -- L cancels, and only T/D decides. The context length is the axis
+// that turns it around, at T = 2D against the projections and T = 1.5F against SwiGLU.
+//
+// Two: the popular shortcut 2*P*T carries three errors at once -- the input embedding counted as
+// a matmul, the RMSNorm gains counted as a matmul, and the whole term 4LT^2 D missing. The first
+// two are too much, the third too little, and their zero sits at T* = (V + 2L + 1)/(2L), which
+// contains no model width. For GPT-2 medium that is 1048.0417, so at the handout's own context
+// length of 1024 the shortcut looks accurate to a fraction of a percent -- in exactly the cell a
+// student is most likely to test it in -- while at XL and 16,384 it reads under half.
+//
+// The route here differs from the app's wherever it can. The app sums closed terms per component;
+// the guard walks the forward pass matmul by matmul and head by head, accumulating 2mnp at a
+// time. The parameter total is rebuilt from a named bill of materials rather than from the rows.
+// Every threshold is located by scanning T with both sides held, never read out of the algebra.
+{
+  const tlNames = ["TL_V", "TL_ROUND64", "TL_MODELS", "TL_CTX", "TL_PRECISIONS", "TL_SHORTCUTS",
+    "tlModelOf", "tlPrecisionOf", "tlShortcutOf", "tlParamRows", "tlFlopRows", "tlTotals",
+    "tlShortcutFor", "tlThresholds"];
+  const tl = runInNewContext(`${numberPrelude}${tlNames.map(name => sliceDeclaration(source, name)).join("\n")}; ({${tlNames.join(",")}})`, {});
+  const tlFixed = (value, digits) => Number(value).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  let tlChecks = 0;
+  const tlFail = message => { throw new Error(`ledger shares: ${message}`); };
+  const tlEq = (a, b, what) => { if (a !== b) tlFail(`${what}: ${a} against ${b}`); tlChecks += 1; };
+  const tlClose = (a, b, tol, what) => { if (!(Math.abs(a - b) <= tol * Math.max(1, Math.abs(b)))) tlFail(`${what}: ${a} against ${b}`); tlChecks += 1; };
+
+  const tlSizes = tl.TL_MODELS.filter(entry => entry.key !== "toy");
+  if (tlSizes.length !== 4) tlFail(`the four GPT-2 sizes A1 names must all be offered, found ${tlSizes.length}`);
+
+  // --- route 1: the parameters, from a named bill of materials ---------------------------------
+  // Every stored tensor gets its own line, the way it would appear in named_parameters(). The
+  // app groups them into five rows with a count each; nothing of that grouping is reused here.
+  const tlInventory = model => {
+    const list = [{ name: "token_embedding", n: model.V * model.D }];
+    for (let layer = 0; layer < model.L; layer++) {
+      list.push({ name: `block${layer}.norm_attn`, n: model.D });
+      for (const role of ["q_proj", "k_proj", "v_proj", "o_proj"]) list.push({ name: `block${layer}.${role}`, n: model.D * model.D });
+      list.push({ name: `block${layer}.norm_ffn`, n: model.D });
+      for (const role of ["w1", "w2", "w3"]) list.push({ name: `block${layer}.${role}`, n: model.D * model.F });
+    }
+    list.push({ name: "norm_final", n: model.D }, { name: "lm_head", n: model.D * model.V });
+    return list;
+  };
+  for (const model of tl.TL_MODELS) {
+    const inventory = tlInventory(model);
+    const counted = inventory.reduce((sum, item) => sum + item.n, 0);
+    tlEq(tl.tlTotals(model, 1024).params, counted, `parameter total of ${model.key}`);
+    // The named list must also agree with the closed form the concept page teaches, and the
+    // tensor count must be what the app's five rows claim between them.
+    const closed = 2 * model.V * model.D + model.L * (4 * model.D ** 2 + 3 * model.D * model.F + 2 * model.D) + model.D;
+    tlEq(counted, closed, `closed form of ${model.key}`);
+    tlEq(tl.tlParamRows(model).reduce((sum, row) => sum + row.count, 0), inventory.length, `tensor count of ${model.key}`);
+    // RoPE is a rotation computed from the position, and it stores nothing. A model with it and
+    // one without have the same total -- there is no line for it to be forgotten in.
+    if (inventory.some(item => /rope|pos/u.test(item.name))) tlFail("RoPE must contribute no stored parameter");
+    tlChecks += 1;
+  }
+  // A1 prints the four configurations in full, and until the mutation run nothing held the
+  // app's copy of them against the handout. Every field is pinned here, and the label a reader
+  // sees is pinned to the same numbers -- a wrong layer count is otherwise perfectly
+  // self-consistent, because every figure downstream is computed from it.
+  {
+    const handout = {
+      small: { L: 12, D: 768, H: 12 }, medium: { L: 24, D: 1024, H: 16 },
+      large: { L: 36, D: 1280, H: 20 }, xl: { L: 48, D: 1600, H: 25, F: 4288 }
+    };
+    for (const [key, want] of Object.entries(handout)) {
+      const model = tl.tlModelOf(key);
+      if (model.key !== key) tlFail(`the app offers no configuration named ${key}`);
+      for (const [field, value] of Object.entries(want)) tlEq(model[field], value, `${key}.${field} against the handout`);
+      tlEq(model.V, 50257, `${key}.V against the handout`);
+      // The label states the layer count and the width; both have to be the ones in use.
+      const stated = model.label.match(/(\d+) Layer, d_model (\d+)/u);
+      if (!stated) tlFail(`the label of ${key} states no layer count and width`);
+      tlEq(Number(stated[1]), model.L, `the label of ${key} against its own layer count`);
+      tlEq(Number(stated[2]), model.D, `the label of ${key} against its own width`);
+    }
+    // And the toy case is the one A1 works through in its own text.
+    const toy = tl.tlModelOf("toy");
+    tlEq([toy.V, toy.D, toy.F, toy.L].join("/"), "1000/64/192/3", "the toy configuration");
+  }
+  // A1 gives d_ff only for XL and states the rule in words. Both must survive here.
+  tlEq(tl.TL_ROUND64(8 * 1600 / 3), 4288, "the handout's own d_ff for GPT-2 XL");
+  tlEq(tlSizes.filter(model => model.F === 8 * model.D / 3).length, 1,
+    "exactly one of the four widths should need no rounding");
+  tlEq(tlSizes.find(model => model.F === 8 * model.D / 3).key, "small", "the unrounded width belongs to GPT-2 small");
+  // A1 prints num_heads in all four configurations, and it enters neither formula.
+  for (const model of tlSizes) tlEq(model.D / model.H, 64, `d_head of ${model.key}`);
+
+  // --- route 2: the forward pass, one matrix multiply at a time --------------------------------
+  // 2mnp per matmul, accumulated by walking layers and heads rather than by closing the form.
+  // Head splitting is spelled out on purpose: it is the step at which H is supposed to vanish.
+  const tlWalk = (model, T, heads) => {
+    const H = heads ?? model.H, dHead = model.D / H;
+    if (!Number.isInteger(dHead)) tlFail(`head count ${H} does not divide d_model ${model.D}`);
+    let proj = 0, attn = 0, ffn = 0;
+    for (let layer = 0; layer < model.L; layer++) {
+      for (const _ of ["q", "k", "v", "o"]) proj += 2 * T * model.D * model.D;
+      for (let head = 0; head < H; head++) {
+        attn += 2 * T * dHead * T; // QK^T for this head
+        attn += 2 * T * T * dHead; // the attention weights against V
+      }
+      ffn += 2 * T * model.D * model.F; // gate
+      ffn += 2 * T * model.D * model.F; // value branch
+      ffn += 2 * T * model.F * model.D; // back down
+    }
+    // The embedding lookup reads a row; it multiplies nothing and therefore adds nothing.
+    const head = 2 * T * model.D * model.V;
+    return { proj, attn, ffn, head, total: proj + attn + ffn + head };
+  };
+  for (const model of tl.TL_MODELS) for (const T of tl.TL_CTX) {
+    const walked = tlWalk(model, T), app = tl.tlTotals(model, T);
+    tlEq(app.flops, walked.total, `forward total of ${model.key} at T=${T}`);
+    for (const row of app.rows) tlEq(row.flops, walked[row.key], `${row.key} of ${model.key} at T=${T}`);
+    // The shares must be shares: four of them, summing to a hundred.
+    const sum = Object.values(app.shares).reduce((a, b) => a + b, 0);
+    tlClose(sum, 100, 1e-12, `shares of ${model.key} at T=${T}`);
+  }
+  // The head count cancels exactly -- shown by walking the same pass with every divisor of D.
+  for (const model of tlSizes) {
+    const reference = tlWalk(model, 1024).total;
+    for (const heads of [1, 2, 4, 8, 16, 32, 64].filter(h => model.D % h === 0)) {
+      tlEq(tlWalk(model, 1024, heads).total, reference, `head count ${heads} on ${model.key}`);
+    }
+  }
+  // A1's own worked toy numbers, which this lab used to offer as multiple choice.
+  {
+    const toy = tl.tlModelOf("toy"), totals = tl.tlTotals(toy, 32);
+    tlEq(totals.params, 288192, "the toy case's parameter total");
+    tlEq(totals.flops, 15106048, "the toy case's forward total");
+    tlEq((totals.flops - 2 * 32 * toy.D * toy.V) / toy.L, 3670016, "the toy case's per-block FLOPs");
+  }
+
+  // --- (a): the memory, and every offered precision --------------------------------------------
+  {
+    const xl = tl.tlModelOf("xl"), params = tl.tlTotals(xl, 1024).params;
+    tlEq(params, 1640452800, "GPT-2 XL's parameter total under A1's architecture");
+    tlEq(params * 4, 6561811200, "GPT-2 XL in single precision, which is what (a) asks for");
+    // The shape of the three offered readings, held against each other rather than restated.
+    const bytesOf = key => { const p = tl.tlPrecisionOf(key); return params * p.bytes * p.factor; };
+    tlEq(bytesOf("bf16") * 2, bytesOf("fp32"), "BF16 must be exactly half of FP32");
+    tlEq(bytesOf("train"), 4 * bytesOf("fp32"), "weights, gradients and the two moments are four times the weights");
+    // Each offered reading has to state its own byte width in words, and that word has to be
+    // the number the code multiplies by -- a label bound to nothing was a real escape in v105.
+    for (const entry of tl.TL_PRECISIONS) {
+      const stated = `${entry.label} ${entry.note}`.match(/(\d+) Byte/u);
+      if (!stated) tlFail(`the precision "${entry.label}" states no byte width`);
+      tlEq(Number(stated[1]), entry.bytes, `the wording of ${entry.key} against its own value`);
+    }
+  }
+
+  // --- (c) and (d): which part is largest, and in which direction the shares move ---------------
+  // Held in both directions: the claim is not only that the LM head falls but that the
+  // attention scores fall with it, and that SwiGLU and the projections rise.
+  {
+    const at = (model, T) => tl.tlTotals(model, T).shares;
+    for (const T of [512, 1024, 2048]) {
+      const series = tlSizes.map(model => at(model, T));
+      for (const key of ["head", "attn"]) for (let i = 1; i < series.length; i++) {
+        if (!(series[i][key] < series[i - 1][key]))
+          tlFail(`at T=${T} the ${key} share must fall from ${tlSizes[i - 1].key} to ${tlSizes[i].key}`);
+        tlChecks += 1;
+      }
+      for (const key of ["ffn", "proj"]) for (let i = 1; i < series.length; i++) {
+        if (!(series[i][key] > series[i - 1][key]))
+          tlFail(`at T=${T} the ${key} share must rise from ${tlSizes[i - 1].key} to ${tlSizes[i].key}`);
+        tlChecks += 1;
+      }
+    }
+    // The other direction of the same claim: for one fixed model the attention share rises with T.
+    for (const model of tlSizes) for (let i = 1; i < tl.TL_CTX.length; i++) {
+      if (!(at(model, tl.TL_CTX[i]).attn > at(model, tl.TL_CTX[i - 1]).attn))
+        tlFail(`on ${model.key} the attention share must rise from T=${tl.TL_CTX[i - 1]} to T=${tl.TL_CTX[i]}`);
+      tlChecks += 1;
+    }
+    // (c) at the handout's own configuration, and (e) at its long context: the largest item is
+    // a different one, and each is asserted to actually be the maximum rather than named.
+    const largest = (model, T) => tl.tlTotals(model, T).rows.reduce((top, row) => row.flops > top.flops ? row : top).key;
+    tlEq(largest(tl.tlModelOf("xl"), 1024), "ffn", "the largest item at XL and the handout's context length");
+    tlEq(largest(tl.tlModelOf("xl"), 16384), "attn", "the largest item at XL and 16,384");
+    tlEq(largest(tl.tlModelOf("small"), 1024), "ffn", "the largest item at GPT-2 small");
+    // The item that comes second at small is the LM head, which is what makes (d) worth asking.
+    const ordered = (model, T) => tl.tlTotals(model, T).rows.slice().sort((a, b) => b.flops - a.flops).map(row => row.key);
+    tlEq(ordered(tl.tlModelOf("small"), 1024)[1], "head", "at GPT-2 small the LM head must be the second largest item");
+    tlEq(ordered(tl.tlModelOf("xl"), 1024)[3], "head", "at GPT-2 XL the LM head must be the smallest item");
+  }
+
+  // --- the three thresholds, located by scanning rather than read out of the algebra -----------
+  {
+    const cross = (model, key, against) => {
+      // Smallest integer T at which the item overtakes the one it is compared with.
+      for (let T = 1; T <= 1 << 17; T++) {
+        const rows = tl.tlFlopRows(model, T), take = name => rows.find(row => row.key === name).flops;
+        if (take(key) > take(against)) return T;
+      }
+      return null;
+    };
+    for (const model of tl.TL_MODELS) {
+      const limits = tl.tlThresholds(model);
+      const overProj = cross(model, "attn", "proj"), overFfn = cross(model, "attn", "ffn");
+      // The claimed threshold is the last T at which the item has not yet overtaken.
+      tlEq(overProj, limits.overProj + 1, `the projection crossing on ${model.key}`);
+      tlEq(overFfn, Math.floor(limits.overFfn) + 1, `the SwiGLU crossing on ${model.key}`);
+      // Both sides held: at the threshold itself the two are equal, one below it is smaller.
+      const rowsAt = T => { const rows = tl.tlFlopRows(model, T); return name => rows.find(row => row.key === name).flops; };
+      const eq = rowsAt(limits.overProj);
+      tlEq(eq("attn"), eq("proj"), `at T = 2D the two must be equal on ${model.key}`);
+      const below = rowsAt(limits.overProj - 1);
+      if (!(below("attn") < below("proj"))) tlFail(`one below the threshold the scores must still be smaller on ${model.key}`);
+      tlChecks += 1;
+    }
+    // T = 2D and T = 1.5F carry no L, so depth may not move either threshold.
+    for (const model of tlSizes) {
+      const deeper = { ...model, L: model.L * 3 }, limits = tl.tlThresholds(model), deep = tl.tlThresholds(deeper);
+      tlEq(deep.overProj, limits.overProj, `tripling the depth of ${model.key} must not move the projection threshold`);
+      tlEq(deep.overFfn, limits.overFfn, `tripling the depth of ${model.key} must not move the SwiGLU threshold`);
+      // The third threshold does move with depth -- and in the other direction.
+      if (!(deep.exact < limits.exact)) tlFail(`a deeper ${model.key} must move T* left, not right`);
+      tlChecks += 1;
+      // And it does not move with width at all.
+      const wider = { ...model, D: model.D * 2, F: tl.TL_ROUND64(8 * model.D * 2 / 3) };
+      tlEq(tl.tlThresholds(wider).exact, limits.exact, `doubling the width of ${model.key} must not move T*`);
+    }
+  }
+
+  // --- the shortcut: its three errors, and the zero found by scanning ---------------------------
+  {
+    for (const model of tl.TL_MODELS) for (const T of tl.TL_CTX) for (const variant of tl.TL_SHORTCUTS) {
+      const got = tl.tlShortcutFor(model, T, variant.key);
+      // The decomposition is the claim: the three named items must sum to the whole difference,
+      // exactly, at every combination. A term the app forgets to name would show up here.
+      tlEq(got.parts, got.error, `${variant.key} error decomposition on ${model.key} at T=${T}`);
+      // And each item is recomputed from its own definition rather than taken from the app.
+      tlEq(got.overEmbed, variant.key === "all" ? 2 * T * model.V * model.D : 0, `${variant.key} embedding item on ${model.key} at T=${T}`);
+      tlEq(got.overNorm, 2 * T * model.D * (2 * model.L + 1), `${variant.key} norm item on ${model.key} at T=${T}`);
+      tlEq(got.underAttn, variant.key === "full" ? 0 : 4 * model.L * T * T * model.D, `${variant.key} attention item on ${model.key} at T=${T}`);
+      tlEq(got.flops, tlWalk(model, T).total, `${variant.key} reference total on ${model.key} at T=${T}`);
+    }
+    // Even the fully repaired variant is not exact: what stays is the norm gains, and nothing else.
+    for (const model of tlSizes) for (const T of tl.TL_CTX) {
+      const full = tl.tlShortcutFor(model, T, "full");
+      tlEq(full.error, 2 * T * model.D * (2 * model.L + 1), `the repaired shortcut's residue on ${model.key} at T=${T}`);
+      if (full.error === 0) tlFail(`the repaired shortcut must not be exact on ${model.key} at T=${T}`);
+      tlChecks += 1;
+    }
+    // The zero of the plain shortcut, found by scanning T with both sides held rather than by
+    // evaluating the formula the app carries.
+    for (const model of tl.TL_MODELS) {
+      let found = null;
+      for (let T = 1; T <= 1 << 16; T++) {
+        const here = tl.tlShortcutFor(model, T, "all").error, next = tl.tlShortcutFor(model, T + 1, "all").error;
+        if (here > 0 && next <= 0) { found = T; break; }
+      }
+      if (found === null) tlFail(`the shortcut never crosses zero on ${model.key}`);
+      const claimed = tl.tlThresholds(model).exact;
+      if (!(found <= claimed && claimed <= found + 1))
+        tlFail(`the scanned crossing on ${model.key} is ${found}, the claimed T* is ${claimed}`);
+      tlChecks += 1;
+      // At T* itself the shortcut is exact, to floating point.
+      tlClose(tl.tlShortcutFor(model, claimed, "all").ratio, 1, 1e-12, `the shortcut at T* on ${model.key}`);
+    }
+    // The two figures the prose rests on, recomputed here rather than quoted.
+    const medium = tl.tlShortcutFor(tl.tlModelOf("medium"), 1024, "all");
+    tlEq(tlFixed(Math.abs(medium.ratio - 1) * 100, 4), "0.2915", "the shortcut's deviation at GPT-2 medium and T = 1024");
+    const xlLong = tl.tlShortcutFor(tl.tlModelOf("xl"), 16384, "all");
+    tlEq(tlFixed(xlLong.ratio, 4), "0.4024", "the shortcut's factor at GPT-2 XL and T = 16,384");
+    // The coincidence is a coincidence: the handout's context length is not T*, it is merely
+    // near it, and medium is the only one of the four for which that is true.
+    const near = tlSizes.filter(model => Math.abs(tl.tlThresholds(model).exact - 1024) / 1024 < 0.05);
+    tlEq(near.length, 1, "only one of the four sizes may have its T* within five percent of 1024");
+    tlEq(near[0].key, "medium", "and it is GPT-2 medium");
+  }
+
+  // --- the short check's answer key, held against the arithmetic --------------------------------
+  // The most expensive failure this lab could have is to certify the misconception it exists to
+  // break. Until the mutation run nothing tied the accepted triple to the numbers: flipping the
+  // key for question two to "rises" left every guard green while the lab told a reader that the
+  // attention share grows with model size. The key is read out of the page and each of its three
+  // answers is required to be the one the computation supports.
+  {
+    const branch = source.match(/if\(fall==="(\w+)"&&quad==="(\w+)"&&near==="(\w+)"\)/u);
+    if (!branch) tlFail("the short check no longer compares three answers, so its key cannot be read");
+    const [, fall, quad, near] = branch;
+    const small = tl.tlTotals(tl.tlModelOf("small"), 1024).shares, xl = tl.tlTotals(tl.tlModelOf("xl"), 1024).shares;
+    // 1. the item that loses the most share from small to XL, found rather than named.
+    const biggestDrop = ["proj", "attn", "ffn", "head"].reduce((worst, key) =>
+      (small[key] - xl[key]) > (small[worst] - xl[worst]) ? key : worst, "proj");
+    tlEq(fall, biggestDrop, "the accepted answer to question one against the computed drop");
+    // 2. the direction the attention share actually moves across sizes.
+    tlEq(quad, xl.attn < small.attn ? "falls" : "rises", "the accepted answer to question two against the computed direction");
+    // 3. the cancellation is a coincidence of that cell: medium must be the nearest of the four,
+    // and its own T* must be nearer 1024 than any other model's.
+    const deviation = model => Math.abs(tl.tlShortcutFor(model, 1024, "all").ratio - 1);
+    const nearest = tlSizes.reduce((best, model) => deviation(model) < deviation(best) ? model : best, tlSizes[0]);
+    tlEq(nearest.key, "medium", "GPT-2 medium must be the size where the shortcut is nearest");
+    tlEq(near, "cancel", "the accepted answer to question three");
+    // The reveal path fills the same three fields; a drift between them would show a learner a
+    // solution the check itself rejects.
+    const reveal = source.match(/\["tlCheckFall","tlCheckQuad","tlCheckNear"\][\s\S]{0,220}?\[([^\]]*)\]\[index\]/u);
+    if (!reveal) tlFail("the reveal branch no longer prefills the three short-check fields");
+    tlEq(reveal[1].replace(/["\s]/gu, ""), [fall, quad, near].join(","), "the reveal branch against the accepted key");
+  }
+
+  // --- (e): the growth of the total, which is not the growth of T -------------------------------
+  const tlGrowth = tl.tlTotals(tl.tlModelOf("xl"), 16384).flops / tl.tlTotals(tl.tlModelOf("xl"), 1024).flops;
+  if (!(tlGrowth > 16)) tlFail(`a sixteenfold context must grow the total by more than sixteen, it grows it by ${tlGrowth}`);
+  if (!(tlGrowth < 256)) tlFail(`and by less than the square, it grows it by ${tlGrowth}`);
+  tlChecks += 2;
+
+  // --- every printed cell is pinned to the expression it interpolates ---------------------------
+  {
+    const tlRender = binding => runInNewContext(
+      `${numberPrelude}const esc=value=>String(value);const localizedUi=value=>value;` +
+      tlNames.map(name => sliceDeclaration(source, name)).join("\n") + "\n" +
+      sliceDeclaration(source, "tlRead") + "\n" + sliceDeclaration(source, "tlStageMarkup") +
+      `; tlStageMarkup(${JSON.stringify(binding)})`, {});
+    const cell = (html, key, what) => {
+      const hit = html.match(new RegExp(`data-${key}="[^"]*"[^>]*>([^<]*)<`, "u"));
+      if (!hit) tlFail(`the stage prints no ${what} anchor (${key})`);
+      return hit[1].replace(" ★", "").trim();
+    };
+    // Rows that carry their key in the attribute value rather than in the attribute name.
+    const keyedCell = (html, attribute, key, what) => {
+      const hit = html.match(new RegExp(`data-${attribute}="${key}"[^>]*>([^<]*)<`, "u"));
+      if (!hit) tlFail(`the stage prints no ${what} row (${attribute}=${key})`);
+      return hit[1].replace(" ★", "").trim();
+    };
+    const ledger = tlRender({ tlMode: "ledger", tlModel: "xl", tlCtx: "1024", tlPrecision: "fp32", tlShortcut: "all" });
+    const xl = tl.tlModelOf("xl"), xlTotals = tl.tlTotals(xl, 1024);
+    for (const row of tl.tlParamRows(xl)) {
+      const hit = ledger.match(new RegExp(`data-tlparam="${row.key}"[^>]*>([^<]*)<`, "u"));
+      if (!hit) tlFail(`no parameter anchor for ${row.key}`);
+      tlEq(hit[1].trim(), tlFixed(row.total, 0), `the ${row.key} parameter row`);
+    }
+    tlEq(cell(ledger, "tlparams", "parameter total"), tlFixed(xlTotals.params, 0), "the printed parameter total");
+    tlEq(cell(ledger, "tlbytes", "memory").split(" · ")[0], `${tlFixed(xlTotals.params * 4, 0)} Byte`, "the printed FP32 memory");
+    for (const row of xlTotals.rows) {
+      const hit = ledger.match(new RegExp(`data-tlflop="${row.key}"[^>]*>([^<]*)<`, "u"));
+      if (!hit) tlFail(`no FLOP anchor for ${row.key}`);
+      tlEq(hit[1].trim(), `${tlFixed(row.flops, 0)} · ${tlFixed(xlTotals.shares[row.key], 4)} %`, `the ${row.key} FLOP row`);
+    }
+    // The error decomposition has to be readable off the screen, not merely computed: the three
+    // items and the measured difference are compared as printed strings.
+    const shortcut = tl.tlShortcutFor(xl, 1024, "all");
+    tlEq(cell(ledger, "tlover", "embedding item"), tlFixed(shortcut.overEmbed, 0), "the printed embedding item");
+    tlEq(cell(ledger, "tlnorm", "norm item"), tlFixed(shortcut.overNorm, 0), "the printed norm item");
+    tlEq(cell(ledger, "tlunder", "attention item"), tlFixed(shortcut.underAttn, 0), "the printed attention item");
+    tlEq(cell(ledger, "tlparts", "decomposition"), `${tlFixed(shortcut.parts, 0)} · ${tlFixed(shortcut.error, 0)}`, "the printed decomposition");
+    // Every precision the panel offers has to move the memory cell, or the control is decorative.
+    const printedBytes = new Set(tl.TL_PRECISIONS.map(entry =>
+      cell(tlRender({ tlMode: "ledger", tlModel: "xl", tlCtx: "1024", tlPrecision: entry.key, tlShortcut: "all" }), "tlbytes", "memory")));
+    tlEq(printedBytes.size, tl.TL_PRECISIONS.length, "each precision must print its own memory figure");
+    // And every shortcut variant has to move the shortcut cell.
+    const printedShortcuts = new Set(tl.TL_SHORTCUTS.map(entry =>
+      cell(tlRender({ tlMode: "ledger", tlModel: "xl", tlCtx: "1024", tlPrecision: "fp32", tlShortcut: entry.key }), "tlshortcut", "shortcut")));
+    tlEq(printedShortcuts.size, tl.TL_SHORTCUTS.length, "each shortcut variant must print its own figure");
+
+    const shares = tlRender({ tlMode: "shares", tlModel: "xl", tlCtx: "1024", tlPrecision: "fp32", tlShortcut: "all" });
+    for (const model of tlSizes) {
+      const want = tl.tlTotals(model, 1024).shares;
+      tlEq(keyedCell(shares, "tlsize", model.key, `size row for ${model.key}`),
+        ["proj", "attn", "ffn", "head"].map(key => `${tlFixed(want[key], 4)} %`).join(" · "), `the ${model.key} share row`);
+      tlEq(keyedCell(shares, "tlratio", model.key, `shortcut row for ${model.key}`),
+        `${tlFixed(tl.tlShortcutFor(model, 1024, "all").ratio, 4)} · ${tlFixed(Math.abs(tl.tlShortcutFor(model, 1024, "all").ratio - 1) * 100, 4)} %`,
+        `the ${model.key} shortcut row`);
+    }
+    for (const ctx of tl.TL_CTX) {
+      const want = tl.tlTotals(xl, ctx).shares;
+      tlEq(keyedCell(shares, "tlladder", String(ctx), `context row for T=${ctx}`),
+        ["proj", "attn", "ffn", "head"].map(key => `${tlFixed(want[key], 4)} %`).join(" · "), `the T=${ctx} share row`);
+    }
+    // Checking each expected row leaves the guard blind to a row that should not be there --
+    // the toy configuration leaking into the four-size table, for instance. Counted, not listed.
+    const count = (html, attribute) => [...html.matchAll(new RegExp(`data-${attribute}="`, "gu"))].length;
+    tlEq(count(shares, "tlsize"), 4, "the size table must carry exactly A1's four GPT-2 rows");
+    tlEq(count(shares, "tlratio"), 4, "the shortcut table must carry exactly four rows");
+    tlEq(count(shares, "tlladder"), tl.TL_CTX.length, "the context ladder must carry one row per offered length");
+    tlEq(count(shares, "tllimit"), 3, "the threshold block must carry exactly three lines");
+    tlEq(count(ledger, "tlparam"), tl.tlParamRows(xl).length, "the parameter ledger must carry one row per group");
+    tlEq(count(ledger, "tlflop"), 4, "the FLOP ledger must carry exactly the four matmul groups");
+    // No row may be a duplicate of another: three thresholds, three different numbers.
+    const printedLimits = new Set(["proj", "ffn", "exact"].map(key => keyedCell(shares, "tllimit", key, key)));
+    tlEq(printedLimits.size, 3, "the three thresholds must print three different figures");
+
+    const limits = tl.tlThresholds(xl);
+    tlEq(keyedCell(shares, "tllimit", "proj", "projection threshold"), tlFixed(limits.overProj, 0), "the printed projection threshold");
+    tlEq(keyedCell(shares, "tllimit", "ffn", "SwiGLU threshold"), tlFixed(limits.overFfn, 0), "the printed SwiGLU threshold");
+    tlEq(keyedCell(shares, "tllimit", "exact", "T*"), tlFixed(limits.exact, 4), "the printed T*");
+    // The figure the short check sends the reader to has to be on the screen it names.
+    if (!shares.includes("1,048.0417")) tlFail("the shares mode must print GPT-2 medium's T*, which the short check asks about");
+    tlChecks += 1;
+  }
+
+  const tlSmall = tl.tlTotals(tl.tlModelOf("small"), 1024).shares, tlXl = tl.tlTotals(tl.tlModelOf("xl"), 1024).shares;
+  const tlXlLong = tl.tlTotals(tl.tlModelOf("xl"), 16384).shares;
+  console.log(`ledger shares OK: ${tlChecks} checks -- transformer-ledger (5 points) recomputed from the definition, with the forward pass walked one matrix multiply and one head at a time where the app closes the form, and the parameter total rebuilt from a named bill of materials rather than from its five grouped rows: at the handout's own context length the LM head's share falls from ${tlSmall.head.toFixed(4)} % at GPT-2 small to ${tlXl.head.toFixed(4)} % at XL and the attention scores fall with it, from ${tlSmall.attn.toFixed(4)} % to ${tlXl.attn.toFixed(4)} % -- so the quadratic term is held in both directions, falling across sizes at fixed T and rising across T at fixed size, until at 16,384 it carries ${tlXlLong.attn.toFixed(4)} % and the total has grown ${tlGrowth.toFixed(4)}x on a sixteenfold context; the head count cancels exactly, shown by rewalking the pass at every divisor of d_model rather than by cancelling it on paper (d_head is 64 in all four sizes), and A1's d_ff rule reproduces its own 4288 with exactly one of the four widths needing no rounding; the shortcut 2*P*T is decomposed into its three items at every model, context and variant, each recomputed from its own definition and required to sum to the whole difference, the repaired variant still off by exactly the norm gains, and its zero located by scanning T instead of evaluating T* = (V+2L+1)/(2L) -- ${tlFixed(Math.abs(tl.tlShortcutFor(tl.tlModelOf("medium"), 1024, "all").ratio - 1) * 100, 4)} % off at GPT-2 medium and 1024, where it is nearest, against ${tlFixed(tl.tlShortcutFor(tl.tlModelOf("xl"), 16384, "all").ratio, 4)} of the true value at XL and 16,384, and medium is shown to be the only one of the four whose T* lands near the prescribed context length`);
 }
 
 // ---- ddp schedule: what a timing does not say ------------------------------------------------

@@ -468,6 +468,85 @@ Iteration Counter: 1
 - Offen: **sechs Labs ohne rechnende Flaeche** (~38 Punkte), naechster `pytorch-debugger` (16,5, einziges Lab von `pytorch-state`), dann `distributed-runtime` (10) und `transformer-ledger` (8); die drei Konzepte ohne Lab entscheiden null Probleme; `renderFormulaDetail` bleibt eine Sackgasse; `origin/main` steht auf `2ed21e7`, **v100 bis v103 ungepusht**.
 
 
+## 2026-09-10 - Die Abgabe war nie eine Zahl (geplanter Deep Review, v106)
+
+- Ausgangslage: zugewiesener Worktree auf v99, Kettenkopf auf v105 (`a9d63be`,
+  `claude/eloquent-shirley-4d30c2`) - Fast-Forward, kein Merge. Kein Codex aktiv.
+  `origin/main` steht weiter auf `2ed21e7`; v100 bis v106 sind ungepusht.
+- Gewaehlter Hebel: `transformer-ledger`. **Die Zahl des Vorgaengerreports wurde dabei
+  korrigiert**: v105 nannte 8 Punkte, aber das sind `a1:transformer_lm` (3) plus
+  `a1:transformer_accounting` (5), und beim ersten entscheidet `transformer-block`, das
+  sein eigenes Lab hat. Der ehrliche Wert ist **5** - und bleibt der groesste offene
+  Posten, weil `transformer_accounting` das groesste schriftliche Problem in ganz A1 ist.
+- Der Beleg kam aus dem Handout, nicht aus der Kennzahl: A1 §3.4 verlangt **fuenf** Abgaben
+  ((a) Parameter und FP32-Speicher eines GPT-2-XL-foermigen Modells, (b) die Liste der
+  Matmuls samt Summe, (c) der teuerste Teil, (d) dieselbe Rechnung fuer small/medium/large
+  ausdruecklich *als Anteil am Gesamtwert* plus die Richtung ihrer Verschiebung, (e) XL bei
+  Kontextlaenge 16.384). Das Lab stellte drei Auswahlfragen zu einem Spielzeugfall und
+  rechnete nichts; **keine der vier GPT-2-Groessen kam irgendwo in der App vor**, die Zahl
+  16.384 als Kontextlaenge nirgends. Von fuenf Abgaben war keine bedient.
+- Befund A: der quadratische Term wird mit der Modellgroesse **unwichtiger**, nicht
+  wichtiger. Bei T = 1024 faellt der Anteil der Attention-Scores von 13,2539 % (small) auf
+  9,1596 % (XL), weil ihr Verhaeltnis zu den Projektionen exakt 4LT²D / 8LTD² = T/(2D) ist -
+  L kuerzt sich vollstaendig heraus. „Quadratisch" heisst quadratisch in der Sequenzlaenge,
+  nicht in der Modellgroesse; wer das verwechselt, beantwortet (d) genau falsch herum. Der
+  LM Head faellt daneben von 27,1037 % auf 4,6828 %. Erst die Kontextlaenge dreht es um, und
+  die Schwellen stehen in Einheiten der Breite: T = 2D gegen die Projektionen, T = 1,5·F ≈ 4D
+  gegen SwiGLU. Bei T = 16.384 tragen die Scores in XL 61,7344 %, und die Summe waechst um
+  Faktor 37,9831 bei nur sechzehnfachem T.
+- Befund B: die Abkuerzung „Forward-FLOPs = 2 · Parameter · Token" macht **drei** Fehler auf
+  einmal - das Eingabe-Embedding als Matmul gezaehlt (2TVD), die RMSNorm-Gains als Matmul
+  gezaehlt (2TD(2L+1)), und 4LT²D fehlt ganz. Zwei zu viel, einer zu wenig, Nullstelle bei
+  **T\* = (V + 2L + 1)/(2L)** - einer Kontextlaenge, in der keine Modellbreite vorkommt. Fuer
+  GPT-2 medium sind das 1.048,0417 und damit 2,3468 % neben der Kontextlaenge, die das
+  Handout selbst vorgibt: dort liest die Abkuerzung auf 0,2915 % genau, also ausgerechnet in
+  der Zelle, in der man sie am ehesten gegenprueft. Bei XL und 16.384 liest sie 0,4024 des
+  wahren Werts. Selbst repariert bleibt sie inexakt - uebrig bleiben genau die Norm-Gains.
+- Nebenbefund: `num_heads` steht in allen vier Konfigurationen des Handouts und kommt in
+  keiner der beiden Formeln vor (H Heads · 2T²·(D/H) = 2T²D); d_head ist bei allen vier
+  GPT-2-Groessen exakt 64. d_ff nennt A1 nur fuer XL, und genau eine der vier Breiten geht
+  ohne Rundung auf. Unter A1s Architektur hat GPT-2 XL 1.640.452.800 Parameter, nicht die
+  ueblich zitierten 1,5 Milliarden.
+- Das Lab bekommt eine rechnende Flaeche in zwei Modi ueber fuenf Modelle × fuenf
+  Kontextlaengen. Modus A ist die Stueckliste fuer (a), (b) und (c) samt drei
+  Speicher-Lesarten und der Abkuerzung in drei Stufen mit ihrer Fehlerzerlegung; Modus B sind
+  die Anteile fuer (d) und (e) samt der drei Schwellen. Drei neue Kurzcheckfragen auf den
+  Befund. Konzeptseite `transformer-ledger` in beiden Sprachen um ein `details`-Element,
+  einen Pitfall und eine Check-Frage erweitert - sie beschrieb den Ledger vorher richtig und
+  nannte keine einzige Zahl ueber die Anteile.
+- Guard-Suite 57 -> 58 Bloecke gruen, neuer Block `ledger shares` (773 Checks) auf einem
+  anderen Rechenweg als die App: der Forward Pass Matmul fuer Matmul und Head fuer Head
+  durchlaufen, das Parametertotal aus einer benannten Stueckliste, jede Schwelle durch
+  Abtasten von T mit beiden Seiten gehalten, die Nullstelle gesucht statt ausgewertet. Jede
+  Behauptung in beiden Richtungen: der Score-Anteil muss ueber die Groessen fallen und ueber
+  die Kontextlaengen steigen; H kuerzt sich heraus, nachgewiesen durch erneutes Durchlaufen
+  mit jedem Teiler von d_model. `lab render sweep` 58 -> 59 von 63 Labs, `lab prose anchors`
+  58 -> 59 Karten, `panel i18n` 57 -> 58 Panels, `LR_NO_STAGE` 5 -> 4. Cache-Bump auf v86
+  (4 Stellen). Laborzahl unveraendert 63 - es kam kein Lab dazu, eines wurde rechnend.
+- Mutationstest: **42 Mutationen, 42 gefangen, 0 entkommen, 0 inert.** Der erste Lauf
+  (30 Mutationen) liess **vier** entkommen, und alle vier waren echte Luecken: (1) die vier
+  GPT-2-Konfigurationen waren an nichts gebunden - GPT-2 large liess sich auf 32 Layer
+  umschreiben, weil jede Zahl darunter aus L gerechnet wird und in sich stimmig bleibt;
+  (2) **der Kurzcheck konnte genau den Irrtum zertifizieren, den das Lab aufbricht** - der
+  Antwortschluessel fuer Frage 2 liess sich von „faellt" auf „steigt" drehen, ohne dass ein
+  Guard es bemerkte; (3) der Spielzeugfall liess sich in die Vier-Groessen-Tabelle
+  einschleusen, weil der Guard jede erwartete Zeile prueft und blind fuer eine ueberzaehlige
+  war; (4) `tlShortcutFor` gab T* als `exactAt` zurueck, obwohl nur `tlThresholds.exact`
+  gerendert wird - dieselbe Konstante an zwei Stellen, eine davon tot. Die ersten drei sind
+  jetzt abgesichert (Konfigurationen und ihre Beschriftungen gegen die Handout-Tabelle
+  gepinnt; der akzeptierte Antwort-Dreier aus der Seite gelesen und gegen die Rechnung
+  gehalten, die groesste Anteilsdifferenz *gesucht* statt benannt, samt Auflösungspfad; alle
+  sechs Ankertypen gezaehlt), die vierte **entfernt statt abgesichert** und die verbliebene
+  Konstante danach mit zwei eigenen Mutationen gegengeprueft. Zehn weitere Mutationen gegen
+  genau die neuen Pruefungen: alle gefangen. Kontrolle vor und nach jedem Lauf gruen.
+- Kein Browsertest (in geplanten Laeufen gesperrt).
+- Offen: **vier Labs ohne rechnende Flaeche**, naechster `rlvr-system-transfer` (2,5),
+  danach `policy-loss-tracer` (1); `scaling-transfer` und `moe-routing` entscheiden null
+  Punkte nach der v100-Regel. Die drei Konzepte ohne Lab entscheiden weiterhin null
+  Probleme; `renderFormulaDetail` bleibt eine Sackgasse (79 Formelkarten ohne Konzept- oder
+  Labknopf); `origin/main` steht auf `2ed21e7`, **v100 bis v106 ungepusht**.
+
+
 ## 2026-09-09 - Dieselbe Messung, zwei entgegengesetzte Saetze (geplanter Deep Review, v105)
 
 - Ausgangslage: zugewiesener Worktree auf v99, Kettenkopf auf v104 (`f328637`,
