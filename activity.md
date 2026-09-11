@@ -468,6 +468,37 @@ Iteration Counter: 1
 - Offen: **sechs Labs ohne rechnende Flaeche** (~38 Punkte), naechster `pytorch-debugger` (16,5, einziges Lab von `pytorch-state`), dann `distributed-runtime` (10) und `transformer-ledger` (8); die drei Konzepte ohne Lab entscheiden null Probleme; `renderFormulaDetail` bleibt eine Sackgasse; `origin/main` steht auf `2ed21e7`, **v100 bis v103 ungepusht**.
 
 
+## 2026-09-11 - Zwei Skalen unter einem Argumentnamen (geplanter Deep Review, v107)
+
+- Ausgangslage: zugewiesener Worktree auf v99, Kettenkopf auf v106 (`76da558`,
+  `claude/gracious-spence-d2e4d4`) - Fast-Forward, kein Merge. Kein Codex aktiv.
+  `origin/main` steht weiter auf `2ed21e7`; v100 bis v107 sind ungepusht.
+- Gewaehlter Hebel: `rlvr-system-transfer` (2,5 Punkte, einziges Lab von `rlvr-systems`,
+  das `a5:grpo_train_step_off_policy` entscheidet). Beleg aus dem Handout, nach den Zahlen
+  gegreppt: `cliprange = 3e-4` fuer GSPO kam in der App nicht vor (die eine Fundstelle war
+  eine SFT-Lernrate), die Clip Fraction, die §6.4 zu loggen und zu vergleichen verlangt,
+  wurde nirgends gerechnet, und der 32-fache Plan (256 gegen 8) auch nicht.
+- Befunde: bei train_batch_size = group_size = 8 ist jeder der 32 Schritte genau eine
+  Promptgruppe - bei p = 0,9 tragen 13,7750 von 32 Schritten keinen Gradienten, und AdamW
+  zieht trotzdem weiter. Und cliprange traegt zwei Skalen: GSPO mit 3·10⁻⁴ clippt im Modell
+  138-mal mehr Token als grpo mit 0,2 (28,60 % gegen 0,2071 %), weil sein Ratio ein
+  Mittelwert ueber die Antwort ist und es ganze Antworten clippt; derselbe Wert 0,2 an GSPO
+  haelt dessen Clip Fraction bei jedem Schritt auf null. Richtung gegen das GSPO-Paper
+  (arXiv 2507.18071, §5.2) geprueft: zwei Groessenordnungen mehr geclippte Token.
+- Das Lab bekommt eine rechnende Flaeche in zwei Modi (Plan exakt, Clip Fraction als
+  ausgewiesenes Driftmodell), drei neue Kurzcheckfragen; Konzeptseite `rlvr-systems` um ein
+  Detail, einen Pitfall und eine Check-Frage erweitert; im Lab `offpolicy-clip` nennt das
+  Symbol ε jetzt die GSPO-Vorgabe.
+- Guard-Suite 58 -> 59 Bloecke gruen, neuer Block `clip fraction` auf einem anderen
+  Rechenweg (Plan durch Ablaufen der Liste, leere Schritte durch alle 256 Reward-Ausgaenge,
+  Clipping durch beide Terme des min, s als Produkt, Rauschen aus dem Seed neu gezogen).
+  `lab render sweep` 59 -> 60 von 63 Labs, `lab prose anchors` 400 -> 407, `LR_NO_STAGE`
+  4 -> 3. Cache-Bump auf v87 (4 Stellen).
+- Mutationstest: 48 Mutationen, 48 gefangen gegen die volle Suite; gegen den neuen Block
+  allein 47 von 48 - die fehlende (gelöschte englische Übersetzung) ist Sache von
+  `renderer i18n`, das sie fängt. Kontrolle vor und nach beiden Läufen grün.
+- Kein Browsertest - in geplanten Laeufen gesperrt.
+
 ## 2026-09-10 - Die Abgabe war nie eine Zahl (geplanter Deep Review, v106)
 
 - Ausgangslage: zugewiesener Worktree auf v99, Kettenkopf auf v105 (`a9d63be`,

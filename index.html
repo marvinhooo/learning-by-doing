@@ -873,7 +873,7 @@
       *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
     }
   </style>
-  <script src="i18n-en.js?v=86"></script>
+  <script src="i18n-en.js?v=87"></script>
   <script src="config.js"></script>
   <script src="vendor/supabase.js"></script>
 </head>
@@ -3825,21 +3825,25 @@
         "terms": [["RLVR (Reinforcement Learning from Verifiable Rewards)", "Ein geschlossener Trainingskreislauf, bei dem Antworten von deterministischen Verifiern (Code-Ausführung, Mathe-Engines) bewertet werden. Beispiel: DeepSeek-R1-Zero nutzt RLVR, um Denkketten (Chain-of-Thought) für komplexe Beweise ohne menschliche Labels zu optimieren."], ["SFT (Supervised Fine-Tuning)", "Der vorgeschaltete Schritt, der das Basismodell auf saubere Antwortformate bringt, bevor der RLVR-Zyklus beginnt (oder als Zwischenschritt wie bei DeepSeek-R1). Beispiel: SFT trainiert das Modell darauf, Denkschritte strukturiert zwischen <think> und </think> zu platzieren."], ["DPO (Direct Preference Optimization)", "Ein alternativer oder nachgeschalteter Ausrichtungsschritt, der Paare ohne dynamischen Rollout-Loop offline trainiert. Beispiel: Nach dem RLVR-Training kann ein DPO-Schritt mit festen Sicherheitspräferenzen die Höflichkeit und Konversationsqualität final verfeinern."], ["RLVR-Systemzyklus", "Der zyklische Ablauf aus Gewichts-Synchronisation, Rollout-Generierung, Verifier-Prüfung, Advantage-Berechnung und Policy-Gradient-Updates. Beispiel: Rollout-Worker generieren 1024 Antworten, der Verifier berechnet binäre Rewards, und der Trainer führt 2 Gradientenschritte aus."], ["Entkoppelte Inferenz- & Trainings-Cluster", "Die Trennung von schnellen Inferenz-Engines (z. B. vLLM mit PagedAttention für Rollouts) und FP8/BF16-Trainings-Workern (z. B. Megatron-FSDP). Beispiel: 64 Inferenz-GPUs generieren fortlaufend Tokens und füttern 32 Trainings-GPUs mit Rollout-Batches über ein Hochgeschwindigkeitsnetzwerk."], ["Eingefrorene Rollout-Logprobs (Old Logprobs)", "Das Festhalten der exakten Log-Wahrscheinlichkeiten log π_old beim Generieren der Rollouts zur korrekten Berechnung der Importance Ratios. Beispiel: Werden old_logprobs während des Trainings mit den neuen Modellgewichten neu berechnet, wird das Ratio fälschlicherweise immer zu 1,0."], ["R1-Zero vs. R1-Pipeline", "R1-Zero trainiert reines RLVR direkt auf dem Basismodell; R1 nutzt eine mehrstufige Pipeline (SFT -> RLVR -> Rejection Sampling SFT -> RLHF/DPO). Beispiel: R1-Zero entwickelt selbstständig Denkstrukturen, leidet aber unter Sprachmischung; R1 behebt dies durch initiale SFT-Kuration."], ["Response Masking im Systemzyklus", "Das strikte Maskieren aller Prompt- und Padding-Tokens im Loss, sodass Gradienten und Logprobs ausschließlich für generierte Antwort-Tokens zählen. Beispiel: In einem 4096-Token-Batch mit 1024 Prompt-Tokens werden die ersten 1024 Positionen durch Maske 0 von der Verlustberechnung ausgeschlossen."]],
         "mental": "Zeichne RLVR als Versionenfluss: Trainergewichte werden an Rollout-Worker verteilt, eine eingefrorene Old Policy erzeugt Antworten und Logprobs, ein Verifier liefert Rewards, und erst danach rechnet die Current Policy Updates gegen genau diese gespeicherten Daten. Supervised Fine-Tuning (SFT) und Direct Preference Optimization (DPO) sind kein versteckter Teil dieses Loops, sondern ein eigener Pfad mit Chattemplate, Antwortmasken und einer festen Reference Policy.",
         "details": [
+          "Assignment 5 (A5) macht den Zyklus in §6.4 konkret: ein Rollout-Batch von 256 Antworten, train_batch_size = 8 und gradient_accumulation_steps = 1, also 32 Optimizer-Schritte je Inferenzbatch und 6.400 statt 200 über den ganzen Lauf. Jede Antwort geht in genau einen dieser Schritte ein, und weil repeated_prompts jeden Prompt group_size-mal hintereinander wiederholt, ist jeder Schritt genau eine Promptgruppe. old_log_probs werden einmal für alle 256 Antworten gerechnet, bevor der erste Schritt beginnt – ein zusätzlicher Forward Pass ohne Backward –, und deshalb sieht nur Schritt 1 Ratios von exakt eins. Zu loggen ist die Clip Fraction, und cliprange trägt dabei zwei Skalen: 0,2 für das Tokenratio von Proximal Policy Optimization (PPO) und Group Relative Policy Optimization (GRPO), 3·10⁻⁴ für den geometrischen Mittelwert von Group Sequence Policy Optimization (GSPO), wie im GSPO-Paper. Dort clippt GSPO trotz des schmaleren Bandes rund zwei Größenordnungen mehr Token als GRPO, weil es immer eine ganze Antwort clippt.",
           "Ein vollständiges RLVR-System enthält Current Policy, eingefrorene Old Rollout Policy, feste Reference Policy für Kullback-Leibler-Kontrolle, Verifier, optionalen Critic, Rollout-Worker und Trainer. Der Zyklus lautet: Gewichte synchronisieren, Prompts und Antworten ausrollen, Rewards prüfen, old_logprobs und response_mask einfrieren, Advantages berechnen, Policyupdates ausführen und Reward, Länge, Entropie, KL, Ratios, Clip Fraction sowie Gradientnormen protokollieren. Ohne klare Policy-Version ist ein Ratio bedeutungslos.",
           "R1-Zero startet den verifizierbaren Reinforcement-Learning-Pfad ohne vorheriges SFT; R1 ergänzt unter anderem SFT-Initialisierung, Sprachkonsistenz und eine nicht vollständig verifizierbare Stufe. Kimi- und Qwen-Rezepte verändern gleichzeitig Daten, Modell, Stufen und Infrastruktur. Solche Systemrezepte sind konfundierte Fallstudien und erlauben keine isolierte algorithmische Rangliste aus einem einzigen Endscore.",
           "Im SFT-Pfad definiert das Chattemplate die exakten Token, und der Loss zählt nur Response-Tokens; Prompt-, Template- und Paddingpositionen müssen maskiert sein. DPO benötigt für chosen und rejected jeweils response-only Sequenz-Logwahrscheinlichkeiten unter Current Policy und fester Reference Policy, also vier Werte pro Präferenzpaar. Die Reference bleibt während DPO eingefroren; neu berechnete oder mittrainierte Reference-Werte verändern das Ziel."
         ],
         "pitfalls": [
+          "Denselben cliprange = 0,2 an grpo und gspo weiterreichen. Für GSPOs Mittelwert über die ganze Antwort ist dieses Band so weit, dass es praktisch nie greift: die Clip Fraction bleibt null, und GSPO rechnet ungeclippt, ohne dass ein Test es bemerkt.",
           "Rollouts nach einem Update mit neu berechneten old_logprobs versehen; dadurch wird Policy-Staleness verborgen und das Ratio künstlich Richtung eins gezogen.",
           "R1, R1-Zero, Kimi oder Qwen als kontrollierte Einzelablationen vergleichen, obwohl Trainingsstufen, Daten, Startmodell und Systemaufbau gleichzeitig variieren."
         ],
         "checks": [
+          "Warum clippt GSPO mit cliprange = 3·10⁻⁴ mehr Token als GRPO mit 0,2?",
           "Welche Policyversionen und Artefakte müssen zwischen Rollout und Update unveränderlich bleiben?",
           "Welche vier Sequenz-Logwahrscheinlichkeiten benötigt DPO, und welche Tokenpositionen zählen?"
         ],
         "formulas": ["gspo-ratio","dpo"],
         "sources": ["l15","l16","a5"],
         "answers": [
+          "Weil GSPOs Ratio s = exp(Σδ/L) ein Mittelwert über die ganze Antwort ist: das Rauschen der einzelnen Tokenlogratios mittelt sich darin etwa mit 1/√L heraus, also muss das Band viel schmaler sein, um überhaupt etwas zu begrenzen – und 3·10⁻⁴ ist noch schmaler als dieser Ausgleich. Dazu entscheidet GSPO immer über eine ganze Antwort: wird sie geclippt, fallen alle ihre Token aus dem Gradienten. Das Lab rlvr-system-transfer rechnet beides an einer festen Gruppe vor.",
           "Old Policy, ihre pro Antworttoken gespeicherten Logprobs, Response-Maske, gesampelte Tokens und Verifier-Reward bleiben für die Update-Epoche unverändert. Current Policy darf sich ändern; die feste Reference dient getrennt der KL- beziehungsweise DPO-Vergleichsbasis.",
           "Benötigt werden log π_current(chosen|x), log π_current(rejected|x), log π_ref(chosen|x) und log π_ref(rejected|x). Jede Summe läuft nur über die Antworttokens nach demselben Chattemplate; Prompt-, Template- und Paddingtokens tragen keinen Response-Loss."
         ]
@@ -5249,19 +5253,19 @@
         transferQuestion:"Warum kann perfekte Expertbalance trotzdem einen langsamen All-to-All-Step erzeugen?"
       },
       {
-        id:"rlvr-system-transfer",title:"A5 Varianten & RLVR System Gate",module:"rlvr",time:"14 min",desc:"Ordne GRPO-Varianten, Sequenzratios, GSPO, Policyversionen und den SFT→DPO-Datenfluss korrekt zu.",
-        mental:"Ein A5-Experiment ist erst interpretierbar, wenn der algebraische Variantenvertrag und die Systemversionen zusammenpassen. Rolloutdaten gehören zur Old Policy; DPO besitzt zusätzlich eine feste Reference und vier response-only Sequenz-Logwahrscheinlichkeiten.",
-        formula:"variant=(baseline,normalizer,denominator)  ·  W=exp(ΣΔlogπ)  ·  s_GSPO=exp(mean Δlogπ)",
-        symbols:[["Old","Policy, die den Rollout erzeugte."],["Current","Policy, die aktualisiert wird."],["Reference","feste KL- beziehungsweise DPO-Vergleichspolicy."],["response-only","Prompt, Template und Padding sind aus den Sequenzsummen maskiert."]],
-        observe:"Ordne Standard-GRPO, Dr. GRPO, RFT und MaxRL ihren drei Designachsen zu. Prüfe danach, welche Artefakte zwischen Rollout und Update eingefroren bleiben.",
-        misconception:"GSPO ist nicht das exakte Sequenz-Importance-Weight; R1, R1-Zero, Kimi und Qwen sind keine kontrollierten Einzelalgorithmus-Ablationen.",
-        transferQuestion:"Welche vier response-only Logwahrscheinlichkeiten benötigt DPO und warum bleibt die Reference fest?"
+        id:"rlvr-system-transfer",title:"A5 §6.4 · der 32-fache Plan und die Clip Fraction",module:"rlvr",time:"16 min",desc:"Rechne den Plan aus, den §6.4 vorgibt – 256 Antworten je Rollout-Batch, 32 Schritte zu je 8 –, und lies daneben, warum GSPO mit cliprange = 3·10⁻⁴ weit mehr Token clippt als das Token-Clipping mit 0,2.",
+        mental:"Off-Policy heißt in A5 nicht, dieselben Daten mehrmals zu durchlaufen. Ein Rollout-Batch von 256 Antworten wird in 32 Schritte zu je 8 zerlegt, und jede Antwort geht in genau einen davon ein. Weil repeated_prompts jeden Prompt group_size-mal hintereinander wiederholt, ist jeder Schritt genau eine Promptgruppe. old_log_probs werden einmal vor dem ersten Schritt eingefroren; ab dem zweiten ist das Ratio die einzige Stelle, an der der Trainer erfährt, wie alt seine Daten sind. Und cliprange trägt zwei Skalen: 0,2 für ein einzelnes Tokenratio, 3·10⁻⁴ für GSPOs Mittelwert über die ganze Antwort.",
+        formula:"Schritte = 256 / train_batch_size  ·  Staleness(k) = k − 1  ·  P(Schritt ohne Signal) = (p⁸ + (1−p)⁸)^(train_batch_size/8)  ·  grpo clippt Token t bei δ_t > ln(1+ε) für A ≥ 0, bei δ_t < ln(1−ε) für A < 0  ·  gspo clippt die ganze Antwort, wenn Σδ/L dieselben Grenzen mit ε = 3·10⁻⁴ überschreitet",
+        symbols:[["train_batch_size","Antworten je Optimizer-Schritt; §6.4 setzt 8, der On-Policy-Lauf aus §4.3 setzt ihn gleich rollout_batch_size."],["k","Schritt innerhalb eines Rollout-Batches, von 1 bis 32; seine Daten sind k − 1 Updates alt."],["δ_t","log π_θ(y_t) − old_log_probs_t, die Logratio eines Antworttokens."],["Σδ/L","Mittel der Logratios über die Antwort; GSPOs Sequenzgewicht ist s = exp(Σδ/L)."],["Clip Fraction","Anteil der Antworttoken, bei denen das min den geclippten Term wählt; bei gspo zählt eine geclippte Antwort mit allen ihren Token."]],
+        observe:"Beginne in Modus A bei train_batch_size = 8: 32 Schritte je Rollout-Batch, 6.400 Optimizer-Schritte über den ganzen Lauf statt 200, und jeder Schritt ist genau eine Promptgruppe. Stelle p auf 0,9 und lies, wie viele der 32 Schritte keinen Gradienten tragen. Wechsle dann in Modus B zu Schritt 16 und vergleiche die beiden Clip Fractions; stell danach den Vertrag auf „GSPO bekommt denselben cliprange = 0,2“ und auf „old_log_probs vor jedem Schritt neu gerechnet“.",
+        misconception:"Der erste Irrtum ist, die beiden cliprange-Werte für vergleichbar zu halten. 0,2 begrenzt ein einzelnes Tokenratio, 3·10⁻⁴ den geometrischen Mittelwert über eine ganze Antwort, in dem sich das Rauschen der Token herausmittelt – derselbe Wert an beiden Stellen schaltet GSPOs Clipping ab. Der zweite ist, die kleinere Clip Fraction für die ruhigere Methode zu halten: in diesem Modell zeigt grpo über einen Rollout-Batch gemittelt 0,2071 % und gspo 28,60 %, bei derselben Drift. Der dritte liegt im Plan: wer die 256 Antworten vor dem Zerschneiden mischt oder train_batch_size unter group_size senkt, zerschneidet Gruppen, über die grpo_train_step selbst normalisiert.",
+        transferQuestion:"Dein test_grpo_train_step_off_policy läuft grün, und im ersten 32-fach-Lauf zeigt der Logger für gspo eine Clip Fraction von exakt null, Rollout-Batch für Rollout-Batch, während grpo einen kleinen, aber positiven Wert zeigt. Welche zwei Ursachen kommen in Frage, und welche ist es?"
       },
       {
         id:"offpolicy-clip",title:"Off-Policy: Ratio, Clipping & GSPO",module:"rlvr",time:"16 min",desc:"Rechne das geclippte Off-Policy-Ziel und das GSPO-Sequenzgewicht Zahl für Zahl – und sieh, welche Policy-Stände jeden der drei Implementierungsfehler verstecken.",
         mental:"Off-Policy heißt: die Antworten stammen aus einer Policy, die es so nicht mehr gibt. Das Importance Ratio w = π_θ/π_0 rechnet diesen Unterschied heraus, und weil es als Produkt über die Antwort explodiert, greifen zwei Reparaturen ineinander. Clipping begrenzt es pro Token, GSPO ersetzt das Produkt durch den geometrischen Mittelwert. Beide sind nicht dieselbe Größe, und beide haben genau einen Zustand, in dem jeder Fehler unsichtbar ist: den ersten inneren Schritt.",
         formula:"w_t = exp(log π_θ(y_t) − log π_0(y_t))  ·  J_clip = mean_j (1/|y_j|) Σ_t min(A_j·w_t, A_j·clip(w_t, 1−ε, 1+ε))  ·  mask_t = 1{w_t < 1+ε} falls A ≥ 0, sonst 1{w_t > 1−ε}  ·  s = (∏_t w_t)^(1/L) = exp((1/L)·Σ_t log w_t)",
-        symbols:[["w_t","Importance Ratio an Position t, immer als exp der Logprob-Differenz gerechnet, nie als Quotient zweier Wahrscheinlichkeiten."],["π_0","die Rollout- oder Old Policy. Ihre Logprobs werden einmal gespeichert und ändern sich innerhalb der inneren Schritte nicht."],["A_j","gruppenrelativer Advantage der Antwort j, konstant über alle Token dieser Antwort."],["ε","Clipping-Stärke, im Handout cliprange. PPO verwendet 0,2."],["mask_t","Gleichung (60): 1, solange das Token Gradienten trägt, 0, sobald das min die geclippte Seite wählt."],["s","Sequenzgewicht in GSPO, der geometrische Mittelwert aller w_t derselben Antwort."]],
+        symbols:[["w_t","Importance Ratio an Position t, immer als exp der Logprob-Differenz gerechnet, nie als Quotient zweier Wahrscheinlichkeiten."],["π_0","die Rollout- oder Old Policy. Ihre Logprobs werden einmal gespeichert und ändern sich innerhalb der inneren Schritte nicht."],["A_j","gruppenrelativer Advantage der Antwort j, konstant über alle Token dieser Antwort."],["ε","Clipping-Stärke, im Handout cliprange. PPO verwendet 0,2; für GSPO gibt §6.4 cliprange = 3·10⁻⁴ vor, weil dort ein Mittelwert über die ganze Antwort geclippt wird. Die ε-Werte dieses Labs zeigen den Mechanismus, die Clip Fraction beider Vorgaben rechnet das Lab „A5 §6.4 · der 32-fache Plan und die Clip Fraction“."],["mask_t","Gleichung (60): 1, solange das Token Gradienten trägt, 0, sobald das min die geclippte Seite wählt."],["s","Sequenzgewicht in GSPO, der geometrische Mittelwert aller w_t derselben Antwort."]],
         observe:"Beginne im Clipping-Modus beim Stand ohne inneren Schritt und lies die vier Zeilen: sie sind identisch. Schalte dann auf einen Schritt weiter – immer noch identisch, weil kein Ratio das Band verlässt. Erst beim dritten Stand trennen sie sich. Wechsle danach in den GSPO-Modus und vergleiche L = 1, L = 8 und L = 512 miteinander.",
         misconception:"Die drei häufigsten Fehler sehen auf einem selbstgebauten Testfall wie die korrekte Fassung aus. Ohne das min über beide Terme wird beidseitig statt einseitig beschnitten; ohne die Fallunterscheidung nach dem Advantage-Vorzeichen wird bei negativem Advantage die falsche Bandseite begrenzt; und der geometrische Mittelwert als Produkt gerechnet bleibt in float32 im Denormalbereich hängen, statt über- oder unterzulaufen. Der dritte Fehler ist der stillste: das Ergebnis ist dann eine plausible Zahl, die von den Daten gar nicht mehr abhängt.",
         transferQuestion:"Dein test_compute_policy_gradient_loss_off_policy läuft grün, und dein erster Off-Policy-Lauf divergiert trotzdem. In den Logs steht, dass die Ratios im ersten inneren Schritt jedes Batches exakt eins sind. Warum ist das kein Hinweis auf einen Fehler – und was musst du stattdessen loggen, um das Clipping überhaupt prüfen zu können?"
@@ -5519,7 +5523,7 @@
       "distributed-runtime": "Falsch ist es, weil die gemessenen 32,2372 % nicht die Bytes messen, sondern den Zeitpunkt. Bei naive_ddp startet das erste Collective, wenn der letzte Gradient fertig ist – die gesamte Kommunikationszeit liegt deshalb hinter dem Backward Pass und verlängert den Schritt. Werden dieselben Collectives gestartet, sobald ihr Gradient bereit ist, verdeckt der noch laufende Backward Pass sie; im Node bleiben von 32,2372 % genau 0,3393 % übrig, ohne dass ein einziges Byte weniger bewegt wird. Die Zahl, die über die Bucketgröße entscheidet, ist die freiliegende Zeit im Vergleich zu ihren beiden Untergrenzen: T_comm − T_bwd auf der einen Seite, die Dauer des letzten Collectives auf der anderen. Steht die freiliegende Zeit schon auf der zweiten – im Node sind das die 0,2376 ms des Embedding-Gradienten –, kann keine kleinere Bucketgröße mehr etwas ändern, weil dieser Gradient vor dem Ende des Backward Pass gar nicht existiert. Bindet dagegen die erste, ist die Leitung der Engpass, und dann hilft weder ein anderer Bucket noch ein anderer Zeitplan, sondern nur weniger zu senden.",
       "scaling-transfer": "Gefittet wird log(L_opt−E), nicht log L_opt. Ein verändertes E verschiebt vor allem kleine Restabstände stark und verändert dadurch die Steigung γ im Lograum. Weil dieselbe Fitkurve mit gekoppelten E- und γ-Werten plausibel aussehen kann, braucht die Extrapolation beschränkte Offsets oder Sensitivitätsintervalle.",
       "moe-routing": "Perfekte Expertbalance zählt Assignments pro Expert, aber nicht automatisch Bytes, Topologie oder Expert-zu-Gerät-Zuordnung. Mehrere gleich belastete Experts können auf demselben Gerät liegen, Tokenziele können ungleich über Links verteilt sein, und ein langsamer Rank oder ungünstige All-to-All-Route kann weiterhin den Straggler bestimmen.",
-      "rlvr-system-transfer": "DPO benötigt log π_current(chosen|x), log π_current(rejected|x), log π_ref(chosen|x) und log π_ref(rejected|x), jeweils nur über echte Antworttokens. Die feste Reference definiert die unveränderte Ausgangsbasis; würde sie mittrainiert, könnte sich der Vergleichsmaßstab mit der Policy bewegen und das angegebene DPO-Ziel ändern."
+      "rlvr-system-transfer": "Zwei Fehler liefern dieses Bild, und beide liegen außerhalb der getesteten Funktion. Entweder wurden old_log_probs vor jedem Schritt neu gerechnet – dann ist jedes Ratio exakt eins, aber dann zeigt auch grpo null. Oder GSPO hat denselben cliprange = 0,2 bekommen wie das Token-Clipping, ein Band, das der Mittelwert Σδ/L bei realistischer Drift nie verlässt. Weil grpo hier nicht null ist, sind old_log_probs richtig eingefroren, und die Ursache ist der cliprange. §6.4 gibt GSPO 3·10⁻⁴: ein einzelnes Tokenratio wandert um Zehntel, der Mittelwert über eine ganze Antwort nur um Tausendstel."
 };
     // The transfer answer has two homes: this map, and an inline `transferAnswer:` on the lab itself
     // (every lab written since v72 carries it inline, next to the question it answers). Assigning
@@ -5554,18 +5558,6 @@
           {prompt:"Overflow when expert 0 receives 6 assignments",options:[["2","2 assignments"],["0","no overflow"],["4","4 assignments"]]},
           {prompt:"L_balance under uniform routing",options:[["alpha","α, not zero"],["zero","0"],["four-alpha","4α"]]}
         ],hint:"Capacity counts T·k assignments; with f_e=P_e=1/E, αEΣf_eP_e=α.",success:"Capacity, overflow, and the nonzero uniform balance loss are correct."},answers:["4","2","alpha"]
-      },
-      "rlvr-system-transfer": {
-        de:{title:"A5 Varianten- und Systemvertrag",questions:[
-          {prompt:"Dr. GRPO",options:[["dr","Mittelwert-Baseline · keine Advantage-Norm · fester Nenner"],["standard","Mittelwert · Std-Norm · Sequenzmittel"],["rft","keine Baseline · nur korrekte Samples"]]},
-          {prompt:"GSPO-Ratio",options:[["surrogate","Geometrisches Mittel · stabileres Surrogate"],["exact","exaktes Sequenzprodukt"],["token","nur aktuelles Token ohne Antwortskalar"]]},
-          {prompt:"DPO-Eingang pro Paar",options:[["four","chosen/rejected × Current/Reference · response-only"],["two","nur zwei Current-Logprobs"],["reward","Verifierreward plus Critic"]]}
-        ],hint:"Trenne Variantenachsen, exakte Sequenzkorrektur und den festen DPO-Vergleichsmaßstab.",success:"Dr. GRPO, GSPO und der response-only DPO-Vertrag sind korrekt zugeordnet."},
-        en:{title:"A5 variant and system contract",questions:[
-          {prompt:"Dr. GRPO",options:[["dr","mean baseline · no advantage normalization · fixed denominator"],["standard","mean · std normalization · sequence mean"],["rft","no baseline · correct samples only"]]},
-          {prompt:"GSPO ratio",options:[["surrogate","geometric mean · more stable surrogate"],["exact","exact sequence product"],["token","current token only, no response scalar"]]},
-          {prompt:"DPO input per pair",options:[["four","chosen/rejected × Current/Reference · response-only"],["two","only two Current log probabilities"],["reward","Verifier reward plus Critic"]]}
-        ],hint:"Separate the variant axes, exact sequence correction, and the fixed DPO comparison point.",success:"Dr. GRPO, GSPO, and the response-only DPO contract are correctly assigned."},answers:["dr","surrogate","four"]
       }
     };
 
@@ -5998,7 +5990,7 @@
     function updateProgressUI(){}
     function toggleBookmark(type,id,focusSelector=""){ const key=type+":"+id; user.bookmarks=user.bookmarks.includes(key)?user.bookmarks.filter(x=>x!==key):[...user.bookmarks,key]; saveUser(true); toast(user.bookmarks.includes(key)?"Gespeichert":"Lesezeichen entfernt"); renderCurrent(); if(focusSelector)document.querySelector(focusSelector)?.focus(); }
     function isBookmarked(type,id){ return user.bookmarks.includes(type+":"+id); }
-    const OBJECTIVE_LAB_IDS = new Set(["transformer-ledger","pytorch-debugger","shapes","einsum-pattern","loss-and-clip","bpe-encode","rope-rotation","triton-tile","online-softmax-kata","scaling-fit","filtering-mechanics","bloom-filter","dedup-pipeline","dpo-loss","policy-loss-tracer","grpo","norm-and-ffn","comm-crossover","answer-parsing","decode-sampling","winrate-lc","batch-windows","mixed-precision","checkpoint-segments","shard-ledger","offpolicy-clip","advantage-normalizers","microbatch-denominator","baseline-variance","lsh-bands","quality-threshold","compression-ratio","resume-contract","ablation-controls","position-signal","stability-edge","pipeline-yield","decay-horizon","run-budget-ledger","target-config","run-plan","seed-variance","kernel-contracts","distributed-runtime",...Object.keys(LAB_OBJECTIVES)]);
+    const OBJECTIVE_LAB_IDS = new Set(["transformer-ledger","rlvr-system-transfer","pytorch-debugger","shapes","einsum-pattern","loss-and-clip","bpe-encode","rope-rotation","triton-tile","online-softmax-kata","scaling-fit","filtering-mechanics","bloom-filter","dedup-pipeline","dpo-loss","policy-loss-tracer","grpo","norm-and-ffn","comm-crossover","answer-parsing","decode-sampling","winrate-lc","batch-windows","mixed-precision","checkpoint-segments","shard-ledger","offpolicy-clip","advantage-normalizers","microbatch-denominator","baseline-variance","lsh-bands","quality-threshold","compression-ratio","resume-contract","ablation-controls","position-signal","stability-edge","pipeline-yield","decay-horizon","run-budget-ledger","target-config","run-plan","seed-variance","kernel-contracts","distributed-runtime",...Object.keys(LAB_OBJECTIVES)]);
     function labHasObjectiveCheck(id){return OBJECTIVE_LAB_IDS.has(id)}
     function labCheckPassed(id){return labHasObjectiveCheck(id)&&Boolean(user.labChecks[id])}
 
@@ -6988,6 +6980,9 @@
     function transformerLedgerMarkup(){
       return `<div class="lab-layout"><div class="panel lab-controls"><h2>A1 §3.4 · das Ledger, das fünf Abgaben trägt</h2><label class="field">Was gerechnet wird <select class="select" id="tlMode"><option value="ledger" selected>Modus A: die Stückliste eines Modells · (a), (b), (c)</option><option value="shares">Modus B: die Anteile über Größen und Kontextlängen · (d), (e)</option></select></label><label class="field">Modell <select class="select" id="tlModel">${TL_MODELS.map(entry=>`<option value="${entry.key}" ${entry.key==="xl"?"selected":""}>${esc(localizedUi(entry.label))}</option>`).join("")}</select></label><label class="field">Kontextlänge T <select class="select" id="tlCtx">${TL_CTX.map(ctx=>`<option value="${ctx}" ${ctx===1024?"selected":""}>${ctx}</option>`).join("")}</select></label><div id="tlLedgerFields"><label class="field">Wofür der Speicher gezählt wird <select class="select" id="tlPrecision">${TL_PRECISIONS.map((entry,index)=>`<option value="${entry.key}" ${index===0?"selected":""}>${esc(localizedUi(entry.label))}</option>`).join("")}</select></label></div><label class="field">Welche Abkürzung danebengestellt wird <select class="select" id="tlShortcut">${TL_SHORTCUTS.map((entry,index)=>`<option value="${entry.key}" ${index===0?"selected":""}>${esc(localizedUi(entry.label))}</option>`).join("")}</select></label><p class="lab-note">Sage vor jedem Wechsel voraus, welcher der vier Posten den größten Anteil trägt. Bei GPT-2 small und T = 1024 ist es nicht derselbe wie bei XL, und bei T = 16.384 ist es bei keinem der vier Modelle noch derselbe.</p><fieldset class="question" style="margin-top:1rem"><legend><strong>Objektiver Transfer-Kurzcheck</strong></legend><p class="small muted">Direkt aus den angezeigten Zahlen ablesbar.</p><label class="field">1. Bei T = 1024: welcher Posten verliert von small zu XL am meisten Anteil? <select class="select" id="tlCheckFall"><option value="">Noch nicht gewählt</option><option value="head">Der LM Head · von 27,1037 % auf 4,6828 %, weil 2TDV nur linear in D wächst, die Blöcke aber mit L·D²</option><option value="ffn">SwiGLU · weil die inneren Matrizen mit jeder Breite größer werden</option><option value="attn">Die Attention-Scores · weil der quadratische Term bei festem T stehen bleibt</option></select></label><label class="field">2. Und was macht der Anteil der Attention-Scores dabei? <select class="select" id="tlCheckQuad"><option value="">Noch nicht gewählt</option><option value="falls">Er fällt ebenfalls · sein Verhältnis zu den Projektionen ist T/(2D) und damit bei festem T umso kleiner, je breiter das Modell</option><option value="rises">Er steigt · der quadratische Term dominiert in großen Modellen</option><option value="flat">Er bleibt konstant · T ist ja fest</option></select></label><label class="field">3. Bei GPT-2 medium und T = 1024 liegt 2·P·T nur 0,2915 % daneben. Warum? <select class="select" id="tlCheckNear"><option value="">Noch nicht gewählt</option><option value="cancel">Zufall dieser einen Zelle · das mitgezählte Eingabe-Embedding und die Norm-Gains heben den fehlenden Attention-Term fast genau auf, und die Nullstelle T* = (V+2L+1)/(2L) liegt hier bei 1.048,0417</option><option value="valid">Weil die Abkürzung bei genügend großen Modellen gilt und medium groß genug ist</option><option value="tuned">Weil GPT-2 medium so gewählt wurde, dass die Abkürzung aufgeht</option></select></label><button class="button" id="tlCheck" type="button">Kurzcheck prüfen</button><div id="tlCheckResult" role="status" aria-live="polite"></div></fieldset></div><div class="lab-stage" role="region" aria-label="Interaktive Rechnung zu Parameter- und FLOP-Ledger" aria-live="polite" id="tlStage"></div></div>`;
     }
+    function rlvrSystemMarkup(){
+      return `<div class="lab-layout"><div class="panel lab-controls"><h2>A5 §6.4 · der 32-fache Plan und die Clip Fraction</h2><label class="field">Was gerechnet wird <select class="select" id="rsMode"><option value="plan" selected>Modus A: der Plan eines Rollout-Batches · exakt aus dem Handout</option><option value="clip">Modus B: die Clip Fraction von grpo und gspo · ein Driftmodell</option></select></label><div id="rsPlanFields"><label class="field">train_batch_size <select class="select" id="rsTrain">${RS_TRAIN.map(entry=>`<option value="${entry.key}" ${entry.key==="8"?"selected":""}>${esc(localizedUi(entry.label))}</option>`).join("")}</select></label><label class="field">importance_reweighting_method <select class="select" id="rsMethod">${RS_METHODS.map(entry=>`<option value="${entry.key}" ${entry.key==="grpo"?"selected":""}>${esc(localizedUi(entry.label))}</option>`).join("")}</select></label><label class="field">Anteil richtiger Antworten je Prompt p <select class="select" id="rsAcc">${RS_ACCURACY.map(value=>`<option value="${value}" ${value===0.5?"selected":""}>${fixedNum(value,1)}</option>`).join("")}</select></label></div><div id="rsClipFields" hidden><label class="field">Schritt k innerhalb des Rollout-Batches <select class="select" id="rsStep">${RS_STEPS.map(step=>`<option value="${step}" ${step===16?"selected":""}>${step}</option>`).join("")}</select></label><label class="field">Drift je Update <select class="select" id="rsSigma">${RS_SIGMAS.map(entry=>`<option value="${entry.key}" ${entry.key==="s3"?"selected":""}>${esc(localizedUi(entry.label))}</option>`).join("")}</select></label><label class="field">Vertrag <select class="select" id="rsContract">${RS_CONTRACTS.map((entry,index)=>`<option value="${entry.key}" ${index===0?"selected":""}>${esc(localizedUi(entry.label))}</option>`).join("")}</select></label></div><p class="lab-note">Sage vor jedem Wechsel voraus, welche der beiden Clip Fractions größer ist. Das Handout gibt GSPO einen um fast drei Größenordnungen kleineren cliprange als dem Token-Clipping – und trotzdem ist es nicht GSPO, das weniger clippt.</p><fieldset class="question" style="margin-top:1rem"><legend><strong>Objektiver Transfer-Kurzcheck</strong></legend><p class="small muted">Direkt aus den angezeigten Zahlen ablesbar.</p><label class="field">1. Bei train_batch_size = 8 und group_size = 8: was enthält ein einzelner Optimizer-Schritt? <select class="select" id="rsCheckGroup"><option value="">Noch nicht gewählt</option><option value="oneGroup">Genau eine Promptgruppe · ihre Advantages summieren sich zu null, und bei acht gleichen Rewards trägt der Schritt keinen Gradienten</option><option value="eightPrompts">Je eine Antwort von acht verschiedenen Prompts · jede Gruppe ist über acht Schritte verteilt</option><option value="shuffled">Acht zufällig gezogene Antworten · normalisiert wird ohnehin über den ganzen Rollout-Batch</option></select></label><label class="field">2. GSPO clippt mit ε = 3·10⁻⁴ weit mehr Token als grpo mit ε = 0,2. Warum? <select class="select" id="rsCheckMore"><option value="">Noch nicht gewählt</option><option value="average">Sein Ratio ist ein Mittelwert über die Antwort, in dem sich das Tokenrauschen herausmittelt, und geclippt wird immer eine ganze Antwort</option><option value="product">Sein Ratio ist ein Produkt über alle Token und wird deshalb bei langen Antworten riesig</option><option value="typo">Weil 3·10⁻⁴ ein Tippfehler im Handout ist und 0,2 gemeint war</option></select></label><label class="field">3. Du reichst GSPO versehentlich denselben cliprange = 0,2 weiter. Was zeigt die Clip Fraction von gspo? <select class="select" id="rsCheckWide"><option value="">Noch nicht gewählt</option><option value="zero">Null an jedem Schritt · das Band ist für einen Mittelwert so weit, dass GSPO dann ungeclippt rechnet</option><option value="same">Ungefähr dasselbe wie grpo, weil beide denselben cliprange haben</option><option value="all">Fast alle Antworten, weil das Band jetzt breiter ist</option></select></label><button class="button" id="rsCheck" type="button">Kurzcheck prüfen</button><div id="rsCheckResult" role="status" aria-live="polite"></div></fieldset></div><div class="lab-stage" role="region" aria-label="Interaktive Rechnung zum Off-Policy-Plan und zur Clip Fraction" aria-live="polite" id="rsStage"></div></div>`;
+    }
     function objectiveLabMarkup(id){
       const objective=LAB_OBJECTIVES[id],copy=objective?.[currentLanguage]||objective?.de;if(!copy)return "";
       const fields=copy.questions.map((question,index)=>{const split=(index+1)%question.options.length,options=[...question.options.slice(split),...question.options.slice(0,split)];return `<label class="field">${esc(question.prompt)} <select class="select" id="objective-${index}"><option value="">${currentLanguage==="en"?"Not selected yet":"Noch nicht gewählt"}</option>${options.map(([value,label])=>`<option value="${esc(value)}">${esc(label)}</option>`).join("")}</select></label>`}).join("");
@@ -7006,6 +7001,7 @@
     function labMarkup(id){
       if(LAB_OBJECTIVES[id])return objectiveLabMarkup(id);
       if(id==="transformer-ledger") return transformerLedgerMarkup();
+      if(id==="rlvr-system-transfer") return rlvrSystemMarkup();
       if(id==="distributed-runtime") return distributedRuntimeMarkup();
       if(id==="kernel-contracts") return `<div class="lab-layout"><div class="panel lab-controls"><h2>A2 · 2D-Kernel und das Backward-Gate</h2><label class="field">Was gerechnet wird <select class="select" id="kcMode"><option value="grid" selected>Modus A: Grid, Randtiles und der Partial-Buffer</option><option value="gate">Modus B: welche Prüfung welchen Backward-Fehler sieht</option></select></label><div id="kcGridFields"><label class="field">Matrixform <select class="select" id="kcShape">${KC_SHAPES.map((entry,index)=>`<option value="${entry.key}" ${index===0?"selected":""}>${esc(localizedUi(entry.label))}</option>`).join("")}</select></label><label class="field">Tilegrößen <select class="select" id="kcTile">${KC_TILES.map((entry,index)=>`<option value="${entry.key}" ${index===0?"selected":""}>${esc(localizedUi(entry.label))}</option>`).join("")}</select></label></div><div id="kcGateFields" hidden><label class="field">Fall <select class="select" id="kcCase">${KC_CASES.map((entry,index)=>`<option value="${entry.key}" ${index===0?"selected":""}>${esc(localizedUi(entry.label))}</option>`).join("")}</select></label><label class="field">Backward-Variante <select class="select" id="kcVariant">${KC_VARIANTS.map((entry,index)=>`<option value="${entry.key}" ${index===0?"selected":""}>${esc(localizedUi(entry.label))}</option>`).join("")}</select></label></div><p class="lab-note">Sage in Modus B vor jedem Wechsel voraus, welche der drei Prüfungen anschlägt. Zwei der vier Fehler bestehen die erste Prüfung — finde sie, bevor du sie einstellst.</p><fieldset class="question" style="margin-top:1rem"><legend><strong>Objektiver Transfer-Kurzcheck</strong></legend><p class="small muted">Fester Fall: R=37, D=70, BR=16, BD=32. Alles direkt aus den angezeigten Zahlen ablesbar.</p><label class="field">1. 2D-Launchgrid <select class="select" id="kcCheckGrid"><option value="">Noch nicht gewählt</option><option value="3x3">3 × 3 Programs · jede Achse für sich aufgerundet</option><option value="3x5">3 × 5 Programs</option><option value="2x3">2 × 3 Programs</option></select></label><label class="field">2. Partial-Buffer für dw ohne Atomics <select class="select" id="kcCheckBuffer"><option value="">Noch nicht gewählt</option><option value="3x70">[3, 70] · eine Zeile je Zeilentile, volle Featurebreite</option><option value="9x70">[9, 70]</option><option value="37x3">[37, 3]</option></select></label><label class="field">3. Welchen Fehler kann rowsum(dS) ≈ 0 grundsätzlich nicht sehen? <select class="select" id="kcCheckBlind"><option value="">Noch nicht gewählt</option><option value="scale">Einen vergessenen oder verdoppelten Faktor 1/√d in dQ und dK — er ändert die Skala von dS nicht, die Zeilensumme bleibt auf Maschinengenauigkeit dieselbe</option><option value="dterm">Einen vergessenen D-Term, weil rowsum(O⊙dO) selbst eine Zeilensumme ist</option><option value="mask">Eine falsche kausale Maske, weil maskierte Positionen ohnehin null sind</option></select></label><button class="button" id="kcCheck" type="button">Kurzcheck prüfen</button><div id="kcCheckResult" role="status" aria-live="polite"></div></fieldset></div><div class="lab-stage" role="region" aria-label="Interaktive Rechnung zu 2D-Grid und Flash-Backward" aria-live="polite" id="kcStage"></div></div>`;
       if(id==="shapes") return `<div class="lab-layout"><div class="panel lab-controls"><h2>Eingaben</h2><div class="lab-quick-result" id="shapeQuick" role="status" aria-live="polite"></div><label class="field">Batchgröße B <input id="shapeB" type="range" min="1" max="8" value="3"><output id="shapeBOut">3</output></label><label class="field">Tokens pro Sequenz T <input id="shapeT" type="range" min="2" max="32" value="11"><output id="shapeTOut">11</output></label><label class="field">Modelldimension D <select class="select" id="shapeD"><option>64</option><option>128</option><option selected>256</option><option>512</option></select></label><label class="field">Attention Heads H <select class="select" id="shapeH"><option>1</option><option>2</option><option>4</option><option selected>8</option></select></label><p class="lab-note">Ändere genau einen Wert. Lies danach jede Shape mit ihren Achsennamen, nicht nur als Zahlenfolge.</p><fieldset class="question" style="margin-top:1rem"><legend><strong>Transfer-Kurzcheck ohne Regler</strong></legend><p class="small muted">Fester Fall: B=2, T=5, D=12 und H=3. Leite d_head und die Shapes zuerst selbst her.</p><label class="field">Q nach Head-Aufteilung <select class="select" id="shapeCheckQ"><option value="">Noch nicht gewählt</option><option value="correct">[2,3,5,4] = [B,H,T,d_head]</option><option value="copy">[2,3,5,12]</option><option value="swap">[2,5,3,4]</option></select></label><label class="field">QKᵀ Compatibility Scores <select class="select" id="shapeCheckScores"><option value="">Noch nicht gewählt</option><option value="correct">[2,3,5,5] = [B,H,T_query,T_key]</option><option value="features">[2,3,5,4]</option><option value="flat">[2,5,12]</option></select></label><label class="field">Nur T wird von 5 auf 10 verdoppelt <select class="select" id="shapeCheckScaling"><option value="">Noch nicht gewählt</option><option value="correct">X-Elemente ×2 · Score-Elemente ×4 · Gewichte unverändert</option><option value="all2">Alles einschließlich Gewichte ×2</option><option value="scores2">X- und Score-Elemente ×2 · Gewichte ×2</option></select></label><button class="button" id="shapeCheck" type="button">Kurzcheck prüfen</button><div id="shapeCheckResult" role="status" aria-live="polite"></div></fieldset></div><div class="lab-stage" role="region" aria-label="Interaktives Ergebnis" id="shapeStage"></div></div>`;
@@ -7110,6 +7106,7 @@
       if(id==="target-shift"){["tsMode","tsCorpus","tsRule","tsSize","tsBlock","tsDraws"].forEach(x=>document.getElementById(x).oninput=updateTargetShift);document.getElementById("tsCheck").onclick=checkTargetShift;updateTargetShift()}
       if(id==="init-scale"){["isMode","isTable","isSample","isVarTable","isTolerance"].forEach(x=>document.getElementById(x).oninput=updateInitScale);document.getElementById("isCheck").onclick=checkInitScale;updateInitScale()}
       if(id==="transformer-ledger"){["tlMode","tlModel","tlCtx","tlPrecision","tlShortcut"].forEach(x=>document.getElementById(x).oninput=updateTransformerLedger);document.getElementById("tlCheck").onclick=checkTransformerLedger;updateTransformerLedger()}
+      if(id==="rlvr-system-transfer"){["rsMode","rsTrain","rsMethod","rsAcc","rsStep","rsSigma","rsContract"].forEach(x=>document.getElementById(x).oninput=updateRlvrSystem);document.getElementById("rsCheck").onclick=checkRlvrSystem;updateRlvrSystem()}
       if(id==="distributed-runtime"){["drMode","drHw","drRanks","drSize","drTimer","drPlan"].forEach(x=>document.getElementById(x).oninput=updateDistributedRuntime);document.getElementById("drCheck").onclick=checkDistributedRuntime;updateDistributedRuntime()}
       if(id==="kernel-contracts"){["kcMode","kcShape","kcTile","kcCase","kcVariant"].forEach(x=>document.getElementById(x).oninput=updateKernelContracts);document.getElementById("kcCheck").onclick=checkKernelContracts;updateKernelContracts()}
       if(id==="seed-variance"){["svMode","svSigma","svSeeds","svValset","svSharing","svArms"].forEach(x=>document.getElementById(x).oninput=updateSeedVariance);document.getElementById("svCheck").onclick=checkSeedVariance;updateSeedVariance()}
@@ -7205,6 +7202,7 @@
       if(id==="target-shift"){updateTargetShift();document.getElementById("tsCheckResult").innerHTML=targetShiftSuccessMarkup()}
       if(id==="init-scale"){updateInitScale();document.getElementById("isCheckResult").innerHTML=initScaleSuccessMarkup()}
       if(id==="transformer-ledger"){["tlCheckFall","tlCheckQuad","tlCheckNear"].forEach((x,index)=>{const field=document.getElementById(x);if(field)field.value=["head","falls","cancel"][index]});updateTransformerLedger();document.getElementById("tlCheckResult").innerHTML=transformerLedgerSuccessMarkup()}
+      if(id==="rlvr-system-transfer"){["rsCheckGroup","rsCheckMore","rsCheckWide"].forEach((x,index)=>{const field=document.getElementById(x);if(field)field.value=["oneGroup","average","zero"][index]});updateRlvrSystem();document.getElementById("rsCheckResult").innerHTML=rlvrSystemSuccessMarkup()}
       if(id==="distributed-runtime"){["drCheckBw","drCheckFloor"].forEach((x,index)=>{const field=document.getElementById(x);if(field)field.value=["bus","embedding"][index]});updateDistributedRuntime();document.getElementById("drCheckResult").innerHTML=distributedRuntimeSuccessMarkup()}
       if(id==="kernel-contracts"){["kcCheckGrid","kcCheckBuffer","kcCheckBlind"].forEach((x,i)=>{const f=document.getElementById(x);if(f)f.value=["3x3","3x70","scale"][i]});updateKernelContracts();document.getElementById("kcCheckResult").innerHTML=kernelContractsSuccessMarkup()}
       if(id==="seed-variance"){updateSeedVariance();document.getElementById("svCheckResult").innerHTML=seedVarianceSuccessMarkup()}
@@ -13091,6 +13089,202 @@ p99 went from 12.4ms to 8.1ms but RSS is back to ~78MB, so it is a real tradeoff
       if(!fall||!quad||!near){toast(currentLanguage==="en"?"Answer all three short-check fields.":"Beantworte alle drei Kurzcheckfelder.");return}
       if(fall==="head"&&quad==="falls"&&near==="cancel"){user.labChecks["transformer-ledger"]=true;saveUser(true);result.innerHTML=transformerLedgerSuccessMarkup();return}
       result.innerHTML=`<div class="callout warning" style="margin-top:.7rem"><strong>${tr("Noch nicht.")}</strong><br>${tr("Stelle in Modus B die Kontextlänge auf 1024 und lies die obere Tabelle von oben nach unten: die vierte Spalte fällt am stärksten, die zweite fällt ebenfalls. Wechsle danach die Abkürzung auf „alle Parameter“ und vergleiche die letzte Tabelle mit der Spalte „exakt bei“ daneben.")}</div>`;
+    }
+
+    // ---- Lab: rlvr-system-transfer (Rechenfläche) ---------------------------------------
+    // `a5:grpo_train_step_off_policy` (2,5 Punkte) hängt an `rlvr-systems`, und kein anderes
+    // Lab führt dieses Konzept. Das Lab war ein Zuordnungsquiz mit drei Auswahlfragen und
+    // rechnete nichts. A5 §6.4 gibt dagegen konkrete Zahlen vor, die nirgends in der App
+    // vorkamen: rollout_batch_size = 256, train_batch_size = 8, gradient_accumulation_steps = 1
+    // („32x off policy“), cliprange = 0,2 für das Token-Clipping und cliprange = 3e-4 für GSPO —
+    // und grpo_experiments_off_policy verlangt, die Clip Fraction zu loggen und zwischen beiden
+    // Methoden zu vergleichen. Die Zahl 3e-4 stand vorher nur als SFT-Lernrate in der App,
+    // „clip fraction“ nur als Glossareintrag.
+    //
+    // Modus A rechnet den Plan exakt aus dem Handout. Modus B ist ein Modell und sagt das:
+    // eine feste Gruppe, deren Tokenlogratios mit jedem Update linear weiterwandern.
+    const RS_ROLLOUT = 256, RS_GROUP = 8, RS_MICRO = 8, RS_ROLLOUT_STEPS = 200;
+    // Die Vorgabe aus §6.4: train_batch_size = 8, also 256 / 8 = 32 Schritte je Rollout-Batch.
+    const RS_INNER = RS_ROLLOUT / 8;
+    const RS_TRAIN = [
+      {key:"256",tb:256,label:"256 · on-policy, der Standardlauf aus §4.3"},
+      {key:"64", tb:64, label:"64 · 4-fach off-policy"},
+      {key:"32", tb:32, label:"32 · 8-fach off-policy"},
+      {key:"8",  tb:8,  label:"8 · 32-fach off-policy, die Vorgabe aus §6.4"},
+      {key:"4",  tb:4,  label:"4 · kleiner als eine Gruppe"}
+    ];
+    const RS_METHODS = [
+      {key:"none",  label:"none · offpolicy_naive, kein Ratio", ratio:false},
+      {key:"noclip",label:"noclip · Tokenratio ohne Clipping", ratio:true},
+      {key:"grpo",  label:"grpo · Tokenratio, geclippt mit ε = 0,2", ratio:true},
+      {key:"gspo",  label:"gspo · Sequenzratio, geclippt mit ε = 3·10⁻⁴", ratio:true}
+    ];
+    const RS_ACCURACY = [0.1, 0.3, 0.5, 0.7, 0.9];
+    // Modus B: eine Promptgruppe mit drei richtigen von acht Antworten, und acht Antwortlängen
+    // in dem Bereich, den sampling_max_tokens = 512 zulässt.
+    const RS_REWARDS = [1,1,1,0,0,0,0,0];
+    const RS_LENGTHS = [212,147,305,268,96,384,173,241];
+    const RS_EPS_TOKEN = 0.2, RS_EPS_GSPO = 3e-4, RS_ADV_EPS = 1e-6;
+    const RS_SIGMAS = [
+      {key:"s2",sigma:0.002,label:"σ = 0,002 je Update · ruhige Drift"},
+      {key:"s3",sigma:0.003,label:"σ = 0,003 je Update · mittlere Drift"},
+      {key:"s4",sigma:0.004,label:"σ = 0,004 je Update · starke Drift"}
+    ];
+    const RS_STEPS = [1,2,4,8,16,32];
+    const RS_CONTRACTS = [
+      {key:"handout",  label:"wie im Handout · old_log_probs einmal je Rollout-Batch, ε = 0,2 und 3·10⁻⁴",
+        note:"So verlangt es §6.4: old_log_probs werden einmal für alle 256 Antworten gerechnet, bevor der erste der 32 Schritte beginnt, und jede Methode bekommt ihren eigenen cliprange aus dem jeweiligen Paper."},
+      {key:"gspo02",   label:"Fehler · GSPO bekommt denselben cliprange = 0,2",
+        note:"Derselbe Argumentname, zwei Skalen: wer den Tokenwert an GSPO weiterreicht, bekommt ein Band, das der geometrische Mittelwert bei dieser Drift nie verlässt. GSPO rechnet dann ungeclippt, und die Clip Fraction bleibt bei jedem Schritt null."},
+      {key:"recompute",label:"Fehler · old_log_probs vor jedem Schritt neu gerechnet",
+        note:"Wer old_log_probs vor jedem der 32 Schritte mit dem aktuellen Modell neu rechnet, macht jedes Ratio zu exakt eins. Alle vier Methoden rechnen dann denselben Gradienten wie offpolicy_naive, und die Clip Fraction ist bei beiden Methoden durchgehend null."}
+    ];
+    const rsFind = (list,key,fallback) => list.find(entry => entry.key === key) || list[fallback];
+    // Feste Tokenmuster z (Standardnormal, Seed 336). Deterministisch, damit jede Zahl auf dem
+    // Schirm reproduzierbar ist; die Gruppe ist ein Modell, kein Messwert.
+    function rsNoise(){
+      let a = 336;
+      const uniform = () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+      return RS_LENGTHS.map(length => {
+        const z = [];
+        while(z.length < length){
+          const u = 1 - uniform(), v = uniform(), r = Math.sqrt(-2 * Math.log(u));
+          z.push(r * Math.cos(2 * Math.PI * v));
+          if(z.length < length) z.push(r * Math.sin(2 * Math.PI * v));
+        }
+        return z;
+      });
+    }
+    const RS_Z = rsNoise();
+    function rsAdvantages(){
+      const g = RS_REWARDS.length, mu = RS_REWARDS.reduce((a,b) => a + b, 0) / g,
+        sd = Math.sqrt(RS_REWARDS.reduce((a,b) => a + (b - mu) ** 2, 0) / (g - 1));
+      return {mu, sd, adv: RS_REWARDS.map(r => (r - mu) / (sd + RS_ADV_EPS))};
+    }
+    // Der Plan eines Rollout-Batches. Alles exakt aus den Zahlen des Handouts.
+    function rsPlan(tb, methodKey, p){
+      const method = rsFind(RS_METHODS, methodKey, 2), steps = RS_ROLLOUT / tb,
+        groups = tb / RS_GROUP, valid = tb % RS_GROUP === 0,
+        micro = RS_ROLLOUT / RS_MICRO, oldPasses = method.ratio ? micro : 0,
+        uniform = p ** RS_GROUP + (1 - p) ** RS_GROUP,
+        empty = valid ? uniform ** groups : null;
+      return {tb, method, steps, groups, valid, accum: tb / RS_MICRO, prompts: RS_ROLLOUT / RS_GROUP,
+        staleMax: steps - 1, staleMean: (steps - 1) / 2, ratioOne: 1 / steps,
+        optimizerSteps: RS_ROLLOUT_STEPS * steps, micro, oldPasses,
+        extraCost: oldPasses / (3 * micro), uniform, empty,
+        emptySteps: valid ? steps * empty : null};
+    }
+    // Die Clip Fraction der Gruppe an Schritt k, unter dem angegebenen Driftmodell:
+    // delta_t = (k − 1) · σ · z_t. Die Schwellen stehen im Logspace, weil das Ratio dort lebt.
+    function rsClip(k, sigma, contractKey){
+      const {adv} = rsAdvantages(), frozen = contractKey !== "recompute",
+        epsG = contractKey === "gspo02" ? RS_EPS_TOKEN : RS_EPS_GSPO,
+        scale = frozen ? (k - 1) * sigma : 0;
+      let tokens = 0, clippedTok = 0, outsideTok = 0, gspoTok = 0, gspoSeq = 0;
+      const rows = RS_Z.map((z,j) => {
+        const a = adv[j];
+        let sum = 0, clipped = 0, outside = 0;
+        for(const value of z){
+          const delta = scale * value;
+          sum += delta;
+          if(delta > Math.log(1 + RS_EPS_TOKEN) || delta < Math.log(1 - RS_EPS_TOKEN)) outside++;
+          if(a >= 0 ? delta > Math.log(1 + RS_EPS_TOKEN) : delta < Math.log(1 - RS_EPS_TOKEN)) clipped++;
+        }
+        const mean = sum / z.length, s = Math.exp(mean),
+          gspo = a >= 0 ? mean > Math.log(1 + epsG) : mean < Math.log(1 - epsG);
+        tokens += z.length; clippedTok += clipped; outsideTok += outside;
+        if(gspo){ gspoTok += z.length; gspoSeq++; }
+        return {reward: RS_REWARDS[j], adv: a, length: z.length, mean, s, clipped, outside, gspo};
+      });
+      return {rows, tokens, epsG, token: clippedTok / tokens, outside: outsideTok / tokens,
+        gspoTokens: gspoTok / tokens, gspoSeq, clippedTok, outsideTok};
+    }
+    // Was der Logger je Rollout-Batch zeigt: der Mittelwert über alle 32 Schritte.
+    function rsBatchMean(sigma, contractKey){
+      let token = 0, gspo = 0;
+      for(let k = 1; k <= RS_INNER; k++){ const r = rsClip(k, sigma, contractKey); token += r.token; gspo += r.gspoTokens; }
+      return {token: token / RS_INNER, gspo: gspo / RS_INNER};
+    }
+    function rsRead(id,binding){return binding&&Object.prototype.hasOwnProperty.call(binding,id)?binding[id]:document.getElementById(id).value}
+    function rsStageMarkup(binding){
+      const tr = value => esc(localizedUi(value)), int = value => fixedNum(value,0),
+        pct = (value,digits) => `${fixedNum(value*100,digits===undefined?4:digits)} %`,
+        mode = rsRead("rsMode",binding);
+      if(mode === "plan"){
+        const train = rsFind(RS_TRAIN, rsRead("rsTrain",binding), 3),
+          p = Number(rsRead("rsAcc",binding)), plan = rsPlan(train.tb, rsRead("rsMethod",binding), p),
+          row = (label, value, attr) => `<div class="calculation-row"><span>${label}</span><strong data-rsplan="${attr}">${value}</strong></div>`;
+        const head = `<h2>${tr("Der Plan eines Rollout-Batches")} · train_batch_size = ${int(plan.tb)}</h2>`+
+          `<p class="small muted">rollout_batch_size = ${int(RS_ROLLOUT)} · group_size = ${int(RS_GROUP)} · ${tr("Mikrobatch")} = ${int(RS_MICRO)} · num_rollout_steps = ${int(RS_ROLLOUT_STEPS)} · ${tr(plan.method.label)}</p>`;
+        if(!plan.valid)
+          return head+`<div class="calculation-ledger">`+
+            row(tr("Optimizer-Schritte je Rollout-Batch"), int(plan.steps), "steps")+
+            row("gradient_accumulation_steps = train_batch_size / 8", fixedNum(plan.accum,1), "accum")+
+            row(tr("Promptgruppen je Optimizer-Schritt"), fixedNum(plan.groups,1), "groups")+`</div>`+
+            `<div class="callout warning"><strong>${tr("Dieser Plan lässt sich mit der empfohlenen Schnittstelle nicht bauen.")}</strong><br>${tr("grpo_train_step bekommt repeated_prompts, rollout_responses und group_size und normalisiert die Rewards selbst, Gruppe für Gruppe. Vier Antworten sind eine halbe Gruppe: der Aufruf hat entweder keine vollständige Gruppe oder normalisiert über eine, die gar keine ist. Und gradient_accumulation_steps = 0,5 gibt es nicht. train_batch_size muss ein Vielfaches von group_size sein, und jeder Schnitt muss auf einer Gruppengrenze liegen.")}</div>`;
+        return head+`<h3>${tr("Was sich ändert und was nicht")}</h3><div class="calculation-ledger">`+
+          row(tr("Promptgruppen je Rollout-Batch"), `${int(RS_ROLLOUT)} / ${int(RS_GROUP)} = ${int(plan.prompts)}`, "prompts")+
+          row(tr("Optimizer-Schritte je Rollout-Batch"), `${int(RS_ROLLOUT)} / ${int(plan.tb)} = ${int(plan.steps)}`, "steps")+
+          row("gradient_accumulation_steps", `${int(plan.tb)} / ${int(RS_MICRO)} = ${int(plan.accum)}`, "accum")+
+          row(tr("Promptgruppen je Optimizer-Schritt"), int(plan.groups), "groups")+
+          row(tr("Wie oft jede Antwort in ein Update eingeht"), tr("genau einmal"), "epochs")+
+          row(tr("Optimizer-Schritte über den ganzen Lauf"), `${int(RS_ROLLOUT_STEPS)} · ${int(plan.steps)} = ${int(plan.optimizerSteps)}`, "total")+
+          row(tr("Forward+Backward-Mikrobatches je Rollout-Batch"), `${int(RS_ROLLOUT)} / ${int(RS_MICRO)} = ${int(plan.micro)} · ${tr("bei jedem train_batch_size gleich")}`, "micro")+`</div>`+
+          `<h3>${tr("Wie alt die Daten jedes Schritts sind")}</h3><div class="calculation-ledger">`+
+          row(tr("Staleness von Schritt k"), `k − 1 ${tr("Updates")} · ${tr("höchstens")} ${int(plan.staleMax)} · ${tr("im Mittel")} ${fixedNum(plan.staleMean,1)}`, "stale")+
+          row(tr("Anteil der Schritte, an denen jedes Ratio exakt eins ist"), `1 / ${int(plan.steps)} = ${pct(plan.ratioOne)}`, "fresh")+
+          row(tr("zusätzliche Forward-Mikrobatches für old_log_probs, ohne Backward"), plan.method.ratio?`${int(plan.oldPasses)} · +${pct(plan.extraCost)} ${tr("Rechenzeit im Training bei Forward : Backward = 1 : 2")}`:tr("keine · offpolicy_naive braucht kein Ratio"), "old")+`</div>`+
+          `<p class="lab-note">${plan.steps===1?tr("Mit einem einzigen Schritt je Rollout-Batch ist die Policy beim Update noch dieselbe, die gesampelt hat: jedes Ratio ist exakt eins, und noclip, grpo und gspo rechnen denselben Gradienten wie none. Kein On-Policy-Lauf kann die vier Methoden unterscheiden."):tr("Nur der erste der Schritte sieht frische Daten. Ab dem zweiten ist das Ratio die einzige Stelle, an der der Trainer erfährt, dass die Antworten von einer Policy stammen, die es nicht mehr gibt — und es ist nur dann ungleich eins, wenn old_log_probs vor dem ersten Schritt eingefroren wurden.")}</p>`+
+          `<h3>${tr("Schritte ohne Signal")} · p = ${fixedNum(p,1)}</h3><div class="calculation-ledger">`+
+          row(tr("Wahrscheinlichkeit, dass alle acht Rewards einer Gruppe gleich sind"), `p⁸ + (1 − p)⁸ = ${pct(plan.uniform)}`, "uniform")+
+          row(tr("Wahrscheinlichkeit, dass ein Optimizer-Schritt keinen Policy-Gradienten trägt"), `(p⁸ + (1 − p)⁸)^${int(plan.groups)} = ${pct(plan.empty)}`, "empty")+
+          row(tr("erwartete Schritte ohne Signal je Rollout-Batch"), `${int(plan.steps)} · ${pct(plan.empty)} = ${fixedNum(plan.emptySteps,4)}`, "emptySteps")+`</div>`+
+          `<p class="lab-note">${plan.groups===1?tr("Bei train_batch_size = group_size enthält jeder Schritt genau eine Promptgruppe, weil repeated_prompts jeden Prompt group_size-mal hintereinander wiederholt. Mit baseline = \"mean\" summieren sich ihre Advantages zu null, und haben alle acht Antworten denselben Reward, ist jeder Advantage null und der Loss trägt keinen Gradienten. optimizer.step() läuft trotzdem: AdamW bewegt die Parameter mit β₁ = 0,9 weiter aus seinem Momentum.")
+            :tr("Hier teilen sich mehrere Gruppen einen Schritt. Ein Schritt ist erst dann leer, wenn jede einzelne seiner Gruppen einheitliche Rewards hat — deshalb steht die Gruppenzahl im Exponenten.")}</p>`;
+      }
+      const sigma = rsFind(RS_SIGMAS, rsRead("rsSigma",binding), 1),
+        k = Number(rsRead("rsStep",binding)) || 1,
+        contract = rsFind(RS_CONTRACTS, rsRead("rsContract",binding), 0),
+        clip = rsClip(k, sigma.sigma, contract.key), {mu, sd} = rsAdvantages(),
+        mean = rsBatchMean(sigma.sigma, contract.key),
+        num = (value,digits) => fixedNum(value,digits),
+        sci = value => { if(value === 0) return "0"; const exponent = Math.floor(Math.log10(Math.abs(value))), mantissa = value / 10 ** exponent; return `${fixedNum(mantissa,4)}·10^${exponent}`; },
+        responseRows = clip.rows.map((row,j) =>
+          `<div class="calculation-row"><span>${tr("Antwort")} ${j+1} · r = ${row.reward} · A = ${num(row.adv,4)} · L = ${int(row.length)}</span><strong data-rsrow="${j}">Σδ/L = ${sci(row.mean)} · s = ${num(row.s,6)} · ${row.gspo?tr("GSPO clippt die ganze Antwort"):tr("GSPO frei")} · ${tr("Token außerhalb des Bandes")} ${int(row.outside)} · ${tr("vom min geclippt")} ${int(row.clipped)}</strong></div>`).join(""),
+        ladder = RS_STEPS.map(step => {
+          const value = rsClip(step, sigma.sigma, contract.key);
+          return `<div class="calculation-row"><span>${tr("Schritt")} ${step}${step===k?" ★":""} · ${tr("Staleness")} ${step-1}</span><strong data-rsladder="${step}">grpo ${pct(value.token)} · gspo ${pct(value.gspoTokens,2)}</strong></div>`;
+        }).join("");
+      return `<h2>${tr("Die Clip Fraction an Schritt")} ${k} ${tr("von")} 32</h2>`+
+        `<p class="small muted">${tr(sigma.label)} · ${tr(contract.label)}</p><p class="muted">${tr(contract.note)}</p>`+
+        `<h3>${tr("Die Gruppe und ihre beiden Bänder")}</h3><div class="calculation-ledger">`+
+        `<div class="calculation-row"><span>${tr("Rewards")} [${RS_REWARDS.join(", ")}] → μ = ${num(mu,4)} · σ_r = ${num(sd,6)}</span><strong>${int(clip.tokens)} ${tr("Antworttoken")}</strong></div>`+
+        `<div class="calculation-row"><span>${tr("Token-Band · ε = 0,2 · im Logspace")}</span><strong data-rsband="token">δ > ${num(Math.log(1+RS_EPS_TOKEN),6)} ${tr("bei A > 0")} · δ &lt; ${num(Math.log(1-RS_EPS_TOKEN),6)} ${tr("bei A < 0")}</strong></div>`+
+        `<div class="calculation-row"><span>${tr("GSPO-Band")} · ε = ${clip.epsG===RS_EPS_GSPO?"3·10⁻⁴":"0,2"} · ${tr("im Logspace")}</span><strong data-rsband="gspo">Σδ/L > ${sci(Math.log(1+clip.epsG))} · Σδ/L &lt; ${sci(Math.log(1-clip.epsG))}</strong></div></div>`+
+        `<h3>${tr("Acht Antworten")} · δ = (k − 1) · σ · z</h3><div class="calculation-ledger">${responseRows}</div>`+
+        `<div class="calculation-ledger">`+
+        `<div class="calculation-row"><span>${tr("Clip Fraction grpo · vom min tatsächlich geclippte Token")}</span><strong data-rsfrac="token">${int(clip.clippedTok)} / ${int(clip.tokens)} = ${pct(clip.token)}</strong></div>`+
+        `<div class="calculation-row"><span>${tr("zum Vergleich · Token bloß außerhalb des Bandes")}</span><strong data-rsfrac="outside">${int(clip.outsideTok)} / ${int(clip.tokens)} = ${pct(clip.outside)}</strong></div>`+
+        `<div class="calculation-row"><span>${tr("Clip Fraction gspo · Token der geclippten Antworten")}</span><strong data-rsfrac="gspo">${int(clip.gspoSeq)} ${tr("von")} 8 ${tr("Antworten")} · ${pct(clip.gspoTokens,2)}</strong></div></div>`+
+        `<div class="shape-change"><strong>${tr("Warum GSPO mit dem kleineren ε mehr clippt")}</strong><span>${tr("Das Tokenband verlässt nur ein einzelnes, weit gewandertes Token. Das GSPO-Band prüft den Mittelwert über die ganze Antwort, und in dem mittelt sich die Streuung der Token mit etwa 1/√L heraus — deshalb muss sein ε so klein sein. Mit 3·10⁻⁴ liegt es aber noch enger als das, und es entscheidet immer über eine ganze Antwort auf einmal: eine geclippte Antwort nimmt alle ihre Token mit.")}</span></div>`+
+        `<h3>${tr("Über die 32 Schritte eines Rollout-Batches")}</h3><div class="calculation-ledger">${ladder}`+
+        `<div class="calculation-row"><span>${tr("Mittel über alle 32 Schritte · was der Logger je Rollout-Batch zeigt")}</span><strong data-rsmean="1">grpo ${pct(mean.token)} · gspo ${pct(mean.gspo,2)}</strong></div></div>`+
+        `<p class="lab-note">${tr("Das ist ein Modell, kein Messwert: jede Tokenlogratio wandert mit jedem Update um denselben Betrag σ·z weiter, und z ist ein festes Muster mit Seed 336. Es passt zu §6.4, weil dort jede Antwort in genau einen der 32 Schritte eingeht — was ihr Ratio bewegt, sind die Updates auf den anderen Gruppen. Was du mitnimmst, sind die Verhältnisse und die Nullstellen, nicht die Prozentwerte: an Schritt 1 ist jede Clip Fraction null, gspo clippt ganze Antworten und damit weit mehr Token als grpo, und ein geteilter cliprange schaltet GSPOs Clipping ab.")}</p>`;
+    }
+    function updateRlvrSystem(){
+      const mode = document.getElementById("rsMode").value;
+      document.getElementById("rsPlanFields").hidden = mode !== "plan";
+      document.getElementById("rsClipFields").hidden = mode === "plan";
+      document.getElementById("rsStage").innerHTML = rsStageMarkup();
+    }
+    function rlvrSystemSuccessMarkup(){const tr=value=>esc(localizedUi(value));return `<div class="callout accent" style="margin-top:.7rem"><strong>${tr("✓ Transfer-Kurzcheck bestanden")}</strong><br>${tr("Alle drei Antworten hängen an einem Vertrag, den kein Unit-Test sieht, weil er zwischen den Aufrufen liegt. Bei train_batch_size = group_size = 8 ist jeder der 32 Schritte genau eine Promptgruppe — ihre Advantages summieren sich zu null, und acht gleiche Rewards machen den Schritt leer, während AdamW trotzdem weiterläuft. GSPO clippt mit dem kleineren ε mehr, weil sein Ratio ein Mittelwert über die ganze Antwort ist, in dem sich das Tokenrauschen herausmittelt, und weil es immer eine ganze Antwort auf einmal clippt. Und derselbe Argumentname cliprange trägt zwei Skalen: 0,2 an GSPO weitergereicht ist ein Band, das der Mittelwert nie verlässt, und die Clip Fraction bleibt null.")}</div>`}
+    function checkRlvrSystem(){
+      const group=document.getElementById("rsCheckGroup").value,more=document.getElementById("rsCheckMore").value,
+        wide=document.getElementById("rsCheckWide").value,result=document.getElementById("rsCheckResult"),
+        tr=value=>esc(localizedUi(value));
+      if(!group||!more||!wide){toast(currentLanguage==="en"?"Answer all three short-check fields.":"Beantworte alle drei Kurzcheckfelder.");return}
+      if(group==="oneGroup"&&more==="average"&&wide==="zero"){user.labChecks["rlvr-system-transfer"]=true;saveUser(true);result.innerHTML=rlvrSystemSuccessMarkup();return}
+      result.innerHTML=`<div class="callout warning" style="margin-top:.7rem"><strong>${tr("Noch nicht.")}</strong><br>${tr("Stelle in Modus A train_batch_size = 8 ein und lies die Zeile „Promptgruppen je Optimizer-Schritt“. Wechsle dann in Modus B, stell den Vertrag auf „wie im Handout“ und vergleiche die beiden Clip Fractions; stell ihn danach auf „GSPO bekommt denselben cliprange = 0,2“ und lies dieselbe Zeile noch einmal.")}</div>`;
     }
 
     // ---- Lab: distributed-runtime (Rechenfläche) ------------------------------------

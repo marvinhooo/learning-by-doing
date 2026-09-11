@@ -631,10 +631,12 @@ if (Math.abs(scoreGradients.reduce((sum, value) => sum + value, 0)) > 1e-12) thr
 // parameter, block and forward totals, and the lab now computes them instead of offering
 // them. The three numbers above are still asserted, and the `ledger shares` block below
 // holds the lab's own arithmetic against them.
+// rlvr-system-transfer left it in v107: its three fixed answers mapped Dr. GRPO, GSPO and the
+// DPO inputs onto labels, which advantage-normalizers, offpolicy-clip and dpo-loss all compute;
+// the lab now computes the off-policy plan and the clip fraction, held by `clip fraction` below.
 for (const [id, answers] of Object.entries({
   "scaling-transfer":["hidden","readout","decayed"],
-  "moe-routing":["4","2","alpha"],
-  "rlvr-system-transfer":["dr","surrogate","four"]
+  "moe-routing":["4","2","alpha"]
 })) if (JSON.stringify(labObjectives[id]?.answers) !== JSON.stringify(answers)) throw new Error(`labObjectives.${id}: fixed answer regression`);
 
 // The DPO lab only teaches anything as long as every wrong variant stays bit-identical to the
@@ -9794,8 +9796,12 @@ console.log(`english render OK: ${englishStates} states across ${englishLabs} la
   // transformer-ledger left this list in v106: `a1:transformer_accounting` is 5 points and
   // the largest written problem in A1, its deliverable is a component breakdown rather than
   // one number, and no other lab carries that concept.
+  // rlvr-system-transfer left this list in v107: it is the only lab of `rlvr-systems`, which
+  // decides `a5:grpo_train_step_off_policy` (2.5 points), and A5 §6.4 prescribes numbers --
+  // 256 against 8, 32 steps, cliprange 0.2 against 3e-4, the clip fraction to log -- that no
+  // screen of the app computed.
   const LR_NO_STAGE = ["policy-loss-tracer",
-    "scaling-transfer", "moe-routing", "rlvr-system-transfer"];
+    "scaling-transfer", "moe-routing"];
   // One lab's branch of initLab, cut by balancing braces from `if(id==="<lab>")`.
   const lrBranch = labId => {
     const marker = source.indexOf(`if(id==="${labId}"){`);
@@ -12767,4 +12773,369 @@ ${sliceDeclaration(source, "piiCountTrap")}
   }
 
   console.log(`ddp schedule OK: ${drChecks} checks -- distributed-runtime (10 points) recomputed from the definition, with the ring cost walked one of its 2(d-1) rounds at a time where the app closes the form, the schedule replayed as an explicit list of busy intervals on the link (checked for overlap and for starting before their gradients exist) where the app runs a max(), and the xl parameter total rebuilt from a bill of materials rather than from P = 2VD + L(4D^2+3DF+2D) + D: at 1024 MiB inside the node S/T falls ${drSpread(1024, dr.DR_HW[0]).alg.toFixed(4)} % over the rank counts while the bus bandwidth falls ${drSpread(1024, dr.DR_HW[0]).bus.toFixed(4)} %, and at 1 MiB the bus bandwidth falls ${drSpread(1, dr.DR_HW[0]).bus.toFixed(4)} % as well because over four fifths of that time is latency -- so the flat reading is held in both directions rather than taught as a rule; the boundary S* = a*d*b is located by bisection over 10 hardware/rank pairs instead of read out of the algebra, and shown to be the same for a collective of 1, 2 or 7 rounds; of A2's two improvements to naive_ddp, flattening is worth ${drFlatGain.toFixed(4)} % of the exposed time and is exactly the latency of the ${nodeNaive.buckets - 1} calls it removes, while overlapping is worth ${drOverlapGain.toFixed(4)} % and moves not one byte less, leaving ${(nodeOverlap.exposed * 1000).toFixed(4)} ms that is bit-for-bit the embedding gradient's own all-reduce; between nodes the same overlap buys only ${drShare(clusterNaive, clusterOverlap).toFixed(4)} % because the capacity floor binds instead, and both floors are shown to be reached by some schedule rather than merely respected by all; PyTorch's 25 MiB cap is scanned against four other caps and leaves all ${dr.DR_TENSORS.filter(t => t.p > dr.DR_D).length} weight matrices in their own buckets, grouping nothing but the ${2 * dr.DR_L + 1} RMSNorm gains`);
+}
+
+// ---- clip fraction: the off-policy plan and the number A5 asks you to log ---------------------
+// `rlvr-system-transfer` is the only lab of `rlvr-systems`, which decides
+// a5:grpo_train_step_off_policy (2.5 points). Until v107 it was a three-question quiz mapping
+// Dr. GRPO, GSPO and the DPO inputs onto labels, and it computed nothing. A5 §6.4 prescribes
+// concrete numbers that no screen of the app used: rollout_batch_size = 256, train_batch_size = 8,
+// gradient_accumulation_steps = 1 ("32x off policy"), cliprange = 0.2 for token clipping and
+// 3e-4 for GSPO -- and grpo_experiments_off_policy asks for the clip fraction to be logged and
+// compared between the two methods. Before v107, "3e-4" appeared once in the app, as an SFT
+// learning rate, and "clip fraction" only as a glossary entry.
+//
+// Mode A is exact: the plan of one rollout batch. Mode B is a model and says so: one fixed
+// group whose token log ratios move by (k-1)*sigma*z with a fixed z. What the model is allowed
+// to claim is structural -- zero at step 1, zero when old_log_probs are recomputed, whole
+// responses clipped by GSPO, a shared cliprange switching GSPO's clipping off -- and every one of
+// those claims is held below in both directions.
+//
+// The route differs from the app's wherever it can. The app divides; the guard walks the
+// repeated_prompts list and cuts it into slices. The app writes p^8 + (1-p)^8; the guard runs
+// all 256 reward outcomes of a group through the advantage formula and keeps the ones that
+// leave every advantage exactly zero. The app compares log ratios against ln(1 +- eps); the guard
+// evaluates the two terms of the min and asks which one it picked, and builds GSPO's s as a
+// product of token ratios instead of an exp of a mean.
+{
+  const rsNames = ["RS_ROLLOUT", "RS_INNER", "RS_TRAIN", "RS_METHODS", "RS_ACCURACY", "RS_REWARDS",
+    "RS_LENGTHS", "RS_EPS_TOKEN", "RS_SIGMAS", "RS_STEPS", "RS_CONTRACTS", "rsFind", "rsNoise", "RS_Z",
+    "rsAdvantages", "rsPlan", "rsClip", "rsBatchMean", "rsRead", "rsStageMarkup"];
+  const rsPrelude = `${numberPrelude}const esc=value=>String(value);const localizedUi=value=>value;` +
+    rsNames.map(name => sliceDeclaration(source, name)).join("\n") + "\n";
+  const rs = runInNewContext(`${rsPrelude}; ({RS_ROLLOUT, RS_GROUP, RS_MICRO, RS_ROLLOUT_STEPS, RS_INNER, RS_TRAIN, RS_METHODS, RS_ACCURACY, RS_REWARDS, RS_LENGTHS, RS_EPS_TOKEN, RS_EPS_GSPO, RS_ADV_EPS, RS_SIGMAS, RS_STEPS, RS_CONTRACTS, RS_Z, rsAdvantages, rsPlan, rsClip, rsBatchMean})`, {});
+  const rsRender = binding => runInNewContext(`${rsPrelude}; rsStageMarkup(${JSON.stringify(binding)})`, {});
+  const rsFixed = (value, digits) => Number(value).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  const rsDe = (value, digits) => Number(value).toLocaleString("de-DE", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  let rsChecks = 0;
+  const rsFail = message => { throw new Error(`clip fraction: ${message}`); };
+  const rsEq = (a, b, what) => { if (a !== b) rsFail(`${what}: ${a} against ${b}`); rsChecks += 1; };
+  const rsClose = (a, b, tol, what) => { if (!(Math.abs(a - b) <= tol * Math.max(1, Math.abs(b)))) rsFail(`${what}: ${a} against ${b}`); rsChecks += 1; };
+  const rsTrue = (condition, what) => { if (!condition) rsFail(what); rsChecks += 1; };
+
+  // --- the handout's numbers, pinned ------------------------------------------------------------
+  // §4.3: rollout_batch_size = train_batch_size = 256, group_size = 8, gradient_accumulation_steps
+  // = 32 (so a microbatch of 8), num_rollout_steps = 200, sampling_max_tokens = 512, AdamW betas
+  // (0.9, 0.95), weight_decay 0.0. §6.4: train_batch_size = 8, accumulation 1, cliprange 0.2 for
+  // offpolicy_clip and 3e-4 for offpolicy_gspo. The signature: advantage_eps = 1e-6, and the four
+  // literals of importance_reweighting_method.
+  rsEq(rs.RS_ROLLOUT, 256, "rollout_batch_size");
+  rsEq(rs.RS_GROUP, 8, "group_size");
+  rsEq(rs.RS_MICRO, 256 / 32, "the microbatch of the on-policy run (256 over 32 accumulation steps)");
+  rsEq(rs.RS_ROLLOUT_STEPS, 200, "num_rollout_steps");
+  rsEq(rs.RS_INNER, 32, "32x off policy");
+  rsEq(rs.RS_EPS_TOKEN, 0.2, "cliprange of offpolicy_clip");
+  rsEq(rs.RS_EPS_GSPO, 3e-4, "cliprange of offpolicy_gspo");
+  rsEq(rs.RS_ADV_EPS, 1e-6, "advantage_eps");
+  rsEq(rs.RS_METHODS.map(entry => entry.key).join(","), "none,noclip,grpo,gspo", "the literals of importance_reweighting_method");
+  rsEq(rs.RS_METHODS.map(entry => entry.ratio).join(","), "false,true,true,true", "which methods need old_log_probs");
+  rsTrue(rs.RS_TRAIN.some(entry => entry.tb === 256) && rs.RS_TRAIN.some(entry => entry.tb === 8), "both train_batch_size values of the handout must be offered");
+  for (const entry of rs.RS_TRAIN) rsEq(Number(entry.label.split(" ")[0]), entry.tb, `the label of train_batch_size ${entry.key}`);
+  rsTrue(rs.RS_LENGTHS.every(length => Number.isInteger(length) && length > 0 && length <= 512), "every response length must fit sampling_max_tokens = 512");
+  rsEq(rs.RS_LENGTHS.length, rs.RS_REWARDS.length, "one length per reward");
+  rsEq(rs.RS_REWARDS.length, rs.RS_GROUP, "the model group is one group of group_size");
+  rsTrue(/0,2/u.test(rs.RS_METHODS[2].label) && /3·10⁻⁴/u.test(rs.RS_METHODS[3].label), "the grpo and gspo labels must name their own cliprange");
+
+  // --- route 1: the plan, by walking the list --------------------------------------------------
+  // repeated_prompts repeats each prompt group_size times in a row; slice it the way a training
+  // loop does and look at what each optimizer step actually receives.
+  const rsPrompts = Array.from({ length: 256 }, (_, index) => Math.floor(index / 8));
+  const rsWalk = tb => {
+    const slices = [];
+    for (let start = 0; start < rsPrompts.length; start += tb) slices.push(rsPrompts.slice(start, start + tb));
+    let complete = true, groups = null;
+    for (const slice of slices) {
+      const counts = new Map();
+      for (const prompt of slice) counts.set(prompt, (counts.get(prompt) || 0) + 1);
+      if ([...counts.values()].some(count => count !== 8)) complete = false;
+      if (groups === null) groups = counts.size; else if (groups !== counts.size) complete = false;
+    }
+    // One pass through the slices, one update per slice; the data of a step is as old as the
+    // number of updates made since old_log_probs were frozen.
+    let updates = 0;
+    const staleness = slices.map(() => updates++);
+    // Every response goes through the microbatches of its step exactly once.
+    let micro = 0;
+    for (const slice of slices) for (let start = 0; start < slice.length; start += 8) micro++;
+    return { steps: slices.length, complete, groups: complete ? groups : null, staleness, micro, slices };
+  };
+  // All 256 outcomes of a group of eight binary rewards, run through the advantage formula.
+  const rsAdv = (rewards, normalizer) => {
+    const n = rewards.length, mean = rewards.reduce((a, b) => a + b, 0) / n;
+    const sd = Math.sqrt(rewards.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1));
+    const scale = normalizer === "std" ? sd + 1e-6 : normalizer === "mean" ? mean + 1e-6 : 1;
+    return rewards.map(r => (r - mean) / scale);
+  };
+  const rsSilent = (p, normalizer) => {
+    let mass = 0;
+    for (let mask = 0; mask < 256; mask++) {
+      const rewards = Array.from({ length: 8 }, (_, bit) => (mask >> bit) & 1);
+      const correct = rewards.reduce((a, b) => a + b, 0);
+      if (rsAdv(rewards, normalizer).every(value => value === 0)) mass += p ** correct * (1 - p) ** (8 - correct);
+    }
+    return mass;
+  };
+  // Silence means exactly the uniform groups, under every normalizer that keeps the mean baseline.
+  for (const normalizer of ["std", "none", "mean"])
+    for (let mask = 0; mask < 256; mask++) {
+      const rewards = Array.from({ length: 8 }, (_, bit) => (mask >> bit) & 1);
+      const uniform = mask === 0 || mask === 255;
+      rsEq(rsAdv(rewards, normalizer).every(value => value === 0), uniform, `zero advantages for outcome ${mask} under ${normalizer}`);
+    }
+  const planKeys = ["prompts", "steps", "accum", "groups", "epochs", "total", "micro", "stale", "fresh", "old", "uniform", "empty", "emptySteps"];
+  let rsPlanStates = 0;
+  for (const train of rs.RS_TRAIN) {
+    const walked = rsWalk(train.tb);
+    for (const method of rs.RS_METHODS) for (const p of rs.RS_ACCURACY) {
+      const plan = rs.rsPlan(train.tb, method.key, p);
+      rsEq(plan.steps, walked.steps, `steps at ${train.tb}`);
+      rsEq(plan.valid, walked.complete, `whether ${train.tb} cuts on group boundaries`);
+      const html = rsRender({ rsMode: "plan", rsTrain: train.key, rsMethod: method.key, rsAcc: String(p) });
+      rsPlanStates++;
+      if (!walked.complete) {
+        // Half a group per call: the stage must refuse, not print a schedule.
+        rsTrue(html.includes("Dieser Plan lässt sich mit der empfohlenen Schnittstelle nicht bauen."), `train_batch_size ${train.tb} must be refused`);
+        rsTrue(!/data-rsplan="(empty|stale|fresh|uniform)"/u.test(html), `a refused plan must print no schedule rows (${train.tb})`);
+        rsTrue(walked.slices.some(slice => new Set(slice).size * 8 !== slice.length), `the walk must show a cut group at ${train.tb}`);
+        continue;
+      }
+      rsEq(plan.groups, walked.groups, `groups per step at ${train.tb}`);
+      rsEq(plan.staleMax, Math.max(...walked.staleness), `oldest step at ${train.tb}`);
+      rsClose(plan.staleMean, walked.staleness.reduce((a, b) => a + b, 0) / walked.steps, 1e-12, `mean staleness at ${train.tb}`);
+      rsClose(plan.ratioOne, walked.staleness.filter(value => value === 0).length / walked.steps, 1e-12, `share of fresh steps at ${train.tb}`);
+      let total = 0;
+      for (let rollout = 0; rollout < 200; rollout++) total += walked.steps;
+      rsEq(plan.optimizerSteps, total, `optimizer steps over the run at ${train.tb}`);
+      rsEq(plan.micro, walked.micro, `microbatches per rollout batch at ${train.tb}`);
+      // Cost in forward units: a microbatch costs 1 forward and 2 backward; old_log_probs add one
+      // no-grad forward per microbatch, and only for the methods that use a ratio.
+      const trainCost = walked.micro * (1 + 2), oldCost = method.ratio ? walked.micro : 0;
+      rsClose(plan.extraCost, oldCost / trainCost, 1e-12, `extra cost of ${method.key}`);
+      const silent = rsSilent(p, "std");
+      rsClose(plan.uniform, silent, 1e-12, `uniform-group probability at p=${p}`);
+      let empty = 1;
+      for (let group = 0; group < walked.groups; group++) empty *= silent;
+      rsClose(plan.empty, empty, 1e-9, `empty-step probability at ${train.tb}, p=${p}`);
+      rsClose(plan.emptySteps, walked.steps * empty, 1e-9, `expected empty steps at ${train.tb}, p=${p}`);
+      // Every printed cell of the plan, against the walk.
+      const cell = key => { const hit = html.match(new RegExp(`data-rsplan="${key}"[^>]*>([^<]*)<`, "u")); if (!hit) rsFail(`no ${key} cell at ${train.tb}/${method.key}/${p}`); return hit[1]; };
+      const printed = planKeys.filter(key => html.includes(`data-rsplan="${key}"`));
+      rsEq(printed.length, planKeys.length, `all plan cells at ${train.tb}`);
+      rsEq((html.match(/data-rsplan=/gu) || []).length, planKeys.length, `no extra plan cell at ${train.tb}`);
+      rsEq(cell("steps"), `256 / ${train.tb} = ${rsFixed(walked.steps, 0)}`, `steps cell at ${train.tb}`);
+      rsEq(cell("groups"), rsFixed(walked.groups, 0), `groups cell at ${train.tb}`);
+      rsEq(cell("prompts"), `256 / 8 = ${rsFixed(new Set(rsPrompts).size, 0)}`, "prompts cell");
+      rsEq(cell("accum"), `${train.tb} / 8 = ${rsFixed(walked.slices[0].length / 8, 0)}`, `accumulation cell at ${train.tb}`);
+      rsTrue(cell("micro").startsWith(`256 / 8 = ${rsFixed(walked.micro, 0)} · `), `microbatch cell at ${train.tb}`);
+      rsEq(cell("total"), `200 · ${rsFixed(walked.steps, 0)} = ${rsFixed(total, 0)}`, `total cell at ${train.tb}`);
+      rsTrue(cell("stale").includes(`${rsFixed(Math.max(...walked.staleness), 0)} · `) && cell("stale").endsWith(rsFixed(plan.staleMean, 1)), `staleness cell at ${train.tb}`);
+      rsTrue(cell("fresh").endsWith(`${rsFixed(100 / walked.steps, 4)} %`), `fresh cell at ${train.tb}`);
+      rsTrue(cell("uniform").endsWith(`${rsFixed(silent * 100, 4)} %`), `uniform cell at p=${p}`);
+      rsTrue(cell("empty").endsWith(`${rsFixed(empty * 100, 4)} %`), `empty cell at ${train.tb}, p=${p}`);
+      rsTrue(cell("emptySteps").endsWith(rsFixed(walked.steps * empty, 4)), `empty-steps cell at ${train.tb}, p=${p}`);
+      if (method.ratio) rsTrue(cell("old").startsWith(`${rsFixed(walked.micro, 0)} · +${rsFixed(100 * oldCost / trainCost, 4)} %`), `old_log_probs cell of ${method.key}`);
+      else rsTrue(!/\d/u.test(cell("old")), "offpolicy_naive must print no old_log_probs cost");
+      // The note under the staleness rows: on-policy says the methods coincide, off-policy that
+      // only the first step is fresh -- and neither may be printed in the other's place.
+      rsEq(html.includes("Kein On-Policy-Lauf kann die vier Methoden unterscheiden."), walked.steps === 1, `the on-policy note at ${train.tb}`);
+      rsEq(html.includes("Bei train_batch_size = group_size enthält jeder Schritt genau eine Promptgruppe"), walked.groups === 1, `the one-group note at ${train.tb}`);
+    }
+  }
+  // The lab card's own figures for the handout's run.
+  const rsLab = base.labs.find(entry => entry.id === "rlvr-system-transfer");
+  rsEq(rs.rsPlan(8, "grpo", 0.5).optimizerSteps, 6400, "6,400 optimizer steps at train_batch_size 8");
+  rsTrue(rsLab.observe.includes("6.400 Optimizer-Schritte über den ganzen Lauf statt 200"), "the observe text must quote 6.400 against 200");
+
+  // AdamW with a zero gradient still moves the parameter: the claim the one-group note makes.
+  // torch.optim.AdamW, betas (0.9, 0.95), eps 1e-8, weight_decay 0.0 as in §4.3.
+  {
+    let theta = 1, m = 0, v = 0;
+    const lr = 1e-5, b1 = 0.9, b2 = 0.95, eps = 1e-8;
+    const step = (grad, t) => { m = b1 * m + (1 - b1) * grad; v = b2 * v + (1 - b2) * grad * grad; const mh = m / (1 - b1 ** t), vh = v / (1 - b2 ** t); const before = theta; theta -= lr * mh / (Math.sqrt(vh) + eps); return theta - before; };
+    step(0.5, 1);
+    const moved = step(0, 2);
+    rsTrue(moved !== 0 && Math.abs(moved) > 1e-7, `AdamW must move on a zero gradient after a nonzero one (moved ${moved})`);
+    rsTrue(source.includes("AdamW bewegt die Parameter mit β₁ = 0,9 weiter aus seinem Momentum"), "the note must name β₁ = 0,9");
+  }
+
+  // --- route 2: the clip fraction, through the min itself ----------------------------------------
+  // The noise is the fixed pattern the stage names: mulberry32 from seed 336, Box-Muller pairs.
+  {
+    let state = 336;
+    const uniform = () => { state |= 0; state = state + 0x6D2B79F5 | 0; let t = Math.imul(state ^ state >>> 15, 1 | state); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+    const all = [];
+    rs.RS_LENGTHS.forEach((length, j) => {
+      const z = [];
+      while (z.length < length) { const u = 1 - uniform(), w = uniform(), r = Math.sqrt(-2 * Math.log(u)); z.push(r * Math.cos(2 * Math.PI * w)); if (z.length < length) z.push(r * Math.sin(2 * Math.PI * w)); }
+      rsEq(rs.RS_Z[j].length, length, `pattern length of response ${j + 1}`);
+      z.forEach((value, t) => { if (value !== rs.RS_Z[j][t]) rsFail(`pattern value ${j + 1}/${t} is not the seed-336 draw`); });
+      all.push(...z);
+      rsChecks += 1;
+    });
+    const mean = all.reduce((a, b) => a + b, 0) / all.length, variance = all.reduce((a, b) => a + (b - mean) ** 2, 0) / all.length;
+    rsTrue(Math.abs(mean) < 0.05 && variance > 0.9 && variance < 1.1, `the pattern must be standard normal (mean ${mean}, variance ${variance})`);
+  }
+  const rsGroupAdv = rsAdv(rs.RS_REWARDS, "std");
+  rs.rsAdvantages().adv.forEach((value, j) => rsClose(value, rsGroupAdv[j], 1e-12, `advantage ${j + 1}`));
+  // The objective route: evaluate both terms of the min and see which one it takes.
+  const rsTakesClipped = (adv, ratio, eps) => { const free = adv * ratio, clipped = adv * Math.min(Math.max(ratio, 1 - eps), 1 + eps); return Math.min(free, clipped) < free; };
+  const rsWalkClip = (k, sigma, contract) => {
+    const epsG = contract === "gspo02" ? 0.2 : 3e-4, scale = contract === "recompute" ? 0 : (k - 1) * sigma;
+    let tokens = 0, clipped = 0, outside = 0, gspoTokens = 0, gspoSeq = 0;
+    const perRow = rs.RS_Z.map((z, j) => {
+      let product = 1, rowClipped = 0, rowOutside = 0;
+      for (const value of z) {
+        const ratio = Math.exp(scale * value);
+        product *= ratio;
+        if (rsTakesClipped(rsGroupAdv[j], ratio, 0.2)) rowClipped++;
+        if (ratio > 1.2 || ratio < 0.8) rowOutside++;
+      }
+      const s = product ** (1 / z.length), gspo = rsTakesClipped(rsGroupAdv[j], s, epsG);
+      tokens += z.length; clipped += rowClipped; outside += rowOutside;
+      if (gspo) { gspoTokens += z.length; gspoSeq++; }
+      return { s, gspo, clipped: rowClipped, outside: rowOutside };
+    });
+    return { tokens, clipped, outside, gspoTokens, gspoSeq, perRow, token: clipped / tokens, gspo: gspoTokens / tokens };
+  };
+  const rsTable = {};
+  for (const sigma of rs.RS_SIGMAS) for (const contract of rs.RS_CONTRACTS) {
+    const series = [];
+    for (let k = 1; k <= 32; k++) {
+      const walked = rsWalkClip(k, sigma.sigma, contract.key), app = rs.rsClip(k, sigma.sigma, contract.key);
+      rsEq(app.tokens, walked.tokens, "token count");
+      rsEq(app.clippedTok, walked.clipped, `grpo clipped tokens at ${sigma.key}/${contract.key}/k=${k}`);
+      rsEq(app.outsideTok, walked.outside, `tokens outside the band at ${sigma.key}/${contract.key}/k=${k}`);
+      rsEq(app.gspoSeq, walked.gspoSeq, `gspo clipped responses at ${sigma.key}/${contract.key}/k=${k}`);
+      rsClose(app.gspoTokens, walked.gspo, 1e-12, `gspo token share at ${sigma.key}/${contract.key}/k=${k}`);
+      walked.perRow.forEach((row, j) => { rsClose(app.rows[j].s, row.s, 1e-9, `s of response ${j + 1}`); rsEq(app.rows[j].gspo, row.gspo, `gspo decision of response ${j + 1}`); });
+      series.push(walked);
+    }
+    rsTable[`${sigma.key}/${contract.key}`] = series;
+    const mean = rs.rsBatchMean(sigma.sigma, contract.key);
+    rsClose(mean.token, series.reduce((a, b) => a + b.token, 0) / 32, 1e-12, `logged grpo mean at ${sigma.key}/${contract.key}`);
+    rsClose(mean.gspo, series.reduce((a, b) => a + b.gspo, 0) / 32, 1e-12, `logged gspo mean at ${sigma.key}/${contract.key}`);
+  }
+  // Both directions of every structural claim.
+  for (const sigma of rs.RS_SIGMAS) {
+    const handout = rsTable[`${sigma.key}/handout`], wide = rsTable[`${sigma.key}/gspo02`], fresh = rsTable[`${sigma.key}/recompute`];
+    // Step 1 is fresh under every contract; recomputed old_log_probs keep every step fresh.
+    for (const series of [handout, wide, fresh]) rsTrue(series[0].clipped === 0 && series[0].outside === 0 && series[0].gspoSeq === 0, `step 1 must clip nothing at ${sigma.key}`);
+    rsTrue(fresh.every(row => row.clipped === 0 && row.outside === 0 && row.gspoSeq === 0), `recomputed old_log_probs must clip nothing at ${sigma.key}`);
+    rsTrue(handout.some(row => row.gspoSeq > 0), `the handout contract must clip somewhere at ${sigma.key} -- otherwise "zero" proves nothing`);
+    // Staleness only ever adds clipping under a linear drift.
+    for (let k = 1; k < 32; k++) rsTrue(handout[k].clipped >= handout[k - 1].clipped && handout[k].gspoSeq >= handout[k - 1].gspoSeq, `clipping must not fall with staleness at ${sigma.key}, k=${k + 1}`);
+    // One-sidedness is visible: outside the band is never less than clipped, and more somewhere.
+    rsTrue(handout.every(row => row.outside >= row.clipped), `outside must bound clipped at ${sigma.key}`);
+    // GSPO clips whole responses: its token count is a sum of whole lengths.
+    for (const row of handout) rsEq(row.perRow.reduce((a, r, j) => a + (r.gspo ? rs.RS_LENGTHS[j] : 0), 0), row.gspoTokens, `gspo clips whole responses at ${sigma.key}`);
+    // A shared cliprange: GSPO never clips, token clipping is untouched.
+    rsTrue(wide.every(row => row.gspoSeq === 0), `gspo with cliprange 0.2 must never clip at ${sigma.key}`);
+    for (let k = 0; k < 32; k++) rsEq(wide[k].clipped, handout[k].clipped, `the gspo02 contract must not change grpo at ${sigma.key}`);
+    // "weit mehr": at every drift, the logged gspo fraction exceeds grpo's tenfold.
+    const mean = rs.rsBatchMean(sigma.sigma, "handout");
+    rsTrue(mean.gspo > 10 * mean.token, `gspo must log far more clipping than grpo at ${sigma.key} (${mean.gspo} against ${mean.token})`);
+  }
+  rsTrue(rs.RS_SIGMAS.some(sigma => rsTable[`${sigma.key}/handout`].some(row => row.outside > row.clipped)), "some state must show tokens outside the band that the min does not clip");
+  rsTrue(rs.RS_SIGMAS.some(sigma => rsTable[`${sigma.key}/handout`][31].clipped > 0), "some drift must make grpo clip by step 32");
+  for (let index = 1; index < rs.RS_SIGMAS.length; index++)
+    for (let k = 0; k < 32; k++) rsTrue(rsTable[`${rs.RS_SIGMAS[index].key}/handout`][k].clipped >= rsTable[`${rs.RS_SIGMAS[index - 1].key}/handout`][k].clipped, `grpo must not clip less under stronger drift (k=${k + 1})`);
+  // The stage explains GSPO's tiny eps by averaging (~1/sqrt L) and claims 3e-4 is tighter still.
+  for (const length of rs.RS_LENGTHS) rsTrue(0.2 / Math.sqrt(length) > 3e-4, `0.2/sqrt(${length}) must exceed 3e-4`);
+
+  // --- every printed cell of mode B ----------------------------------------------------------------
+  let rsClipStates = 0;
+  for (const sigma of rs.RS_SIGMAS) for (const contract of rs.RS_CONTRACTS) for (const k of rs.RS_STEPS) {
+    const html = rsRender({ rsMode: "clip", rsSigma: sigma.key, rsStep: String(k), rsContract: contract.key });
+    rsClipStates++;
+    const walked = rsTable[`${sigma.key}/${contract.key}`][k - 1];
+    const keyed = (attribute, key) => { const hit = html.match(new RegExp(`data-${attribute}="${key}"[^>]*>([^<]*)<`, "u")); if (!hit) rsFail(`no ${attribute}=${key} cell`); return hit[1].replace(" ★", ""); };
+    rsEq((html.match(/data-rsrow=/gu) || []).length, 8, "one row per response");
+    rsEq((html.match(/data-rsladder=/gu) || []).length, rs.RS_STEPS.length, "one ladder row per offered step");
+    rsEq((html.match(/data-rsfrac=/gu) || []).length, 3, "three clip-fraction cells");
+    rsEq((html.match(/data-rsmean=/gu) || []).length, 1, "one logged mean");
+    rsEq(keyed("rsfrac", "token"), `${rsFixed(walked.clipped, 0)} / ${rsFixed(walked.tokens, 0)} = ${rsFixed(100 * walked.token, 4)} %`, `grpo cell at ${sigma.key}/${contract.key}/k=${k}`);
+    rsEq(keyed("rsfrac", "outside"), `${rsFixed(walked.outside, 0)} / ${rsFixed(walked.tokens, 0)} = ${rsFixed(100 * walked.outside / walked.tokens, 4)} %`, `outside cell at ${sigma.key}/${contract.key}/k=${k}`);
+    rsEq(keyed("rsfrac", "gspo"), `${walked.gspoSeq} von 8 Antworten · ${rsFixed(100 * walked.gspo, 2)} %`, `gspo cell at ${sigma.key}/${contract.key}/k=${k}`);
+    // The header row and the row labels: rewards, their mean and spread, and per response the
+    // reward, advantage and length the counts are made of.
+    {
+      const rewards = rs.RS_REWARDS, mu = rewards.reduce((a, b) => a + b, 0) / 8;
+      const sd = Math.sqrt(rewards.reduce((a, b) => a + (b - mu) ** 2, 0) / 7);
+      rsTrue(html.includes(`[${rewards.join(", ")}] → μ = ${rsFixed(mu, 4)} · σ_r = ${rsFixed(sd, 6)}`), "the reward header");
+    }
+    const rsSci = value => { if (value === 0) return "0"; let exponent = 0, mantissa = Math.abs(value); while (mantissa >= 10) { mantissa /= 10; exponent++; } while (mantissa < 1) { mantissa *= 10; exponent--; } return `${value < 0 ? "-" : ""}${rsFixed(mantissa, 4)}·10^${exponent}`; };
+    walked.perRow.forEach((row, j) => {
+      const label = `Antwort ${j + 1} · r = ${rs.RS_REWARDS[j]} · A = ${rsFixed(rsGroupAdv[j], 4)} · L = ${rsFixed(rs.RS_LENGTHS[j], 0)}</span><strong data-rsrow="${j}"`;
+      rsTrue(html.includes(label), `the label of response ${j + 1}`);
+      const scale = contract.key === "recompute" ? 0 : (k - 1) * sigma.sigma;
+      const meanDelta = rs.RS_Z[j].reduce((a, value) => a + scale * value, 0) / rs.RS_LENGTHS[j];
+      rsTrue(keyed("rsrow", String(j)).startsWith(`Σδ/L = ${rsSci(meanDelta)} · `), `Σδ/L of response ${j + 1} at ${sigma.key}/${contract.key}/k=${k}: ${keyed("rsrow", String(j)).slice(0, 30)} against ${rsSci(meanDelta)}`);
+      const text = keyed("rsrow", String(j));
+      rsTrue(text.includes(`s = ${rsFixed(row.s, 6)}`), `s of response ${j + 1} at ${sigma.key}/${contract.key}/k=${k}`);
+      rsTrue(text.includes(row.gspo ? "GSPO clippt die ganze Antwort" : "GSPO frei"), `gspo verdict of response ${j + 1}`);
+      rsTrue(text.includes(`Token außerhalb des Bandes ${rsFixed(row.outside, 0)} · vom min geclippt ${rsFixed(row.clipped, 0)}`), `token counts of response ${j + 1}`);
+    });
+    for (const step of rs.RS_STEPS) {
+      const row = rsTable[`${sigma.key}/${contract.key}`][step - 1];
+      rsEq(keyed("rsladder", String(step)), `grpo ${rsFixed(100 * row.token, 4)} % · gspo ${rsFixed(100 * row.gspo, 2)} %`, `ladder row ${step}`);
+    }
+    const series = rsTable[`${sigma.key}/${contract.key}`];
+    rsEq(keyed("rsmean", "1"), `grpo ${rsFixed(100 * series.reduce((a, b) => a + b.token, 0) / 32, 4)} % · gspo ${rsFixed(100 * series.reduce((a, b) => a + b.gspo, 0) / 32, 2)} %`, `logged mean at ${sigma.key}/${contract.key}`);
+    // The GSPO band printed must be the one the contract uses.
+    // ln(1 + eps) written out by hand for both contracts: 1.8232e-1 for 0.2, 2.9996e-4 for 3e-4.
+    const upper = contract.key === "gspo02" ? "1.8232·10^-1" : "2.9996·10^-4", lower = contract.key === "gspo02" ? "-2.2314·10^-1" : "-3.0005·10^-4";
+    rsTrue(keyed("rsband", "gspo").includes(`Σδ/L > ${upper}`) && keyed("rsband", "gspo").includes(`Σδ/L &lt; ${lower}`), `gspo band at ${contract.key}: ${keyed("rsband", "gspo")}`);
+    rsTrue(keyed("rsband", "token").includes(`δ > ${rsFixed(Math.log(1.2), 6)}`) && keyed("rsband", "token").includes(`δ &lt; ${rsFixed(Math.log(0.8), 6)}`), "token band");
+  }
+  // The misconception quotes the logged means at the default drift; they have to be those.
+  {
+    const defaults = rs.rsBatchMean(rs.RS_SIGMAS.find(entry => entry.key === "s3").sigma, "handout");
+    rsTrue(rsLab.misconception.includes(`grpo über einen Rollout-Batch gemittelt ${rsDe(100 * defaults.token, 4)} % und gspo ${rsDe(100 * defaults.gspo, 2)} %`), "the misconception must quote the logged means of the default drift");
+    rsTrue(source.includes('<option value="${entry.key}" ${entry.key==="s3"?"selected":""}>'), "the default drift must be the one the misconception quotes");
+  }
+
+  // --- the answer key is a claim, and each accepted answer is checked against the arithmetic -------
+  {
+    const markup = sliceDeclaration(source, "rlvrSystemMarkup"), checker = sliceDeclaration(source, "checkRlvrSystem");
+    const accepted = checker.match(/group==="(\w+)"&&more==="(\w+)"&&wide==="(\w+)"/u);
+    if (!accepted) rsFail("the checker's accepted triple is not readable");
+    const [, group, more, wide] = accepted;
+    const options = id => [...(markup.match(new RegExp(`id="${id}">([\\s\\S]*?)</select>`, "u")) || [, ""])[1].matchAll(/<option value="(\w+)">/gu)].map(hit => hit[1]);
+    rsEq(options("rsCheckGroup").join(","), "oneGroup,eightPrompts,shuffled", "the options of question 1");
+    rsEq(options("rsCheckMore").join(","), "average,product,typo", "the options of question 2");
+    rsEq(options("rsCheckWide").join(","), "zero,same,all", "the options of question 3");
+    // Question 1: at 8 every slice is one whole prompt -- not eight prompts, not a shuffle.
+    const eight = rsWalk(8);
+    const truth1 = eight.slices.every(slice => new Set(slice).size === 1) ? "oneGroup" : new Set(eight.slices[0]).size === 8 ? "eightPrompts" : "shuffled";
+    rsEq(group, truth1, "the accepted answer to question 1");
+    // Question 2: GSPO logs far more, and what it clips are whole responses.
+    // "A mean in which the token noise averages out": at the stalest step every response's
+    // |ln s| sits far below the spread of its own token log ratios, and ln s is the sum of the
+    // log ratios divided by L -- not the sum itself, which is what the "product" answer claims.
+    const averaging = rs.RS_SIGMAS.every(sigma => {
+      const logged = rs.rsBatchMean(sigma.sigma, "handout");
+      if (!(logged.gspo > logged.token)) return false;
+      const last = rsTable[`${sigma.key}/handout`][31];
+      return rs.RS_Z.every((z, j) => {
+        const deltas = z.map(value => 31 * sigma.sigma * value), sum = deltas.reduce((a, b) => a + b, 0);
+        const rms = Math.sqrt(deltas.reduce((a, b) => a + b * b, 0) / deltas.length);
+        return Math.abs(Math.log(last.perRow[j].s)) < rms / 2 && Math.abs(Math.log(last.perRow[j].s) - sum / z.length) < 1e-9 && Math.abs(sum) > Math.abs(sum / z.length) * 50;
+      });
+    });
+    rsEq(more, averaging ? "average" : "product", "the accepted answer to question 2");
+    // Question 3: a shared cliprange leaves gspo at zero, while grpo does clip somewhere.
+    const wideZero = rs.RS_SIGMAS.every(sigma => rsTable[`${sigma.key}/gspo02`].every(row => row.gspoSeq === 0));
+    const grpoMoves = rs.RS_SIGMAS.some(sigma => rsTable[`${sigma.key}/gspo02`].some(row => row.clipped > 0));
+    rsEq(wide, wideZero && grpoMoves ? "zero" : "same", "the accepted answer to question 3");
+    // The reveal must fill in the same triple the checker accepts.
+    const reveal = source.match(/\["rsCheckGroup","rsCheckMore","rsCheckWide"\]\.forEach\(\(x,index\)=>\{[^}]*\}\);?\s*[^;]*?\["(\w+)","(\w+)","(\w+)"\]\[index\]/u)
+      || source.match(/\["rsCheckGroup","rsCheckMore","rsCheckWide"\][\s\S]{0,160}?\["(\w+)","(\w+)","(\w+)"\]\[index\]/u);
+    if (!reveal) rsFail("the reveal of the short check is not readable");
+    rsEq(reveal.slice(1, 4).join(","), [group, more, wide].join(","), "the reveal against the checker");
+  }
+
+  // The lab left the no-stage list; its old quiz must not survive in the objective map.
+  rsTrue(!/"rlvr-system-transfer":\s*\{\s*de:\{title:"A5 Varianten- und Systemvertrag"/u.test(source), "the old quiz must be gone");
+
+  console.log(`clip fraction OK: ${rsChecks} checks -- rlvr-system-transfer (2.5 points) recomputed from the definition: the plan by walking repeated_prompts slice by slice over ${rsPlanStates} states (at train_batch_size 8 every one of the 32 steps is exactly one prompt group, 6,400 optimizer steps against 200, and 4 is refused because it cuts a group), the silent step by running all 256 reward outcomes of a group through the advantage formula (${rsFixed(100 * rsSilent(0.5, "std"), 4)} % at p = 0.5, ${rsFixed(100 * rsSilent(0.9, "std"), 4)} % at p = 0.9) plus an AdamW step that still moves on a zero gradient; the clip fraction by evaluating both terms of the min at every token of 32 steps x 3 drifts x 3 contracts, GSPO's s built as a product of ratios, the noise re-drawn from seed 336, and ${rsClipStates} rendered states read back cell by cell -- the logged mean at the default drift is grpo ${rsFixed(100 * rs.rsBatchMean(0.003, "handout").token, 4)} % against gspo ${rsFixed(100 * rs.rsBatchMean(0.003, "handout").gspo, 2)} %, a shared cliprange of 0.2 leaves gspo at zero at every step, and recomputed old_log_probs leave both at zero`);
 }
