@@ -2717,6 +2717,27 @@ window.CS336_EN = Object.freeze({
       "check": "Which exponential arguments arise after stabilization, and why can they not overflow?",
       "answer": "After stabilization, the exponents are zⱼ−m and are all less than or equal to zero; at least one is exactly zero. Their exponential values thus lie in (0,1], avoiding overflow."
     },
+    "compression-ratio": {
+      "cat": "Tokenization",
+      "title": "Compression Ratio: Bytes per Token",
+      "read": "Count the UTF-8 bytes of the text, count the tokens your tokenizer splits it into, and divide the first by the second.",
+      "purpose": "Converts between the two units this course counts in: text is measured in bytes, training in tokens. Every statement about data volume, file size, context window, or training budget goes through this one division.",
+      "dims": "r has units of bytes per token. With a byte-level tokenizer every token consists of at least one byte, so r ≥ 1; a larger r means a shorter sequence for the same text. S/num_bytes, by contrast, is a pure ratio: below one the token file is smaller than the raw text, above one it is larger.",
+      "vars": [
+        ["num_bytes","Length of the text in UTF-8 bytes, i.e. len(bytes(string, \"utf-8\")). Not the number of characters: in pure ASCII the two agree, otherwise never."],
+        ["num_tokens","Length of the token sequence after encoding, i.e. len(indices). It depends on the tokenizer, not on the text alone."],
+        ["r","Compression ratio in bytes per token. Lecture 1 computes it in get_compression_ratio as num_bytes / num_tokens."],
+        ["V","Vocabulary size. For byte-level BPE it is 256 plus the number of learned merges; the requested size is only an upper bound."],
+        ["Held-out text","Text the tokenizer was not trained on. Only there is r a statement about new text."],
+        ["S","Size of the serialized token file in bytes. As uint16 every token occupies 2 bytes, so S = 2·num_tokens."],
+        ["uint16","Unsigned 16-bit integer. It represents the values 0 to 65535 and therefore carries exactly 65536 token IDs — the reason A1 proposes it for vocabularies of 10000 and 32000."]
+      ],
+      "intuition": "A tokenizer is a compressor: it collapses frequent byte sequences into one symbol each. r counts how many bytes such a symbol carries on average. A merge is therefore worth it exactly when it raises r — and because every further merge catches a rarer pair, r grows with the vocabulary, but ever more slowly.",
+      "pitfall": "r is not a property of the tokenizer but of the pair of tokenizer and text. The same byte tokenizer yields exactly 1.0000 on every text; the same character tokenizer yields 1.0000 on pure ASCII and 3.0000 on Chinese text. This is exactly why A1 part (b) asks for the same tokenizer on a foreign corpus: the number drops without anything about the tokenizer having changed. Likewise a token file that is larger than its raw text looks like a bug and is none: it grows exactly when r < 2.",
+      "example": "Lecture 1's own string “Hello, 🌍! 你好!” has 13 characters but 20 UTF-8 bytes: 7 for “Hello, ”, 4 for the emoji, 2 for “! ”, 3 each for 你 and 好, and 1 for the final “!”. (1) The byte tokenizer produces one token per byte, so 20 tokens: r = 20/20 = 1.0000 — exactly the number Lecture 1 pins down with an assert at this point. (2) The character tokenizer produces one token per character, so 13 tokens: r = 20/13 ≈ 1.5385. (3) Read backwards, the same formula is a volume calculation: a corpus of 1 GB of text yields exactly 250 million tokens at r = 4 and therefore a uint16 file of 500 MB, i.e. 2/4 = 0.5000× the raw text; at r = 1.5 it is 666.67 million tokens, 1333.33 MB, and 2/1.5 ≈ 1.3333× — the same amount of data, and the file is now larger than the text.",
+      "check": "A tokenizer reaches r = 4.1 on English text and r = 1.9 on Chinese text of the same content. Whose property is this difference — and what follows from it for two training runs with the same token budget?",
+      "answer": "The difference belongs to neither of them alone but to the pair: the same tokenizer meets text whose characters cost different numbers of bytes in UTF-8, and whose frequent byte sequences it has learned to different degrees. A Chinese character occupies three bytes; if the tokenizer has learned no merges for those sequences, it falls apart into several tokens and r drops. For two training runs with the same token budget it follows that they have not seen the same amount of text. At r = 4.1 there are 410 MB of text behind 100 million tokens, at r = 1.9 only 190 MB — that is 53.66 % less. A loss measured per token then counts in different units, and comparing the two numbers is valid only once it has been converted through each run's compression ratio."
+    },
     "autoregressive": {
       "cat": "Language Model",
       "title": "Autoregressive Factorization",
@@ -4305,6 +4326,45 @@ window.CS336_EN = Object.freeze({
       "check": "Why is the Readout standard-deviation factor 1/r rather than 1/r²?",
       "aliases": "mup maximum update parametrization width transfer initialization adam learning rate wsd",
       "answer": "The formula specifies Readout variance with factor 1/r². Standard deviation is the square root of variance, so sqrt(1/r²)=1/r for positive width ratio r. Using 1/r² as the standard deviation would incorrectly scale variance by 1/r⁴."
+    },
+    "corpus-throughput": {
+      "cat": "Data",
+      "title": "Throughput and Extrapolation to the Full Corpus",
+      "read": "Measure on a sample how many bytes pass through per second, and divide the total volume by that rate.",
+      "purpose": "Answers the question both A1 and A4 ask: how long does this step take on the complete corpus? A rate measured on a small sample becomes a defensible runtime for 825 GB or an entire Common Crawl dump.",
+      "dims": "v has units of bytes per second, B bytes, t seconds. The units cancel to a time — which presumes that sample and total are counted in the same unit.",
+      "vars": [
+        ["B_sample","Size of the sample in bytes that you actually measured on."],
+        ["t_sample","Measured runtime on that sample, in seconds."],
+        ["v","Throughput in bytes per second. A1 explicitly requires it as your own estimate."],
+        ["B_total","Size of the target corpus in bytes, e.g. 825 GB for The Pile."],
+        ["t","Extrapolated runtime on one worker."],
+        ["w","Number of processes or machines working in parallel."]
+      ],
+      "intuition": "The extrapolation assumes that every further byte is as expensive as the measured ones. That holds as long as the work per document stays the same, and it fails as soon as a step depends on memory or looks at the whole corpus at once — exact deduplication, for instance, grows faster than linearly and cannot be extrapolated with this formula.",
+      "pitfall": "The sample must contain the same work as the rest. Measuring on tidy text and extrapolating to raw WET files measures the wrong rate. The second mistake is w: a second process halves the time only as long as disk, network, and memory do not bind first — and a speedup near w is a claim to be checked at two measurement points rather than assumed.",
+      "example": "A1 asks how long your tokenizer needs for The Pile with 825 GB of text. (1) You measure 10 MB in 10 seconds, so v = 10·10⁶/10 = 1·10⁶ bytes per second, 1 MB/s. (2) Extrapolated: t = 825·10⁹/1·10⁶ = 825000 seconds, i.e. 229.17 hours or 9.549 days on one core. (3) With w = 16 processes it is 0.597 days, a good 14 hours — the same calculation answers A4's question about the runtime of the filtering run on the complete Common Crawl dump.",
+      "check": "You measure your filter on 100 WET files and extrapolate linearly to all 2500. At which step of your pipeline does this extrapolation break down, and why?",
+      "answer": "At deduplication. All steps that consider a document on its own — HTML to text, language identification, PII masking, the Gopher rules, a classifier — cost the same per document, and for them the linear extrapolation is correct. Deduplication compares documents with each other: exact duplicates need a structure that grows with the corpus, and a naive pairwise comparison even grows quadratically — from 100 to 2500 files is a factor of 25 in volume, but roughly a factor of 625 in pairs. That is exactly why MinHash and LSH are needed at all. In addition, the rate shifts with the sample itself: 100 files contain fewer duplicates among themselves than 2500, the duplicate rate on the sample underestimates that of the whole corpus, and the memory of the dedup structure may give out before the time does."
+    },
+    "cascade-yield": {
+      "cat": "Data",
+      "title": "Yield of a Filter Cascade and Attribution of the Discards",
+      "read": "Multiply the keep rates of all stages into the overall yield, and for each stage compute how many documents it removes from what arrives at it.",
+      "purpose": "Answers A4's deliverable in filter_data: what proportion of the discarded documents each filter stage removed — and how many documents remain at all at the end of a multi-stage pipeline.",
+      "dims": "Every yᵢ and Y are proportions between 0 and 1, N and the removed_i are counts. The sum of all removed_i is N − N·Y, i.e. exactly the number of discards.",
+      "vars": [
+        ["N","Number of documents entering the pipeline."],
+        ["yᵢ","Keep rate of stage i, measured against what arrives at it — not against N."],
+        ["Y","Overall yield of the cascade, the product of all keep rates."],
+        ["removed_i","Number of documents that stage i discards."],
+        ["share_i","removed_i divided by the total number of discards: the number A4 requires as the breakdown."]
+      ],
+      "intuition": "The rates multiply because each stage sees only the survivors of the previous one. That is why a cascade is far sharper than the individual rates suggest: four stages that each take away between a half and a tenth together leave only a good fifth.",
+      "pitfall": "The attribution depends on the order, the final set does not. If two filters remove partly the same documents, the cascade credits each document to the first stage that catches it — reorder them and the breakdown shifts, although the same documents survive. A breakdown without a stated order is therefore not a statement. The second mistake is measuring a yᵢ against N instead of against what really arrives at the stage.",
+      "example": "A pipeline of four stages on N = 1000000 documents with keep rates 0.60, 0.50, 0.80, and 0.90. (1) Overall yield: Y = 0.60·0.50·0.80·0.90 = 0.2160, so 216000 documents remain and 784000 are discarded. (2) Attribution stage by stage: the first sees 1000000 and removes 400000; the second sees 600000 and removes 300000; the third sees 300000 and removes 60000; the fourth sees 240000 and removes 24000. (3) As a share of the discards, exactly the form A4 requires: 51.02 %, 38.27 %, 7.65 %, and 3.06 % — together 100 %, although the fourth stage with 0.90 by no means carries the mildest rule, but simply has the fewest documents left for it to act on.",
+      "check": "Two colleagues report the same final volume for the same pipeline but completely different breakdowns of the discards. Which of the two has miscalculated?",
+      "answer": "Neither need have miscalculated — they ran the filters in different orders. If a document meets several grounds for exclusion, the cascade credits it to the first stage that catches it; the later ones never see it. The final set is unaffected, because a document violating any rule disappears in every order — the attribution, by contrast, shifts completely. This is exactly why the breakdown A4 requires is a statement only together with the stated order. Anyone who really wants to know what a single rule contributes measures it independently on the same input — the sum of those numbers is then larger than the number of discards, and the difference is exactly the multiple coverage."
     },
     "ngram-filter": {
       "cat": "Data",

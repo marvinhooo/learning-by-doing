@@ -710,3 +710,48 @@ Iteration Counter: 1
 - Kein Browsertest - in geplanten Laeufen gesperrt. Ersatz: alle 79 Karten in beiden Sprachen
   headless gerendert und auf Tag-Balance, undefined, Platzhalter und deutsche Rueckstaende im
   englischen Render geprueft.
+
+## 2026-09-12 - Das Tafelwerk schwieg ueber den Anfang des Kurses (geplanter Deep Review, v109)
+
+- Status: abgeschlossen. Kettenkopf war nicht der zugewiesene Worktree: dieser stand auf
+  `2ed21e7` (v99), der Kopf auf `b2aa46a` (v108). Neuer Branch `claude/deep-review-v109` von
+  dort, kein Merge, keine fremde Session aktiv.
+- Hebel 3 aus v108 geprueft und als Inhalts- statt Wegeluecke bestaetigt: die Module
+  `tokenization` (Lecture 1) und `data` fuehrten `formulas:[]`, obwohl A1s
+  `tokenizer_experiments` (4 Punkte), A4s `filter_data` (6) und `tokenize_data` (2) genau an
+  diesen Groessen haengen - zusammen 12 Aufgabenpunkte ohne eine einzige Formelkarte. Lecture 1
+  definiert `get_compression_ratio` im eigenen Trace und haelt `assert compression_ratio == 1`
+  fest. Nach den Zahlen der Handouts gegriffen, nicht nach ihren Woertern.
+- Gebaut: drei Karten. `compression-ratio` (neue Kategorie Tokenisierung, Quellen l01/a1) mit
+  `r = num_bytes / num_tokens`, der Umkehrung und der Plattenfolge `2/r`; `corpus-throughput`
+  (Daten, l13/a1/a4), das mit derselben Rechnung A1s Pile-Frage (825 GB, 9,549 Tage bei 1 MB/s)
+  und A4s CC-Dump-Frage beantwortet; `cascade-yield` (Daten, l13/a4) mit Ausbeute und der
+  Zurechnung, die A4 als Deliverable verlangt (51,02 / 38,27 / 7,65 / 3,06 %). Verdrahtet ueber
+  `CONCEPTS[].formulas` und die kuratierten Listen von l01 und l13.
+- Wirkung: 79 -> 82 Karten, 21 -> 22 Kategorien, und alle **63 von 63 Labs** sind jetzt von
+  einer Formelkarte aus erreichbar (vorher 59) - die vier Waisen `bpe`, `bpe-encode`,
+  `data-pipeline` und `pipeline-yield` haben ihren Weg.
+- Drei Korrekturen, die die Pruefung erzwungen hat: (1) `embedding-params` waere still vom Pfad
+  gefallen, weil es nur als Fallback-Primer erreichbar war; statt es auf l01 zu kuratieren
+  (Lecture 1 leitet `V*D` nirgends her, und die Karte steht schon auf der Liste reparierter
+  Falschzitate) wurde die vierte geplante Karte `token-storage` fallen gelassen und ihr
+  uint16-Inhalt in `compression-ratio` gefaltet. (2) Die eigene Musterloesung behauptete
+  "Faktor 625 in den Paaren"; exakt sind es 631,0606, also steht jetzt "rund" da und der Guard
+  misst die Rundungsguete. (3) Zwei Mutationen entkamen dem ersten Entwurf, weil das Vorkommen
+  statt des Orts geprueft war ("1.0000" steht zweimal im selben pitfall, "60000" ist Teilstring
+  von "600000"); beide Pruefungen sind jetzt an ihre Umgebung gebunden, und die Ankunftsmengen
+  je Stufe werden zusaetzlich gelesen.
+- Guard-Suite 60 -> 61 Bloecke gruen, neuer Block `corpus arithmetic` (4084 Checks): Lecture 1s
+  String wird im Pruefer aus `CR_TEXTS` neu kodiert statt abgeschrieben, die uint16-Schwelle
+  ueber 4000 Werte von r in beide Richtungen gescannt (1999 wachsen, 2000 schrumpfen, 1 trifft
+  sie exakt), die Kaskade Stufe fuer Stufe gelaufen statt geschlossen, die Reihenfolge-Behauptung
+  ueber alle 24 Permutationen bewiesen (eine Menge, 8 Zurechnungen) mit Abbruch ohne
+  Mehrfachueberdeckung, und die Eingaben der Karte selbst verankert. Cache-Bump auf v89
+  (4 Stellen), README auf 82 Formeln.
+- Mutationstest: 32 Mutationen, 32 gefangen, 0 entkommen, 0 inert. Gefahren gegen eine
+  Schlankfassung der Suite aus Setup + neuem Block allein (0,25 s je Lauf) statt gegen die
+  `void`-Kopie - ein Fang kann damit keinem aelteren Block gehoeren. Kontrolle vor und nach
+  jedem Lauf gruen.
+- Kein Browsertest - in geplanten Laeufen gesperrt. Ersatz: die drei Karten in beiden Sprachen
+  auf alle 11 Felder, deutsche Rueckstaende, undefined, Platzhalter und gleiche vars-Laenge
+  geprueft; `formula route` (820 Checks), `content numerals` und `worked steps` tragen sie mit.

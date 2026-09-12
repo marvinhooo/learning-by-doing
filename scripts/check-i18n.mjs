@@ -13281,3 +13281,276 @@ ${sliceDeclaration(source, "piiCountTrap")}
 
   console.log(`formula route OK: ${frChecks} checks -- all ${frCards} formula cards now leave the Tafelwerk instead of ending at the self-check, ${frRows} concept rows and ${frLabButtons} practice buttons read back out of the real markup in both languages, the inversion of CONCEPTS[].formulas checked in both directions per card, ${frHomes} home badges re-derived from the lecture and module lists rather than read back, and the ${frWithoutLab.length} cards whose concept has no experiment (${frWithoutLab.join(", ")}) print the row without a practice button rather than pointing at a lab that computes something else`);
 }
+
+// ---------------------------------------------------------------------------
+// corpus arithmetic (v109)
+//
+// Three cards were added where the Tafelwerk had nothing to say: Lecture 1 and the data
+// lecture both carried formulas:[], although A1's tokenizer_experiments (4 points) turns on
+// bytes/token and A4's filter_data (6 points) asks for the per-stage share of the discards.
+// Every figure those cards print is a claim about arithmetic, and no existing block recomputes
+// one: the route guard checks that the cards are reachable, the numerals guard only that both
+// languages print the same digits. So a card could be wired correctly, translated correctly,
+// and still teach a wrong number. This block recomputes each figure from its own definition
+// and requires it in both languages -- and it holds the two invariants the cards *claim*
+// (the file grows exactly below r = 2; the cascade's final set is order-free while its
+// attribution is not) in both directions rather than on the single example that motivated them.
+{
+  let caChecks = 0;
+  const de = n => n.replace(/\./gu, ",");
+  const cards = ["compression-ratio", "corpus-throughput", "cascade-yield"];
+  const germanOf = id => {
+    const card = base.formulas.find(entry => entry.id === id);
+    if (!card) throw new Error(`corpus arithmetic: the card ${id} is gone`);
+    return card;
+  };
+  const englishOf = id => {
+    const card = englishFormulas[id];
+    if (!card) throw new Error(`corpus arithmetic: ${id} has no English translation`);
+    return card;
+  };
+  // A figure counts only when it stands in the rendered prose of BOTH languages, German with a
+  // decimal comma and English with a point -- the same figure, not merely some matching digits.
+  const requireFigure = (id, english, german = de(english), fields = ["example", "answer"]) => {
+    const deText = prose(fields.map(field => germanOf(id)[field]));
+    const enText = prose(fields.map(field => englishOf(id)[field]));
+    if (!deText.includes(german)) throw new Error(`corpus arithmetic: de.formulas.${id} never prints ${german}`);
+    if (!enText.includes(english)) throw new Error(`corpus arithmetic: en.formulas.${id} never prints ${english}`);
+    caChecks++;
+  };
+
+  // ---- 1. the compression ratio, recomputed from the app's own Lecture 1 string ----
+  // Not retyped: the string comes out of CR_TEXTS, which is what the lab encodes, so a silent
+  // edit there moves this expectation with it instead of leaving the card behind.
+  const crTexts = readConstant("CR_TEXTS");
+  const lectureText = crTexts.find(entry => entry.key === "lecture");
+  if (!lectureText) throw new Error("corpus arithmetic: CR_TEXTS no longer carries Lecture 1's own string");
+  const numBytes = Buffer.byteLength(lectureText.text, "utf8");
+  const numChars = [...lectureText.text].length;
+  if (numBytes === numChars) throw new Error("corpus arithmetic: Lecture 1's string must have more bytes than characters, or it separates nothing");
+  // The byte tokenizer emits one token per byte; the character tokenizer one per code point.
+  const rByte = numBytes / numBytes;
+  const rChar = numBytes / numChars;
+  if (rByte !== 1) throw new Error("corpus arithmetic: the byte tokenizer must reach exactly 1, which is what Lecture 1 asserts");
+  requireFigure("compression-ratio", `${numChars} characters`, `${numChars} Zeichen`);
+  requireFigure("compression-ratio", `${numBytes} UTF-8 bytes`, `${numBytes} UTF-8-Bytes`);
+  requireFigure("compression-ratio", `r = ${numBytes}/${numBytes} = ${rByte.toFixed(4)}`);
+  requireFigure("compression-ratio", `r = ${numBytes}/${numChars} ≈ ${rChar.toFixed(4)}`);
+  // The card's pitfall names two further pairs; both are recomputed from the same two texts.
+  // The place, not the occurrence (house rule since v68): "1.0000" also stands in the byte
+  // tokenizer sentence of the same pitfall, so a bare digit match would let a wrong ASCII figure
+  // through on the strength of an unrelated one.
+  for (const [key, expected, enWhere, deWhere] of [
+    ["ascii", 1, "on pure ASCII", "auf reinem ASCII"],
+    ["cjk", 3, "on Chinese text", "auf chinesischem Text"]
+  ]) {
+    const entry = crTexts.find(item => item.key === key);
+    if (!entry) throw new Error(`corpus arithmetic: CR_TEXTS no longer carries ${key}`);
+    const ratio = Buffer.byteLength(entry.text, "utf8") / [...entry.text].length;
+    if (ratio !== expected) throw new Error(`corpus arithmetic: the ${key} text gives a character-tokenizer ratio of ${ratio}, not ${expected}`);
+    requireFigure("compression-ratio", `${ratio.toFixed(4)} ${enWhere}`, `${de(ratio.toFixed(4))} ${deWhere}`, ["pitfall"]);
+    caChecks++;
+  }
+  // And the byte tokenizer's own sentence, which is the one that makes the pair claim.
+  requireFigure("compression-ratio", "yields exactly 1.0000 on every text", "liefert auf jedem Text exakt 1,0000", ["pitfall"]);
+
+  // ---- 2. the uint16 corollary, held in both directions ----
+  // The card claims S/num_bytes = 2/r and that the file grows exactly when r < 2. A single
+  // example cannot show "exactly": the threshold is scanned from both sides instead.
+  const bytesPerToken = 2;
+  let grew = 0, shrank = 0, equal = 0;
+  for (let step = 1; step <= 4000; step++) {
+    const r = step / 1000;                       // 0.001 .. 4.000, straddling the claimed edge
+    const corpusBytes = 1e9;
+    const tokens = corpusBytes / r;
+    const fileBytes = bytesPerToken * tokens;
+    const ratio = fileBytes / corpusBytes;
+    if (Math.abs(ratio - bytesPerToken / r) > 1e-12)
+      throw new Error(`corpus arithmetic: S/num_bytes is not 2/r at r = ${r}`);
+    if (r < bytesPerToken) { if (!(ratio > 1)) throw new Error(`corpus arithmetic: r = ${r} is below 2 but the file does not grow`); grew++; }
+    else if (r > bytesPerToken) { if (!(ratio < 1)) throw new Error(`corpus arithmetic: r = ${r} is above 2 but the file does not shrink`); shrank++; }
+    else { if (ratio !== 1) throw new Error("corpus arithmetic: at r = 2 the file must be exactly the size of the text"); equal++; }
+    caChecks++;
+  }
+  if (!grew || !shrank || !equal)
+    throw new Error(`corpus arithmetic: the scan must cross the threshold from both sides and land on it -- grew ${grew}, shrank ${shrank}, equal ${equal}`);
+  // And the two worked cases the card prints, recomputed rather than read back.
+  for (const r of [4, 1.5]) {
+    const tokens = 1e9 / r;
+    const fileMb = bytesPerToken * tokens / 1e6;
+    const millions = tokens / 1e6;
+    const printedTokens = Number.isInteger(millions) ? String(millions) : millions.toFixed(2);
+    const printedFile = Number.isInteger(fileMb) ? String(fileMb) : fileMb.toFixed(2);
+    requireFigure("compression-ratio", `r = ${r}`);
+    requireFigure("compression-ratio", `${printedTokens} million`, `${de(printedTokens)} Mio.`);
+    requireFigure("compression-ratio", `${printedFile} MB`, `${de(printedFile)} MB`);
+    // "=" when the quotient is exact at four places, "≈" when it is not -- derived, not patched.
+    const quotient = bytesPerToken / r;
+    const printed = quotient.toFixed(4);
+    const connector = Number(printed) === quotient ? "=" : "≈";
+    requireFigure("compression-ratio", `${bytesPerToken}/${r} ${connector} ${printed}×`);
+  }
+
+  // ---- 3. the throughput extrapolation, recomputed ----
+  const pileBytes = 825e9, sampleBytes = 10e6, sampleSeconds = 10, workers = 16;
+  const rate = sampleBytes / sampleSeconds;
+  const seconds = pileBytes / rate;
+  const hours = seconds / 3600, days = seconds / 86400, parallelDays = days / workers;
+  if (rate !== 1e6) throw new Error("corpus arithmetic: the sample must come out at exactly 1 MB/s, which is the figure the card names");
+  // The inputs, not only the results: a checker that assumes a sample the card never names
+  // would recompute a different example and still pass.
+  requireFigure("corpus-throughput", `${pileBytes / 1e9} GB`);
+  requireFigure("corpus-throughput", `${sampleBytes / 1e6} MB in ${sampleSeconds} seconds`, `${sampleBytes / 1e6} MB in ${sampleSeconds} Sekunden`);
+  requireFigure("corpus-throughput", `w = ${workers}`);
+  requireFigure("corpus-throughput", `= ${seconds} seconds`, `= ${seconds} Sekunden`);
+  requireFigure("corpus-throughput", `${hours.toFixed(2)} hours`, `${de(hours.toFixed(2))} Stunden`);
+  requireFigure("corpus-throughput", `${days.toFixed(3)} days`, `${de(days.toFixed(3))} Tage`);
+  requireFigure("corpus-throughput", `${parallelDays.toFixed(3)} days`, `${de(parallelDays.toFixed(3))} Tage`);
+  // The card rounds the parallel case to "a good 14 hours"; that wording has to stay true.
+  const parallelHours = hours / workers;
+  if (!(parallelHours > 14 && parallelHours < 15))
+    throw new Error(`corpus arithmetic: the parallel run is ${parallelHours} hours, so "a good 14 hours" is the wrong rounding`);
+  caChecks++;
+  // The self-check answer claims a quadratic blow-up from 100 to 2500 files. Both factors are
+  // recomputed, and the pair has to differ -- otherwise the answer would be making no point.
+  const [fewFiles, allFiles] = [100, 2500];
+  const volumeFactor = allFiles / fewFiles;
+  const pairFactor = (allFiles * (allFiles - 1)) / (fewFiles * (fewFiles - 1));
+  if (volumeFactor === pairFactor) throw new Error("corpus arithmetic: volume and pair growth must differ, or the dedup answer has nothing to say");
+  // The answer says "roughly": the pair count grows as n^2 only asymptotically, and the exact
+  // ratio is measured against the square rather than rounded into agreement with it.
+  const pairDrift = Math.abs(pairFactor / volumeFactor ** 2 - 1);
+  if (pairDrift > 0.01)
+    throw new Error(`corpus arithmetic: the pair count grows by ${pairFactor}, which is ${(100 * pairDrift).toFixed(2)} % off the square ${volumeFactor ** 2} the answer rounds to`);
+  if (pairFactor <= volumeFactor ** 2)
+    throw new Error("corpus arithmetic: the exact pair growth must exceed the square, or the rounding hides the wrong way");
+  requireFigure("corpus-throughput", `factor of ${volumeFactor}`, `Faktor ${volumeFactor}`);
+  requireFigure("corpus-throughput", `factor of ${volumeFactor ** 2}`, `Faktor ${volumeFactor ** 2}`);
+
+  // ---- 4. the cascade, walked stage by stage instead of closed ----
+  const keepRates = [0.6, 0.5, 0.8, 0.9];
+  const documents = 1e6;
+  let alive = documents, product = 1;
+  const removedPerStage = [];
+  for (const keep of keepRates) {
+    const removed = alive * (1 - keep);
+    removedPerStage.push(Math.round(removed));
+    alive *= keep;
+    product *= keep;
+  }
+  const kept = Math.round(alive), discarded = documents - kept;
+  if (Math.abs(product - keepRates.reduce((a, b) => a * b, 1)) > 1e-12)
+    throw new Error("corpus arithmetic: the walked yield and the closed product disagree");
+  const summed = removedPerStage.reduce((a, b) => a + b, 0);
+  if (summed !== discarded)
+    throw new Error(`corpus arithmetic: the per-stage removals sum to ${summed}, but ${discarded} documents were discarded`);
+  caChecks++;
+  requireFigure("cascade-yield", `N = ${documents}`);
+  // The rates themselves, so a changed rate in the card cannot quietly move the worked example
+  // out from under a checker that walks its own.
+  requireFigure("cascade-yield", `${keepRates.map(rate => rate.toFixed(2)).join("·")} = ${product.toFixed(4)}`);
+  requireFigure("cascade-yield", `${kept}`);
+  requireFigure("cascade-yield", `${discarded}`);
+  const shares = removedPerStage.map(count => 100 * count / discarded);
+  // Anchored to the verb: 60000 is a substring of the 600000 standing two clauses earlier, so a
+  // bare match would certify a wrong third stage. The arrivals are checked as well -- they are
+  // what each rate is measured against, and nothing read them back before.
+  let arriving = documents;
+  for (const [index, count] of removedPerStage.entries()) {
+    requireFigure("cascade-yield", `sees ${Math.round(arriving)} and removes ${count}`, `sieht ${Math.round(arriving)} und entfernt ${count}`);
+    requireFigure("cascade-yield", `${shares[index].toFixed(2)} %`);
+    arriving *= keepRates[index];
+    caChecks += 2;
+  }
+  const shareSum = shares.reduce((a, b) => a + b, 0);
+  if (Math.abs(shareSum - 100) > 0.01) throw new Error(`corpus arithmetic: the shares sum to ${shareSum}, not 100`);
+  // The card's intuition says every stage drops between a tenth and a half. That is a claim
+  // about these rates, so it is measured rather than trusted.
+  const drops = keepRates.map(keep => 1 - keep);
+  if (Math.min(...drops) < 0.1 - 1e-12 || Math.max(...drops) > 0.5 + 1e-12)
+    throw new Error(`corpus arithmetic: the stages drop ${drops.join(", ")}, which is not "between a half and a tenth"`);
+  if (!(product > 0.2 && product < 0.25))
+    throw new Error(`corpus arithmetic: the yield ${product} is not "a good fifth"`);
+  caChecks += 2;
+  // The last stage keeps the most and must still not be the one that removes the most -- that is
+  // the whole point of the closing sentence, and it is checked rather than asserted.
+  const gentlest = keepRates.indexOf(Math.max(...keepRates));
+  if (removedPerStage[gentlest] !== Math.min(...removedPerStage))
+    throw new Error("corpus arithmetic: the mildest rule is not the one removing the fewest, so the closing sentence misreads the table");
+  caChecks++;
+
+  // ---- 5. order dependence, in both directions ----
+  // The pitfall claims the final set is order-free while the attribution is not. One corpus with
+  // overlapping exclusion reasons is run through every permutation of the filters. The block
+  // aborts if the corpus has no overlap at all, because then the claim would be vacuous and this
+  // check inert -- the survivors would be order-free for a trivial reason and nothing would move.
+  const corpus = [
+    { id: "d1", violates: ["short", "nonEnglish"] },   // two reasons: the overlap that makes the point
+    { id: "d2", violates: ["short"] },
+    { id: "d3", violates: ["nonEnglish", "duplicate"] },
+    { id: "d4", violates: [] },
+    { id: "d5", violates: ["duplicate"] },
+    { id: "d6", violates: ["boilerplate", "short"] },
+    { id: "d7", violates: [] },
+    { id: "d8", violates: ["boilerplate"] }
+  ];
+  const filters = ["short", "nonEnglish", "duplicate", "boilerplate"];
+  const overlapping = corpus.filter(doc => doc.visited || doc.violates.length > 1);
+  if (!overlapping.length)
+    throw new Error("corpus arithmetic: no document violates two rules, so the order claim would be vacuous and this check inert");
+  const permute = list => list.length <= 1 ? [list]
+    : list.flatMap((item, index) => permute([...list.slice(0, index), ...list.slice(index + 1)]).map(rest => [item, ...rest]));
+  const orders = permute(filters);
+  const survivorSets = new Set(), attributions = new Set();
+  for (const order of orders) {
+    let remaining = corpus.slice();
+    const credited = {};
+    for (const rule of order) {
+      const hit = remaining.filter(doc => doc.violates.includes(rule));
+      credited[rule] = hit.length;
+      remaining = remaining.filter(doc => !doc.violates.includes(rule));
+    }
+    survivorSets.add(remaining.map(doc => doc.id).sort().join(","));
+    attributions.add(filters.map(rule => `${rule}:${credited[rule]}`).join("|"));
+    caChecks++;
+  }
+  if (orders.length !== 24) throw new Error(`corpus arithmetic: expected 24 orders, walked ${orders.length}`);
+  if (survivorSets.size !== 1)
+    throw new Error(`corpus arithmetic: the surviving set is not order-free -- ${survivorSets.size} different sets over 24 orders`);
+  if (attributions.size <= 1)
+    throw new Error("corpus arithmetic: the attribution does not move with the order, so the card's pitfall states something untrue");
+  // And the independent measurement the answer recommends: summed alone, the rules over-count by
+  // exactly the multiple coverage. Both sides are computed, so neither can drift.
+  const independent = filters.reduce((total, rule) => total + corpus.filter(doc => doc.violates.includes(rule)).length, 0);
+  const anyViolation = corpus.filter(doc => doc.violates.length).length;
+  const excess = corpus.reduce((total, doc) => total + Math.max(0, doc.violates.length - 1), 0);
+  if (independent - anyViolation !== excess)
+    throw new Error(`corpus arithmetic: independent counts exceed the discards by ${independent - anyViolation}, but the multiple coverage is ${excess}`);
+  if (!excess) throw new Error("corpus arithmetic: without multiple coverage the answer's closing sentence describes nothing");
+  caChecks += 2;
+
+  // ---- 6. the wiring these cards were built for ----
+  // Each card sits on the lecture whose own material carries it, and nowhere else by accident.
+  for (const [lectureId, cardId] of [["l01", "compression-ratio"], ["l13", "cascade-yield"], ["l13", "corpus-throughput"]]) {
+    if (!(base.lectureGuides[lectureId].formulas || []).includes(cardId))
+      throw new Error(`corpus arithmetic: ${lectureId} no longer curates ${cardId}, so the lecture is back to a page without its own rule`);
+    caChecks++;
+  }
+  // The four labs this opened: each has to stay reachable from some card, or the gap is back.
+  const labConcepts = readConstant("LAB_CONCEPTS");
+  const reachableLabs = new Set();
+  for (const card of base.formulas)
+    for (const concept of base.concepts.filter(entry => (entry.formulas || []).includes(card.id)))
+      for (const [labId, owners] of Object.entries(labConcepts))
+        if (owners.includes(concept.id)) reachableLabs.add(labId);
+  for (const labId of ["bpe", "bpe-encode", "data-pipeline", "pipeline-yield"]) {
+    if (!reachableLabs.has(labId))
+      throw new Error(`corpus arithmetic: ${labId} is unreachable from every formula card again`);
+    caChecks++;
+  }
+  const unreachableLabs = base.labs.filter(lab => !reachableLabs.has(lab.id)).map(lab => lab.id);
+  if (unreachableLabs.length)
+    throw new Error(`corpus arithmetic: ${unreachableLabs.length} lab(s) left the Tafelwerk's reach -- ${unreachableLabs.join(", ")}`);
+
+  console.log(`corpus arithmetic OK: ${caChecks} checks -- the three cards that gave Lecture 1 and the data lecture their first formulas recomputed from their own definitions: Lecture 1's own string is re-encoded in the checker (${numBytes} bytes against ${numChars} characters, so the byte tokenizer lands on exactly ${rByte.toFixed(4)} where the character tokenizer reaches ${rChar.toFixed(4)}, and the same encoder puts the character ratio at 1.0000 on ASCII against 3.0000 on Chinese); the uint16 claim is held by scanning 4000 values of r across the threshold in both directions rather than on one example (${grew} grow, ${shrank} shrink, ${equal} lands exactly on it); the Pile extrapolation is rebuilt from a measured rate (${seconds} seconds, ${days.toFixed(3)} days, ${parallelDays.toFixed(3)} on ${workers} workers) and the dedup answer's blow-up is recomputed as ${volumeFactor}x in volume against ${volumeFactor ** 2}x in pairs; and the cascade is walked one stage at a time where the card closes the product (${kept} of ${documents} kept, the ${removedPerStage.length} removals summing exactly to the ${discarded} discards and their shares to 100 %), with the order claim proven in both directions over all ${orders.length} permutations of a corpus whose multiple coverage is measured at ${excess} rather than assumed -- one surviving set, ${attributions.size} different attributions. All ${base.labs.length} labs stay reachable from some card.`);
+}
