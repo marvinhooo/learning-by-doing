@@ -672,3 +672,41 @@ Iteration Counter: 1
   Vergleichung liess sich auf einen Laengenvergleich abschwaechen, ohne dass eine Variante
   das gezeigt haette). Kontrolle vor und nach allen Laeufen gruen.
 - Kein Browsertest - in geplanten Laeufen gesperrt.
+
+## 2026-09-12 - Die Einbahnstrasse im Tafelwerk (geplanter Deep Review, v108)
+
+- Ausgangslage: zugewiesener Worktree auf v99, Kettenkopf auf v107 (`cccf802`,
+  `claude/wonderful-poincare-a87812`) - Fast-Forward, kein Merge. Kein Codex aktiv.
+  `origin/main` steht weiter auf `2ed21e7`; v100 bis v108 sind ungepusht.
+- Gewaehlter Hebel: `renderFormulaDetail`, von v107 als groesster struktureller Posten
+  benannt - 79 Formelkarten ohne Konzept- oder Labknopf.
+- Vorpruefung, drei Fragen. (1) Fehlen Inhalte? Nein: alle 79 Karten tragen Zweck, gerechnetes
+  Beispiel, Pitfall, Selbstcheck und ueber FORMULA_ANSWERS eine Musterloesung. (Der erste
+  Zaehlversuch meldete 79 Karten ohne Antwort, weil er die Zuweisung aus Zeile 4347 nicht
+  mitausgefuehrt hatte - Muster 4: erst belegen, dass die Pruefung reale Daten sieht.)
+  (2) Ist es eine Sackgasse? Ja, und schlimmer als gedacht: renderFormulaDetail rief
+  `bindOpeners` gar nicht auf. (3) Braucht der Rueckweg eine neue Tabelle? Nein:
+  CONCEPTS[].formulas ist die vom Autor gesetzte Beziehung, die conceptFormulaIds auf der
+  Konzeptseite schon in der Gegenrichtung rendert.
+- Gemessen: 79 von 79 Formelkarten erreichen mindestens ein Konzept, 77 davon mindestens ein
+  Lab. Die zwei ohne Lab (`ssm-recurrence`, `diffusion-generation`) haengen an
+  `alternative-sequence-models`, das `concept experiments` bereits als eines der drei Konzepte
+  ohne Experiment fuehrt - das Repo hatte den Fall also schon entschieden.
+- Gebaut: `formulaConcepts` (die Inversion) und `formulaRouteMarkup` (je Konzept eine Zeile mit
+  Titel, Heimat-Badge aus `prerequisiteConceptHome` und Summary, darunter die Experimente als
+  "Ueben: ..."-Knoepfe), aufgerufen nach dem Selbstcheck, plus `bindOpeners(el)`. 29 Zeilen in
+  index.html. Wirkung: 133 Konzeptzeilen und 157 Uebungsknoepfe auf 79 Karten; 59 von 63 Labs
+  und 69 von 75 Konzepten sind jetzt von einer Formelkarte aus erreichbar.
+- Guard-Suite 59 -> 60 Bloecke gruen, neuer Block `formula route` (790 Checks): die Inversion in
+  beiden Richtungen je Karte, die Labs pro Zeile aus LAB_CONCEPTS im Pruefer selbst statt ueber
+  die App-Funktion, das vollstaendige Markup-Fragment statt des Vorkommens, alle 75
+  Heimat-Etiketten unabhaengig nachgerechnet, die Ausnahmemenge abgeleitet statt gelistet (mit
+  Abbruch, wenn sie leer ist), und Aufrufstelle samt `bindOpeners`. Cache-Bump auf v88
+  (4 Stellen). Laborzahl, Konzeptzahl und Formelzahl unveraendert.
+- Mutationstest: 19 Mutationen, 19 gefangen, 0 entkommen, 0 inert - alle 19 vom neuen Block
+  allein (Suite-Kopie mit den aelteren Bloecken auf `void` statt `throw`). Drei waren im ersten
+  Lauf inert, weil ihr Anker auch in `conceptCard` steht; mit dem laengeren, eindeutigen
+  Fragment neu gefahren und gefangen. Kontrolle vor und nach jedem Lauf gruen.
+- Kein Browsertest - in geplanten Laeufen gesperrt. Ersatz: alle 79 Karten in beiden Sprachen
+  headless gerendert und auf Tag-Balance, undefined, Platzhalter und deutsche Rueckstaende im
+  englischen Render geprueft.

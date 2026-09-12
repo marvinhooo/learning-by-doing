@@ -13139,3 +13139,145 @@ ${sliceDeclaration(source, "piiCountTrap")}
 
   console.log(`clip fraction OK: ${rsChecks} checks -- rlvr-system-transfer (2.5 points) recomputed from the definition: the plan by walking repeated_prompts slice by slice over ${rsPlanStates} states (at train_batch_size 8 every one of the 32 steps is exactly one prompt group, 6,400 optimizer steps against 200, and 4 is refused because it cuts a group), the silent step by running all 256 reward outcomes of a group through the advantage formula (${rsFixed(100 * rsSilent(0.5, "std"), 4)} % at p = 0.5, ${rsFixed(100 * rsSilent(0.9, "std"), 4)} % at p = 0.9) plus an AdamW step that still moves on a zero gradient; the clip fraction by evaluating both terms of the min at every token of 32 steps x 3 drifts x 3 contracts, GSPO's s built as a product of ratios, the noise re-drawn from seed 336, and ${rsClipStates} rendered states read back cell by cell -- the logged mean at the default drift is grpo ${rsFixed(100 * rs.rsBatchMean(0.003, "handout").token, 4)} % against gspo ${rsFixed(100 * rs.rsBatchMean(0.003, "handout").gspo, 2)} %, a shared cliprange of 0.2 leaves gspo at zero at every step, and recomputed old_log_probs leave both at zero`);
 }
+
+// ---- formula route: the way back out of the Tafelwerk ---------------------------------------
+// A lecture page curates its formula lessons, and a concept page names the formulas it derives.
+// Both directions led *into* a formula card. None led out: renderFormulaDetail ended at the
+// self-check for all 79 cards, so a reader who looked a rule up read it and stopped -- one click
+// away from the page that derives it and the experiment that computes it. The route back is the
+// inverse of CONCEPTS[].formulas, which conceptFormulaIds already renders forwards, carried the
+// last step by conceptLabs. This block holds four things: the inversion is exact in both
+// directions, the badge really names the concept's home, the two cards whose concept has no
+// experiment offer no practice button instead of a wrong one, and the page both renders the
+// section and binds it -- a button nobody wires up is a dead end that looks like a route.
+{
+  const frEsc = source.slice(source.indexOf("const esc = value =>"), source.indexOf("\n", source.indexOf("const esc = value =>")));
+  const frRender = runInNewContext(
+    `let currentLanguage = "de";
+     ${frEsc}
+     const byId = (arr,id) => arr.find(x=>x.id===id);
+     const lectureNumber=id=>Number(id.slice(1));
+     const LECTURE_GUIDES = ${JSON.stringify(Object.fromEntries(Object.entries(base.lectureGuides).map(([id, guide]) => [id, { concepts: guide.concepts || [] }])))};
+     const LECTURE_IDS = Object.keys(LECTURE_GUIDES);
+     ${sliceDeclaration(source, "LAB_CONCEPTS")}
+     ${sliceDeclaration(source, "conceptLabs")}
+     ${sliceDeclaration(source, "prerequisiteConceptHome")}
+     ${sliceDeclaration(source, "formulaConcepts")}
+     ${sliceDeclaration(source, "formulaRouteMarkup")}
+     let CONCEPTS = [], LABS = [], MODULES = ${JSON.stringify(base.modules.map(module => ({ id: module.id, concepts: module.concepts || [] })))};
+     ({set:(concepts,labs,language)=>{CONCEPTS=concepts;LABS=labs;currentLanguage=language;},
+       markup:formula=>formulaRouteMarkup(formula),
+       home:conceptId=>prerequisiteConceptHome(conceptId).label})`,
+    {});
+  // The expectation walks LAB_CONCEPTS here rather than calling the app's conceptLabs: a shared
+  // derivation would move both sides together and prove nothing. Order follows LABS, which is
+  // what conceptLabs filters, so the two agree on sequence without agreeing on code.
+  const frLabConcepts = runInNewContext(`${sliceDeclaration(source, "LAB_CONCEPTS")} LAB_CONCEPTS`, {});
+  const frLabsFor = conceptId => base.labs.filter(lab => (frLabConcepts[lab.id] || []).includes(conceptId)).map(lab => lab.id);
+
+  const frGermanConcepts = base.concepts, frGermanLabs = base.labs;
+  const frEnglishConcepts = base.concepts.map(concept => ({ ...concept, ...(pack.concepts[concept.id] || {}) }));
+  const frEnglishLabs = base.labs.map(lab => ({ ...lab, ...(pack.labs[lab.id] || {}) }));
+  const frEscape = value => String(value).replace(/[&<>"]/gu, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+
+  // The relation, read out of the data rather than out of the renderer. Every id a concept names
+  // has to be a real formula, or the section would quietly drop a row it thinks it renders.
+  const frFormulaIds = new Set(base.formulas.map(formula => formula.id));
+  for (const concept of base.concepts) for (const formulaId of concept.formulas || []) {
+    if (!frFormulaIds.has(formulaId)) throw new Error(`formula route: concept ${concept.id} names ${formulaId}, which is no formula`);
+  }
+  const frExpectedConcepts = formula => base.concepts.filter(concept => (concept.formulas || []).includes(formula.id)).map(concept => concept.id);
+  const frOrphans = base.formulas.filter(formula => !frExpectedConcepts(formula).length).map(formula => formula.id);
+  if (frOrphans.length) throw new Error(`formula route: ${frOrphans.length} formula card(s) reach no concept at all and would render no section -- ${frOrphans.slice(0, 5).join(", ")}`);
+
+  // A card whose every concept has no experiment gets rows and no practice button. Derived, not
+  // listed: an entry that grows a lab, and a card that loses its last one, both move this set.
+  const frWithoutLab = base.formulas.filter(formula => frExpectedConcepts(formula).every(conceptId => !frLabsFor(conceptId).length)).map(formula => formula.id);
+  if (!frWithoutLab.length) throw new Error("formula route: no card is left without an experiment, so the branch that prints a row without a practice button is never taken and this check is inert");
+
+  let frChecks = 0, frRows = 0, frLabButtons = 0, frCards = 0;
+  for (const formula of base.formulas) {
+    const expectedConcepts = frExpectedConcepts(formula);
+    frCards++;
+    for (const language of ["de", "en"]) {
+      const concepts = language === "en" ? frEnglishConcepts : frGermanConcepts;
+      const labs = language === "en" ? frEnglishLabs : frGermanLabs;
+      frRender.set(concepts, labs, language);
+      const markup = frRender.markup(formula);
+      if (!markup) throw new Error(`formula route: ${formula.id}/${language} renders no section at all`);
+
+      // Both directions at once: a missing concept and an extra one are the same failure here,
+      // and the order is the app's own CONCEPTS order rather than whatever the renderer felt like.
+      const renderedConcepts = [...markup.matchAll(/data-open-concept="([a-z0-9-]+)"/gu)].map(hit => hit[1]);
+      if (JSON.stringify(renderedConcepts) !== JSON.stringify(expectedConcepts))
+        throw new Error(`formula route: ${formula.id}/${language} renders concepts ${JSON.stringify(renderedConcepts)}, expected ${JSON.stringify(expectedConcepts)}`);
+
+      // The labs, per row and in order -- a row's experiments belong to that row's concept, so
+      // the flattened list is the concatenation and not a set.
+      const expectedLabs = expectedConcepts.flatMap(conceptId => frLabsFor(conceptId));
+      const renderedLabs = [...markup.matchAll(/data-open-lab="([a-z0-9-]+)"/gu)].map(hit => hit[1]);
+      if (JSON.stringify(renderedLabs) !== JSON.stringify(expectedLabs))
+        throw new Error(`formula route: ${formula.id}/${language} renders labs ${JSON.stringify(renderedLabs)}, expected ${JSON.stringify(expectedLabs)}`);
+      if (frWithoutLab.includes(formula.id) !== (renderedLabs.length === 0))
+        throw new Error(`formula route: ${formula.id}/${language} disagrees with the derived set of cards without an experiment`);
+
+      // The place, not the occurrence (v68's house rule): the full markup fragment of the title
+      // next to its home badge, and of every practice button next to its lab title.
+      for (const conceptId of expectedConcepts) {
+        const concept = concepts.find(entry => entry.id === conceptId);
+        const home = frRender.home(conceptId);
+        const fragment = `<span class="compact-row-title">${frEscape(concept.title)}</span><span class="badge">${frEscape(home)}</span>`;
+        if (!markup.includes(fragment)) throw new Error(`formula route: ${formula.id}/${language} does not print ${conceptId} next to its home badge (${home})`);
+        if (!markup.includes(`<span class="compact-row-summary">${frEscape(concept.summary)}</span></button>`))
+          throw new Error(`formula route: ${formula.id}/${language} does not print the summary of ${conceptId}`);
+        frRows++;
+        for (const labId of frLabsFor(conceptId)) {
+          const lab = labs.find(entry => entry.id === labId);
+          const label = language === "en" ? "Practise" : "Üben";
+          if (!markup.includes(`<button class="button ghost small" data-open-lab="${labId}">${label}: ${frEscape(lab.title)}</button>`))
+            throw new Error(`formula route: ${formula.id}/${language} does not offer ${labId} as a practice button under ${conceptId}`);
+          frLabButtons++;
+        }
+      }
+
+      if (markup.includes("undefined") || markup.includes("${"))
+        throw new Error(`formula route: ${formula.id}/${language} leaves an undefined value or an uninterpolated placeholder on the screen`);
+      for (const tag of ["section", "div", "article", "button", "span", "p", "h2"]) {
+        const open = (markup.match(new RegExp(`<${tag}[\\s>]`, "gu")) || []).length;
+        const close = (markup.match(new RegExp(`</${tag}>`, "gu")) || []).length;
+        if (open !== close) throw new Error(`formula route: ${formula.id}/${language} leaves ${tag} unbalanced (${open} open, ${close} closed)`);
+      }
+      if (language === "en") {
+        const residue = markup.replace(/<[^>]*>/gu, " ").split(/\s{2,}/u).map(part => part.trim()).filter(part => part && GERMAN_WORDS.test(part));
+        if (residue.length) throw new Error(`formula route: ${formula.id}/en still shows German -- ${residue[0].slice(0, 90)}`);
+      }
+      frChecks += 5;
+    }
+  }
+
+  // The badge is checked against the helper above, so it can only be as right as the helper is.
+  // The second reading: every home label is one of the three shapes the app can be in, and the
+  // lecture ones name a lecture that really lists the concept.
+  let frHomes = 0;
+  frRender.set(frGermanConcepts, frGermanLabs, "de");
+  for (const concept of base.concepts) {
+    const label = frRender.home(concept.id);
+    const lectureId = Object.keys(base.lectureGuides).find(id => (base.lectureGuides[id].concepts || []).includes(concept.id));
+    const foundations = (base.modules.find(module => module.id === "foundations")?.concepts) || [];
+    const expected = lectureId ? `Lecture ${Number(lectureId.slice(1))}` : (foundations.includes(concept.id) ? "Modul 00" : "Selbststudium");
+    if (label !== expected) throw new Error(`formula route: the home badge of ${concept.id} reads ${label}, but the data says ${expected}`);
+    frHomes++;
+  }
+
+  // The call site, and the wiring. A section the page never renders is invisible; a button the
+  // page never binds is worse, because it looks like a route and does nothing.
+  const frPage = sliceDeclaration(source, "renderFormulaDetail");
+  if (!frPage.includes("${formulaRouteMarkup(f)}"))
+    throw new Error("formula route: the formula page does not call formulaRouteMarkup, so the section exists but is never rendered");
+  if (!(frPage.indexOf("formulaRouteMarkup(f)") > frPage.indexOf("Musterlösung anzeigen")))
+    throw new Error("formula route: the route belongs after the self-check, where the reading ends");
+  if (!frPage.includes("bindOpeners(el)"))
+    throw new Error("formula route: renderFormulaDetail never calls bindOpeners, so every concept and lab button on the page is inert");
+
+  console.log(`formula route OK: ${frChecks} checks -- all ${frCards} formula cards now leave the Tafelwerk instead of ending at the self-check, ${frRows} concept rows and ${frLabButtons} practice buttons read back out of the real markup in both languages, the inversion of CONCEPTS[].formulas checked in both directions per card, ${frHomes} home badges re-derived from the lecture and module lists rather than read back, and the ${frWithoutLab.length} cards whose concept has no experiment (${frWithoutLab.join(", ")}) print the row without a practice button rather than pointing at a lab that computes something else`);
+}

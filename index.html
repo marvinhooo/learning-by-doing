@@ -873,7 +873,7 @@
       *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
     }
   </style>
-  <script src="i18n-en.js?v=87"></script>
+  <script src="i18n-en.js?v=88"></script>
   <script src="config.js"></script>
   <script src="vendor/supabase.js"></script>
 </head>
@@ -6355,6 +6355,31 @@
       const curated=LECTURE_GUIDES[lectureId]?.formulas||[];
       return c.formulas.filter(id=>curated.includes(id));
     }
+    // The Tafelwerk was the last one-way street in the app. A lecture page curates its formula
+    // lessons and a concept page names the formulas it derives, so every route led *into* a
+    // formula card -- and none led back out: renderFormulaDetail ended at the self-check, and all
+    // 79 cards ended there. A reader who looks a rule up therefore reads it and stops, one click
+    // away from the page that derives it and the experiment that computes it.
+    // Der Rückweg braucht keine neue Tabelle. CONCEPTS[].formulas ist die vom Autor gesetzte
+    // Beziehung, die conceptFormulaIds oben schon in der Gegenrichtung rendert; sie umzudrehen
+    // erfindet nichts. conceptLabs trägt sie den letzten Schritt weiter zum Experiment.
+    // Two of the 79 land on a concept that has no experiment (alternative-sequence-models, one of
+    // the three `concept experiments` already counts as such). Their row says where the rule is
+    // taught and offers no practice button, rather than pointing at a lab that computes something
+    // else -- the same rule the concept page follows.
+    function formulaConcepts(f){
+      return CONCEPTS.filter(c=>(c.formulas||[]).includes(f.id));
+    }
+    function formulaRouteMarkup(f){
+      const concepts=formulaConcepts(f),english=currentLanguage==="en";
+      if(!concepts.length)return "";
+      const rows=concepts.map(c=>{
+        const home=prerequisiteConceptHome(c.id),labs=conceptLabs(c.id);
+        const practise=labs.map(lab=>`<button class="button ghost small" data-open-lab="${lab.id}">${english?"Practise":"Üben"}: ${esc(lab.title)}</button>`).join("");
+        return `<article class="compact-row"><button class="compact-row-main" data-open-concept="${c.id}"><span class="compact-row-head"><span class="compact-row-title">${esc(c.title)}</span><span class="badge">${esc(home.label)}</span></span><span class="compact-row-summary">${esc(c.summary)}</span></button>${practise?`<div class="accordion-actions">${practise}</div>`:""}</article>`;
+      }).join("");
+      return `<section class="reading-section detail-section"><p class="eyebrow">${english?"From reading to doing":"Vom Lesen zum Können"}</p><h2>${english?"Where this rule is taught, and where you compute it":"Wo diese Regel gelehrt wird – und wo du sie ausrechnest"}</h2><p class="muted">${english?"A rule is not learned by reading it, but by applying it once to your own numbers. Below is the concept page that derives this one and the experiment that really computes it — the same link the concept page already uses in the other direction, read backwards.":"Eine Regel lernt man nicht durch Lesen, sondern indem man sie einmal auf eigene Zahlen anwendet. Unten steht die Konzeptseite, die diese Regel herleitet, und das Experiment, das sie wirklich ausrechnet — dieselbe Verknüpfung, die die Konzeptseite in der Gegenrichtung schon benutzt, nur rückwärts gelesen."}</p><div class="collection-list">${rows}</div></section>`;
+    }
     function conceptExamplePrimer(c,lectureId=""){
       const curatedFormulaId=conceptFormulaIds(c,lectureId)[0],formula=byId(FORMULAS,curatedFormulaId||c.formulas?.[0]);
       if(!formula){
@@ -6836,8 +6861,8 @@
     function renderFormulaDetail(el,f){
       if(!f)return;
       const ref=getFormulaRef(f.id),copyLabel=currentLanguage==="en"?"Copy LaTeX":"LaTeX kopieren",saveLabel=isBookmarked("formula",f.id)?(currentLanguage==="en"?"★ Saved":"★ Gespeichert"):(currentLanguage==="en"?"☆ Save":"☆ Speichern");
-      el.innerHTML=`${backButton("formulas",currentLanguage==="en"?"Formulas":"Tafelwerk")}<div class="view-header" style="margin-top:1rem"><p class="eyebrow">${esc(f.cat)} · ${currentLanguage==="en"?"Formula lesson":"Formelerklärung"}</p><h1>${esc(f.title)}</h1><p class="lede">${currentLanguage==="en"?"Build the rule from its purpose, named quantities, and one small calculation. The general equation appears only afterwards.":"Baue die Regel aus ihrem Zweck, benannten Größen und einer kleinen Rechnung auf. Die allgemeine Gleichung erscheint erst danach."}</p></div><div class="detail-layout"><div class="detail-body"><section class="reading-section detail-section"><p class="eyebrow">${currentLanguage==="en"?"Explanation before notation":"Erklärung vor Notation"}</p><h2>${currentLanguage==="en"?"Build the rule from a small case":"Die Regel aus einem kleinen Fall aufbauen"}</h2>${formulaLearningSequence(f)}<div class="card-actions" style="margin-top:1rem"><button class="button" id="copyFormula">${copyLabel}</button><button class="button ${isBookmarked("formula",f.id)?"primary":""}" id="bookmarkFormula">${saveLabel}</button></div></section><section class="reading-section detail-section"><h2>${currentLanguage==="en"?"Why the rule works":"Warum die Regel funktioniert"}</h2><div class="callout accent">${formulaText(f.intuition)}</div><h3>${currentLanguage==="en"?"Dimensions and plausibility":"Dimensionen und Plausibilität"}</h3><p>${formulaText(f.dims)}</p></section><section class="reading-section detail-section"><h2>${currentLanguage==="en"?"Common mistake":"Typischer Fehler"}</h2><div class="callout warning">${formulaText(f.pitfall)}</div></section><section class="reading-section detail-section"><h2>${currentLanguage==="en"?"Self-check with explanation":"Selbstcheck mit Erklärung"}</h2><p class="muted">${currentLanguage==="en"?"Think first, then reveal the model explanation. Nothing needs to be typed.":"Denke zuerst selbst nach und öffne danach die Mustererklärung. Du musst nichts eintippen."}</p><p class="self-check-question">${formulaText(f.check)}</p>${answerDisclosure(f.answer,currentLanguage==="en"?"Show explanation":"Musterlösung anzeigen")}</section></div><aside class="detail-aside"><div class="panel"><h3>${currentLanguage==="en"?"Source":"Quelle"}</h3>${ref?`<p class="small">${esc(ref)}</p>`:""}<div style="display:grid;gap:.45rem">${f.sources.map(id=>sourceAnchor(id,ref&&id===f.sources[0]?ref.split("·")[0].trim():"")).join("")}</div></div><div class="panel"><h3>${currentLanguage==="en"?"Learning order":"Lernreihenfolge"}</h3><p class="small muted">${currentLanguage==="en"?"Problem, names, and a worked case come before the general equation. The LaTeX is available only after that explanation.":"Problem, Namen und ein gerechneter Fall kommen vor der allgemeinen Gleichung. LaTeX ist erst nach dieser Erklärung verfügbar."}</p></div></aside></div>`;
-      bindBack(el);
+      el.innerHTML=`${backButton("formulas",currentLanguage==="en"?"Formulas":"Tafelwerk")}<div class="view-header" style="margin-top:1rem"><p class="eyebrow">${esc(f.cat)} · ${currentLanguage==="en"?"Formula lesson":"Formelerklärung"}</p><h1>${esc(f.title)}</h1><p class="lede">${currentLanguage==="en"?"Build the rule from its purpose, named quantities, and one small calculation. The general equation appears only afterwards.":"Baue die Regel aus ihrem Zweck, benannten Größen und einer kleinen Rechnung auf. Die allgemeine Gleichung erscheint erst danach."}</p></div><div class="detail-layout"><div class="detail-body"><section class="reading-section detail-section"><p class="eyebrow">${currentLanguage==="en"?"Explanation before notation":"Erklärung vor Notation"}</p><h2>${currentLanguage==="en"?"Build the rule from a small case":"Die Regel aus einem kleinen Fall aufbauen"}</h2>${formulaLearningSequence(f)}<div class="card-actions" style="margin-top:1rem"><button class="button" id="copyFormula">${copyLabel}</button><button class="button ${isBookmarked("formula",f.id)?"primary":""}" id="bookmarkFormula">${saveLabel}</button></div></section><section class="reading-section detail-section"><h2>${currentLanguage==="en"?"Why the rule works":"Warum die Regel funktioniert"}</h2><div class="callout accent">${formulaText(f.intuition)}</div><h3>${currentLanguage==="en"?"Dimensions and plausibility":"Dimensionen und Plausibilität"}</h3><p>${formulaText(f.dims)}</p></section><section class="reading-section detail-section"><h2>${currentLanguage==="en"?"Common mistake":"Typischer Fehler"}</h2><div class="callout warning">${formulaText(f.pitfall)}</div></section><section class="reading-section detail-section"><h2>${currentLanguage==="en"?"Self-check with explanation":"Selbstcheck mit Erklärung"}</h2><p class="muted">${currentLanguage==="en"?"Think first, then reveal the model explanation. Nothing needs to be typed.":"Denke zuerst selbst nach und öffne danach die Mustererklärung. Du musst nichts eintippen."}</p><p class="self-check-question">${formulaText(f.check)}</p>${answerDisclosure(f.answer,currentLanguage==="en"?"Show explanation":"Musterlösung anzeigen")}</section>${formulaRouteMarkup(f)}</div><aside class="detail-aside"><div class="panel"><h3>${currentLanguage==="en"?"Source":"Quelle"}</h3>${ref?`<p class="small">${esc(ref)}</p>`:""}<div style="display:grid;gap:.45rem">${f.sources.map(id=>sourceAnchor(id,ref&&id===f.sources[0]?ref.split("·")[0].trim():"")).join("")}</div></div><div class="panel"><h3>${currentLanguage==="en"?"Learning order":"Lernreihenfolge"}</h3><p class="small muted">${currentLanguage==="en"?"Problem, names, and a worked case come before the general equation. The LaTeX is available only after that explanation.":"Problem, Namen und ein gerechneter Fall kommen vor der allgemeinen Gleichung. LaTeX ist erst nach dieser Erklärung verfügbar."}</p></div></aside></div>`;
+      bindBack(el);bindOpeners(el);
       document.getElementById("copyFormula").onclick=()=>copyText(f.latex);
       document.getElementById("bookmarkFormula").onclick=()=>toggleBookmark("formula",f.id,"#bookmarkFormula");
     }
