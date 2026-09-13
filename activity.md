@@ -755,3 +755,62 @@ Iteration Counter: 1
 - Kein Browsertest - in geplanten Laeufen gesperrt. Ersatz: die drei Karten in beiden Sprachen
   auf alle 11 Felder, deutsche Rueckstaende, undefined, Platzhalter und gleiche vars-Laenge
   geprueft; `formula route` (820 Checks), `content numerals` und `worked steps` tragen sie mit.
+
+## 2026-09-13 - Der verlorene Zweig: der Backward Pass, den die Kette abgeworfen hatte (geplanter Deep Review, v110)
+
+- **Der Befund kam aus der Ahnenpruefung, nicht aus dem Inhalt.** `git merge-base --is-ancestor`
+  ueber alle Branch-Spitzen gegen den Kettenkopf `4b9fcce` (v109) liess **genau eine** Spitze
+  uebrig: `454630e`, ein **zweites v72** ("der Backward Pass hoert auf, ein Satz Prosa zu sein"),
+  parallel zu dem v72, das die Kette aufgenommen hat (`6d043f3`, der Schrittzaehler). Sein Inhalt
+  war seit dem 14. August **lautlos verloren**: `grep -c ffn-backward` gab auf dem Kettenkopf 0.
+- **Was fehlte, entscheidet drei Probleme.** A2 §8.2 druckt den FFN-Backward als Gleichungen
+  (24)-(30) und laesst sie dreimal wiederverwenden: `data_parallel_calcs` (a) verlangt die
+  Backward-FLOPs mit Begruendung, `tp_calcs` (a) verlangt **dieselben Gleichungen mit
+  geshardeten Gewichten** ("Feel free to reference the non-sharded backward pass in Section 8.2
+  and modify it"), `gradient_checkpointing` die Frage, welche von ihnen eine gespeicherte
+  Aktivierung liest. Auf dem Kettenkopf hatte die Plattform fuer "dx₁", "dx₂", "W₃ᵀ" und
+  "f'(" **je 0 Treffer**. Das Lab `comm-crossover` rechnet mit `(pass==="fwd"?6:12)` - die 12 ist
+  fest eingetippt, also genau die Zahl, die das Handout herleiten laesst. Und der Faktor 2 hinter
+  jeder der **38** Stellen, an denen die Plattform 6ND benutzt, stand in einem einzigen
+  Nebensatz: "etwa 2ND_tokens fuer den Forward Pass und etwa doppelt so viel zusaetzlich fuer den
+  Backward Pass". Lecture 2 rechnet ihn dagegen Term fuer Term vor (2x `2*B*D*K`, dann
+  `(2 + 2) * B * D * D`, Schluss "Forward: 2, Backward: 4, Total: 6").
+- **Geborgen statt neu gebaut.** Merge von `454630e` in den Kettenkopf: 11 Konflikte, alle an den
+  bekannten Stellen. README/sw.js/`?v=` waren reine Versionskollisionen (HEAD gewinnt, danach
+  Bump auf v90); `i18n-en.js` und die Guard-Suite waren **Anhaenge an dasselbe Dateiende**, also
+  Vereinigung - und anders als 2026-09-04 endete die HEAD-Seite hier **mit** ihrer schliessenden
+  Klammer, der Zweig der Gegenseite ist ein Block auf oberster Ebene, es fehlte keine. In
+  `index.html` war HEAD in **allen sechs** Huenken die Obermenge; die Gegenseite steuerte nur
+  `ffn-backward` in zwei Listen bei (`a3:synthetic-isoflops`, `OBJECTIVE_LAB_IDS`).
+- **Drei Integrationsluecken, die erst die juengeren Guards sahen.** Das Lab ist 37 Commits
+  aelter als der Kopf und verletzte drei Zusicherungen, die es zu seiner Zeit nicht gab:
+  (1) `fbNumber` formatierte mit `toFixed` statt `fixedNum` - der deutsche Render haette Punkte
+  gedruckt (Guard `decimal separator`); (2) `LAB_CONCEPTS` hatte keinen Eintrag, das Lab waere
+  von keiner Konzeptseite aus angeboten worden; (3) ein `aria-label` blieb fuer den englischen
+  Leser deutsch (Guard `attribute i18n`, seit v92). Dazu **eine, die kein Guard sah**: `fbExp`
+  druckte die Abweichung mit `toExponential`, dessen Punkt der deutsche Sweep nie erreicht hat -
+  jetzt locale-bewusst wie die beiden einzigen Stellen, die es schon waren.
+- **Was das Lab nun rechnet.** Modus A laeuft die sieben Gleichungen an einem 2x3x4-Fall und
+  prueft **jeden der vier Gradienten gegen eine zentrale Differenz auf dem Forward Pass allein**
+  (2,71e-11). Die Falle: der Regelsatz `noBranch` - der zweite Pfad in Gleichung (27) vergessen -
+  laesst dW₁, dW₂ und dW₃ **exakt richtig** (1e-11) und bricht nur dx (3,4e-1). Wer nur
+  `W.grad` testet, sieht gruen. Modus B listet die Matmuls einzeln, 2 vorwaerts und 4 rueckwaerts,
+  und liefert auf allen fuenf Rechenfaellen 2,0000 / 4,0000 / 6,0000 je Parameter je Token - C
+  ≈ 6ND ist damit **gerechnet statt zitiert** -, dazu der Aktivierungssatz (x, h₁) mit
+  `checkpoint` gegen +33,33 % Compute und Lecture 2s 70B-Frage: 47,98 / 95,95 / 143,93 Tage.
+- Guard-Suite **61 -> 62 Bloecke gruen**, Labs 63 -> 64, Cache-Bump auf **v90** (4 Stellen),
+  README auf 64 Labs. Der `lab render sweep` deckt jetzt **61 von 64** statt 60 von 63 Labs ab,
+  die `corpus arithmetic`-Zusicherung "alle Labs von einer Formelkarte erreichbar" haelt bei 64.
+- **Mutationstest gegen die Schlankfassung** (Setup bis `englishFormulas` plus nur der geborgene
+  Block, 0,29 s je Lauf): **10 Mutationen, 10 gefangen, 0 entkommen, 0 inert**, Kontrolle vor und
+  nach dem Lauf gruen. Mutiert wurden die Gleichungen selbst (fehlendes Transponat in (24),
+  f statt f' in (26), fehlender x₂-Faktor, fehlender zweiter Pfad in (27), f(x₁) -> x₁ in (25),
+  dW₂ aus dx₁ in (29), SiLU -> Sigmoid) sowie die FLOP-Zaehlung (2mkn -> mkn, dx-Matmul aus dem
+  Ledger) und die Bytebreite.
+- **Kein Browsertest** - in geplanten Laeufen gesperrt. Ersatz: alle **26 Zustaende** (4 Regelsaetze
+  x 4 Gradienten, 5 Rechenfaelle x 2 Regeln) in **beiden Sprachen** headless gerendert, auf
+  `undefined`/`NaN`, uninterpolierte Platzhalter, Tag-Balance und deutsche Rueckstaende geprueft.
+  Der Scanner wurde vorher als **sehend belegt** - und die erste Fassung fiel dabei durch: ihre
+  Wortliste kannte "Zuerst Lecture 2s eigenes Beispiel" nicht. Die Rueckstandspruefung liest
+  seitdem **die Uebersetzungsmap selbst** statt einer Wortliste, damit sie nicht ueber jede
+  Schreibweise schweigt, die sie nicht kennt.

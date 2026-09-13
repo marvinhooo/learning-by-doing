@@ -13554,3 +13554,177 @@ ${sliceDeclaration(source, "piiCountTrap")}
 
   console.log(`corpus arithmetic OK: ${caChecks} checks -- the three cards that gave Lecture 1 and the data lecture their first formulas recomputed from their own definitions: Lecture 1's own string is re-encoded in the checker (${numBytes} bytes against ${numChars} characters, so the byte tokenizer lands on exactly ${rByte.toFixed(4)} where the character tokenizer reaches ${rChar.toFixed(4)}, and the same encoder puts the character ratio at 1.0000 on ASCII against 3.0000 on Chinese); the uint16 claim is held by scanning 4000 values of r across the threshold in both directions rather than on one example (${grew} grow, ${shrank} shrink, ${equal} lands exactly on it); the Pile extrapolation is rebuilt from a measured rate (${seconds} seconds, ${days.toFixed(3)} days, ${parallelDays.toFixed(3)} on ${workers} workers) and the dedup answer's blow-up is recomputed as ${volumeFactor}x in volume against ${volumeFactor ** 2}x in pairs; and the cascade is walked one stage at a time where the card closes the product (${kept} of ${documents} kept, the ${removedPerStage.length} removals summing exactly to the ${discarded} discards and their shares to 100 %), with the order claim proven in both directions over all ${orders.length} permutations of a corpus whose multiple coverage is measured at ${excess} rather than assumed -- one surviving set, ${attributions.size} different attributions. All ${base.labs.length} labs stay reachable from some card.`);
 }
+// --- ffn-backward ------------------------------------------------------------
+// Lecture 2 walks the chain rule for x --w1--> h1 --w2--> h2 in its own trace, counts the backward
+// FLOPs term by term ("num_backward_flops += 2 * B * D * K" twice, then "(2 + 2) * B * D * D" for
+// w1 with the aside "though don't need x.grad") and closes with "Forward pass: 2 (# data points)
+// (# parameters), Backward pass: 4, Total: 6". A2 section 8.2 prints the FFN backward as equations
+// (24)-(30) and has three problems reuse them: data_parallel_calcs (a), tp_calcs (a) and
+// gradient_checkpointing. Before this lab the platform had zero occurrences of "dx₁", "dx₂",
+// "W₃ᵀ" and "f'(" -- the factor 2 behind every 6ND was one sentence of prose. The FFN below is
+// written here from the handout's equations and not read from the app, so a change to the app's
+// backward pass has to show up as a diff. The finite differences are computed from the app's own
+// forward pass, which is the point: they can refute its backward pass.
+const fbNames = ["FB_H", "FB_BYTES_PER_ELEMENT", "FB_X", "FB_W1", "FB_W2", "FB_W3", "FB_DY",
+  "FB_LINEAR_X", "FB_LINEAR_W", "FB_LINEAR_TARGET", "FB_NAPKIN", "FB_VARIANTS", "FB_GRADS", "FB_CASES", "FB_RULES",
+  "fbSigmoid", "fbSilu", "fbSiluPrime", "fbMatmul", "fbTranspose", "fbZip", "fbMap", "fbShape", "fbSameShape",
+  "fbForward", "fbLoss", "fbBackward", "fbNumericGradient", "fbMaxDeviation", "fbCompare", "fbBroken",
+  "fbLedger", "fbMatmulFlops", "fbReport", "fbNapkinDays"];
+const fbApi = runInNewContext(`${fbNames.map(name => sliceDeclaration(source, name)).join("\n")}; ({${fbNames.join(",")}})`);
+// The renderers nest template literals, which sliceDeclaration's quote scanner cannot follow.
+// Slice them between their own signature and the next top-level function instead, so a guard
+// still reads one declaration and not the whole file.
+function fbSliceRenderer(name) {
+  const start = source.indexOf(`    function ${name}(`);
+  if (start < 0) throw new Error(`ffn-backward: renderer ${name} not found`);
+  const end = source.indexOf("\n    function ", start + 1);
+  if (end < 0) throw new Error(`ffn-backward: renderer ${name} has no end`);
+  return source.slice(start, end);
+}
+const fbEquationsRenderer = fbSliceRenderer("renderFfnBackwardEquations");
+const fbFlopsRenderer = fbSliceRenderer("renderFfnBackwardFlops");
+const fbMatrixRenderer = fbSliceRenderer("fbMatrixMarkup");
+let fbValues = 0;
+
+// --- independent reference: A2 equations (20)-(30), written from the handout -------------------
+const refMul = (a, b) => a.map(row => b[0].map((_, j) => row.reduce((sum, value, k) => sum + value * b[k][j], 0)));
+const refT = m => m[0].map((_, j) => m.map(row => row[j]));
+const refSilu = t => t / (1 + Math.exp(-t));
+const refSiluPrime = t => { const s = 1 / (1 + Math.exp(-t)); return s * (1 + t * (1 - s)); };
+const refForward = (x, w1, w2, w3) => {
+  const x1 = refMul(x, w1), x2 = refMul(x, w2);
+  const z = x1.map((row, i) => row.map((value, j) => refSilu(value) * x2[i][j]));
+  return { x1, x2, z, y: refMul(z, w3) };
+};
+const refBackward = (x, w1, w2, w3, dy) => {
+  const { x1, x2, z } = refForward(x, w1, w2, w3);
+  const dz = refMul(dy, refT(w3));
+  const dx2 = dz.map((row, i) => row.map((value, j) => value * refSilu(x1[i][j])));
+  const dx1 = dz.map((row, i) => row.map((value, j) => value * refSiluPrime(x1[i][j]) * x2[i][j]));
+  const viaW1 = refMul(dx1, refT(w1)), viaW2 = refMul(dx2, refT(w2));
+  return { dx: viaW1.map((row, i) => row.map((value, j) => value + viaW2[i][j])),
+           dW1: refMul(refT(x), dx1), dW2: refMul(refT(x), dx2), dW3: refMul(refT(z), dy) };
+};
+const fbShow = value => Number(value).toFixed(10);
+const fbApp = fbApi.fbBackward(fbApi.FB_X, fbApi.FB_W1, fbApi.FB_W2, fbApi.FB_W3, fbApi.FB_DY, "correct");
+const fbRef = refBackward(fbApi.FB_X, fbApi.FB_W1, fbApi.FB_W2, fbApi.FB_W3, fbApi.FB_DY);
+for (const key of ["dx", "dW1", "dW2", "dW3"]) {
+  if (JSON.stringify(fbApp[key].map(row => row.map(fbShow))) !== JSON.stringify(fbRef[key].map(row => row.map(fbShow))))
+    throw new Error(`ffn-backward: the app's ${key} does not match A2's equations (24)-(30) recomputed here`);
+  fbValues += fbApp[key].length * fbApp[key][0].length;
+}
+// The shapes are the claim of the symbols table: every dW carries the shape of its weight.
+for (const [key, weight] of [["dW1", fbApi.FB_W1], ["dW2", fbApi.FB_W2], ["dW3", fbApi.FB_W3]])
+  if (fbApi.fbShape(fbApp[key]) !== fbApi.fbShape(weight))
+    throw new Error(`ffn-backward: ${key} must carry the shape of its weight, otherwise the transpose lesson is wrong`);
+
+// --- the numerical check has to be a measurement, not a decoration ------------------------------
+const fbCorrect = fbApi.fbCompare("correct");
+if (fbCorrect.some(row => row.deviation === null || !(row.deviation < 1e-6)))
+  throw new Error("ffn-backward: the handout's own rule set must pass the central difference on all four gradients");
+if (fbCorrect.every(row => row.deviation === 0))
+  throw new Error("ffn-backward: a central difference that reproduces the analytic gradient bit for bit is not a measurement");
+fbValues += fbCorrect.length;
+
+// --- the signature table is the lab's sharpest claim; check every cell of it --------------------
+const fbSignature = Object.fromEntries(fbApi.FB_VARIANTS.map(variant =>
+  [variant.key, Object.fromEntries(fbApi.fbCompare(variant.key).map(row =>
+    [row.entry.key, row.deviation === null ? "shape" : (fbApi.fbBroken(row) ? "wrong" : "ok")]))]));
+fbValues += 16;
+const fbExpectedSignature = {
+  correct: { dx: "ok", dW1: "ok", dW2: "ok", dW3: "ok" },
+  // The whole point: a missing branch leaves every weight gradient exact, so a test on W.grad is green.
+  noBranch: { dx: "wrong", dW1: "ok", dW2: "ok", dW3: "ok" },
+  forgotGate: { dx: "wrong", dW1: "wrong", dW2: "ok", dW3: "ok" },
+  wrongTranspose: { dx: "ok", dW1: "shape", dW2: "ok", dW3: "ok" }
+};
+if (JSON.stringify(fbSignature) !== JSON.stringify(fbExpectedSignature))
+  throw new Error(`ffn-backward: signature table changed -- ${JSON.stringify(fbSignature)}`);
+// A wrong rule that lands within measurement noise would make the table a decoration.
+for (const variant of ["noBranch", "forgotGate"])
+  for (const row of fbApi.fbCompare(variant))
+    if (row.deviation !== null && row.deviation > 1e-6 && row.deviation < 1e-3)
+      throw new Error(`ffn-backward: ${variant} deviates by only ${row.deviation}, too little to separate a bug from the step size`);
+
+// --- Lecture 2's own numbers ------------------------------------------------------------------
+// Its gradient example ships with an assert; the lab reproduces the value that assert compares to.
+const fbPredicted = fbApi.FB_LINEAR_X.reduce((sum, value, index) => sum + value * fbApi.FB_LINEAR_W[index], 0);
+const fbLinearGrad = fbApi.FB_LINEAR_X.map(value => (fbPredicted - fbApi.FB_LINEAR_TARGET) * value);
+if (JSON.stringify(fbLinearGrad) !== JSON.stringify(fbApi.FB_LINEAR_X))
+  throw new Error("ffn-backward: lecture 2 asserts w.grad == tensor([1, 2, 3]); the lab's example must reproduce exactly that");
+const fbL02 = fbApi.FB_CASES.filter(entry => entry.kind === "mlp");
+if (fbL02.length !== 2) throw new Error("ffn-backward: both branches of lecture 2's gradients_flops belong in the cases");
+if (!fbL02.some(entry => entry.B === 1024 && entry.D === 256 && entry.K === 64))
+  throw new Error("ffn-backward: lecture 2's else branch is B = 1024, D = 256, K = 64");
+if (!fbL02.some(entry => entry.B === 16384 && entry.D === 32768 && entry.K === 8192))
+  throw new Error("ffn-backward: lecture 2's if branch is B = 16384, D = 32768, K = 8192");
+if (fbApi.FB_NAPKIN.params !== 70e9 || fbApi.FB_NAPKIN.tokens !== 15e12 || fbApi.FB_NAPKIN.gpus !== 1024 ||
+    fbApi.FB_NAPKIN.mfu !== 0.5 || fbApi.FB_NAPKIN.flopPerSecond !== 1979e12 / 2)
+  throw new Error("ffn-backward: the napkin row quotes lecture 2's own question -- 70e9, 15e12, 1024 H100 at half the sparse peak, MFU 0.5");
+if (fbApi.FB_BYTES_PER_ELEMENT !== 2)
+  throw new Error("ffn-backward: A2 section 8.2 assumes two bytes per element; another width makes the memory rows a different claim");
+
+// --- the factor 2, on every case ---------------------------------------------------------------
+for (const config of fbApi.FB_CASES) {
+  const full = fbApi.fbReport(config, "full");
+  fbValues += full.ledger.forward.length + full.ledger.backward.length + 6;
+  if (fbShow(full.perTokenForward) !== fbShow(2) || fbShow(full.perTokenBackward) !== fbShow(4) || fbShow(full.perTokenTotal) !== fbShow(6))
+    throw new Error(`ffn-backward: ${config.key} must produce lecture 2's 2 / 4 / 6 per parameter per token, got ${full.perTokenForward} / ${full.perTokenBackward} / ${full.perTokenTotal}`);
+  if (fbShow(full.ratio) !== fbShow(2))
+    throw new Error(`ffn-backward: ${config.key} backward divided by forward must be exactly 2`);
+  // The FLOPs have to come from the matmul rows, not from a rule pinned to the same answer.
+  const summed = full.ledger.forward.reduce((sum, row) => sum + fbApi.fbMatmulFlops(row), 0);
+  if (summed !== full.forward) throw new Error(`ffn-backward: ${config.key} forward total must be the sum of its listed matmuls`);
+  // Every saved tensor has to be one the backward pass actually reads, none may be missing, and
+  // each has to carry its real size -- a row that keeps its label but loses its count would leave
+  // the memory ledger wrong while every label check stayed green.
+  const expectedSaved = config.kind === "mlp"
+    ? [["x", config.B * config.D], ["h₁", config.B * config.D]]
+    : [["x", config.B * config.D], ["x₁", config.B * config.DFF], ["x₂", config.B * config.DFF], ["z", config.B * config.DFF]];
+  if (JSON.stringify(full.ledger.saved.map(row => [row.label, row.elements])) !== JSON.stringify(expectedSaved))
+    throw new Error(`ffn-backward: ${config.key} saved set must be exactly the tensors equations (24)-(30) read, at their real sizes`);
+  if (full.savedBytes !== full.ledger.saved.reduce((sum, row) => sum + row.elements, 0) * fbApi.FB_BYTES_PER_ELEMENT)
+    throw new Error(`ffn-backward: ${config.key} saved bytes must follow from the listed tensors`);
+  const needed = fbApi.fbReport(config, "needed");
+  if (config.kind === "mlp") {
+    if (fbShow(needed.perTokenBackward) !== fbShow(2.4))
+      throw new Error(`ffn-backward: dropping the first layer's dx must leave 2.4 per parameter per token, got ${needed.perTokenBackward}`);
+  } else if (needed.backward !== full.backward) {
+    throw new Error(`ffn-backward: an FFN block sits inside the stack, so nothing may drop from its backward pass`);
+  }
+}
+// The napkin row is only worth printing if the factor moves it.
+const fbDays = [2, 4, 6].map(factor => fbApi.fbNapkinDays(factor));
+fbValues += 3;
+if (!(fbDays[0] < fbDays[1] && fbDays[1] < fbDays[2]) || Math.abs(fbDays[2] / fbDays[0] - 3) > 1e-9)
+  throw new Error("ffn-backward: the napkin row must scale linearly in the factor, otherwise it says nothing about it");
+if (fbDays[2] - fbDays[0] < 30)
+  throw new Error("ffn-backward: if the backward pass is worth less than a month of the cluster, the row is not making the point");
+
+// --- renderer guards: the app has to display these numbers, not merely compute them -------------
+if (!fbEquationsRenderer.includes('<td><strong>${row.deviation===null?tr("Shape passt nicht"):fbExp(row.deviation)}</strong></td><td>${fbBroken(row)?tr("fällt durch"):tr("besteht")}</td>'))
+  throw new Error("ffn-backward: the deviation and its verdict must be printed per gradient, not only computed");
+if (!fbEquationsRenderer.includes('<td>${row.deviation===null?tr("Shape"):fbBroken(row)?tr("falsch"):tr("richtig")}</td>'))
+  throw new Error("ffn-backward: the signature table must print a cell per rule set and gradient");
+if (!fbMatrixRenderer.includes('<td data-cell="${i}-${j}"><strong>${fbNumber(value)}</strong><br><span class="small muted">${fbNumber(numeric[i][j])}</span></td>'))
+  throw new Error("ffn-backward: every entry must show the analytic value above its numerical counterpart");
+if (!fbFlopsRenderer.includes('<span>${tr("rückwärts geteilt durch vorwärts")}</span><strong>${fbNumber(report.ratio,4)}</strong>'))
+  throw new Error("ffn-backward: the ratio backward/forward must be printed, it is the whole claim of mode B");
+if (!fbFlopsRenderer.includes('<span>${tr("zusammen")} · C ≈ ? · N · D_tokens</span><strong>${fbNumber(report.perTokenTotal,4)}</strong>'))
+  throw new Error("ffn-backward: the 6 of C ≈ 6ND must be printed as a computed number");
+if (!fbFlopsRenderer.includes('<span>${tr("zusammen gehalten, bis der Backward Pass sie liest")} · ${fbExp(report.savedElements)} ${tr("Elemente")}</span><strong>${fbMiB(report.savedBytes)} MiB</strong>'))
+  throw new Error("ffn-backward: the activation memory the backward pass holds must be printed, in elements and in MiB");
+if (!fbFlopsRenderer.includes('<span>${tr("Summe rückwärts, exakt gezählt")}</span><strong>${fbExp(report.exact)}</strong>'))
+  throw new Error("ffn-backward: where the rule drops a matmul, the exact count has to stay visible next to the chosen one");
+if (!fbFlopsRenderer.includes('<span>C = ${factor}·N·D_tokens</span><strong>${fbNumber(fbNapkinDays(factor),2)} ${tr("Tage")}</strong>'))
+  throw new Error("ffn-backward: the napkin row must print one duration per factor");
+if (!fbFlopsRenderer.includes("${matmulRows(report.ledger.backward)}"))
+  throw new Error("ffn-backward: the backward matmuls must be listed one by one, that listing is the derivation");
+// The totals have to be produced by adding the listed rows. A closed form pinned to the same
+// answer is numerically indistinguishable, so this claim can only be checked on the declaration.
+const fbReportSource = sliceDeclaration(source, "fbReport");
+if (!fbReportSource.includes("const forward=ledger.forward.reduce((sum,row)=>sum+fbMatmulFlops(row),0);") ||
+    !fbReportSource.includes("const exact=ledger.backward.reduce((sum,row)=>sum+fbMatmulFlops(row),0);"))
+  throw new Error("ffn-backward: both totals must be summed from the listed matmuls, not restated as a closed form");
+
+console.log(`ffn-backward OK: ${fbValues} values, all four gradients match A2's equations (24)-(30) within ${fbCorrect.reduce((worst, row) => Math.max(worst, row.deviation), 0).toExponential(2)} of the central difference, the missing branch leaves dW₁/dW₂/dW₃ exact while dx breaks, every case gives 2 / 4 / 6 per parameter per token, and lecture 2's own 70B question moves from ${fbDays[0].toFixed(2)} to ${fbDays[2].toFixed(2)} days`);
