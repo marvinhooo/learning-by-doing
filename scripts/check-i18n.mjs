@@ -70,10 +70,11 @@ function sliceDeclaration(text, name) {
   return text.slice(functionIndex, index + 1);
 }
 
-// Every displayed number in the app goes through fixedNum, whose decimal separator follows
-// the locale. The guards pin en-US, which makes it behave exactly like the toFixed it
-// replaced -- that is why no guard value moved when the app became locale-aware.
-const numberPrelude = `const localeCode = () => "en-US";\n${sliceDeclaration(source, "fixedNum")}\n`;
+// Every displayed number in the app goes through fixedNum, and every displayed exponential
+// through expNum; both take their decimal separator from the locale. The guards pin en-US,
+// which makes them behave exactly like the toFixed and toExponential they replaced -- that is
+// why no guard value moved when the app became locale-aware.
+const numberPrelude = `const localeCode = () => "en-US";\n${sliceDeclaration(source, "fixedNum")}\n${sliceDeclaration(source, "expNum")}\n`;
 
 // ---- the decimal separator ---------------------------------------------------
 // German writes decimals with a comma. Until this pass the app printed grouped integers with
@@ -99,6 +100,69 @@ const numberPrelude = `const localeCode = () => "en-US";\n${sliceDeclaration(sou
   if (!sliceDeclaration(source, "rcSame").includes(".toFixed(12)"))
     throw new Error("rcSame: the equality test must keep toFixed, a locale-aware string is not a comparison key");
 }
+
+// ---- scientific notation: the half of the sweep that never ran -----------------------------
+// The decimal sweep replaced every toFixed and left a guard behind -- but that guard greps for
+// one spelling and never says how many hits it expects. toExponential is a second spelling of
+// the same decision, and for 110 versions it printed the reader's numbers with a point: 15 labs
+// and 275 German states showed "8.2555e+8" where the prose beside them writes "8,2555e+8". In
+// German the point is the *thousands* separator, so the number was not merely foreign-looking,
+// it was misreadable by three orders of magnitude -- in resources, chain-carry, comm-crossover
+// and scaling, which are exactly the labs whose subject is the order of magnitude.
+//
+// So this guard counts. A grep that cannot say "I expect exactly N" is silent about every
+// spelling it was not told about, which is how the first one hid.
+{
+  const decl = sliceDeclaration(source, "expNum");
+  if (!decl.includes("localeCode()")) throw new Error("expNum: the separator has to follow the locale, or the German render prints 8.2555e+8 beside prose writing 8,2555e+8");
+  if (!decl.includes('replace(".",",")')) throw new Error("expNum: German swaps the mantissa separator; the exponent never carries one");
+
+  // The count is the guard. expNum holds both calls -- the digits branch and the bare one --
+  // and nothing else in the app may call toExponential directly.
+  const inside = [...decl.matchAll(/\.toExponential\(/gu)].length;
+  if (inside !== 2) throw new Error(`expNum: expected its own two toExponential calls, found ${inside}`);
+  const total = [...source.matchAll(/\.toExponential\(/gu)].length;
+  if (total !== inside)
+    throw new Error(`scientific notation: ${total - inside} display site(s) still call toExponential directly instead of expNum -- the German render would print them with a point`);
+
+  // The two sibling spellings that would reopen the same hole. Neither is in use; the guard
+  // says so out loud rather than staying silent about a spelling it was never told about.
+  if (/\.toPrecision\(/u.test(source)) throw new Error("scientific notation: toPrecision formats a number too and is not locale-aware -- route it through a helper that is");
+  if (/notation:\s*["']scientific["']/u.test(source)) throw new Error('scientific notation: toLocaleString notation:"scientific" writes 8,256E8, which is not the format the labs print -- expNum is the one place that decides this');
+
+  // The same sweep turned up three leaks that are not exponentials, each a different spelling
+  // of "a number reached the reader without passing a helper". They are pinned by name because
+  // no pattern catches them: the general claim -- every dot a German reader sees is a thousands
+  // separator -- is false in this app, and deliberately so. Handout section references (A1
+  // §7.2.1), the English corpus samples that compression-ratio and quality-threshold compress,
+  // and mask-pii's literal 1.2.3.4 all carry dots that must survive translation. That is the
+  // boundary of what this block proves, written down rather than left to be rediscovered.
+  //
+  // 1. shard-ledger printed the string literal "0.00" for the zero case, in the same row where
+  //    shardNumber had just written 12.995,95.
+  if (!/\$\{shardNumber\(shardMib\(l\.transient\)\)\}/u.test(source))
+    throw new Error('shard-ledger: the transient cell must go through shardNumber -- a literal "0.00" prints a point beside the row\'s own 12.995,95');
+  // 2. roofline's y ticks went through fixedNum and its x ticks interpolated the raw number, so
+  //    the 0.25 tick and a 2000 TFLOP/s peak reached the German reader unformatted.
+  if (!/text-anchor="middle">\$\{fixedNum\(value,value<1\?2:0\)\}<\/text>/u.test(source))
+    throw new Error("roofline: the x axis ticks must go through fixedNum, or the 0.25 tick prints with a point");
+  if (/roofPeakOut"\)\.value=peak\+/u.test(source))
+    throw new Error("roofline: the peak output must go through fixedNum, or 2000 TFLOP/s prints ungrouped");
+  // 3. precNumber shows the full JS repr on purpose -- that fp32 cannot hold 0.01 is the lab's
+  //    subject -- but the separator still belongs to the reader.
+  if (!sliceDeclaration(source, "precNumber").includes('String(value).replace(".",",")'))
+    throw new Error("precNumber: the full-precision branch must follow the locale too, or mixed-precision prints 0.009999999776482582 with a point");
+  // 4. Three numbers sat in the markup as literals rather than passing a helper, so both
+  //    languages got the same spelling and German got the wrong one. A mutation test put each
+  //    back and all three escaped every other block in this file -- which is the point: a
+  //    hard-coded figure is invisible to a pattern, and only a named pin catches its return.
+  if (!/\$\{fixedNum\(NORM_LAB_EPS,5\)\}/u.test(source))
+    throw new Error("norm-and-ffn: epsilon must go through fixedNum, or the row prints 0.00001 beside gains written 1,000000");
+  if (!/w_A=\$\{fixedNum\(\.3,2\)\}/u.test(source))
+    throw new Error("filtering-mechanics: A4's DSIR worked example must go through fixedNum, or the German reader gets w_A=0.30/0.60=0.50");
+  if (!/loss = \$\{fixedNum\(\.5,1\)\} · \(pred_y − 5\)²/u.test(source))
+    throw new Error("ffn-backward: the loss coefficient is read as maths in this row, not as source code, so it follows the language");}
+console.log(`scientific notation OK: all ${[...source.matchAll(/expNum\(/gu)].length - 1} expNum call sites route through one locale-aware helper, ${[...source.matchAll(/\.toExponential\(/gu)].length} raw toExponential calls left and both inside it, toPrecision and the scientific toLocaleString notation absent, and the 7 figures that reached the reader without a helper (shard-ledger's zero cell, roofline's x ticks and peak, precNumber's full repr, norm-and-ffn's epsilon, filtering-mechanics' DSIR example, ffn-backward's loss coefficient) each pinned by name -- the render half of the claim is held per state by the lab render sweep, in both language directions`);
 
 const base = {
   nav: readConstant("NAV_ITEMS"),
@@ -1982,7 +2046,7 @@ const offClipRenderer = sliceDeclaration(source, "offClipStage");
 for (const required of ["offNumber(100*correct.maskedFrac,1)", "correct.masked", "correct.tokens", "offNumber(report.loss)", "offNumber(t.w,4)", "OFF_VARIANTS.map"])
   if (!offClipRenderer.includes(required)) throw new Error(`offpolicy-clip clip renderer: must stay data-driven and show ${required}`);
 const offGspoRenderer = sliceDeclaration(source, "offGspoStage");
-for (const required of ["productRun.product.toExponential(4)", "productRun.product<1e-38", "offNumber(row.value)", "row.masked", "OFF_SEQ_VARIANTS.map", "offNumber(1-eps,2)"])
+for (const required of ["expNum(productRun.product,4)", "productRun.product<1e-38", "offNumber(row.value)", "row.masked", "OFF_SEQ_VARIANTS.map", "offNumber(1-eps,2)"])
   if (!offGspoRenderer.includes(required)) throw new Error(`offpolicy-clip gspo renderer: must stay data-driven and show ${required}`);
 
 // Registration: the lab has to be reachable from the lecture that teaches clipping and from its mission.
@@ -3906,6 +3970,7 @@ const abStubs = `
   const localeCode = () => "en-US";
   const localizedUi = value => String(value);
 ${sliceDeclaration(source, "fixedNum")}
+${sliceDeclaration(source, "expNum")}
 `;
 const abAll = [...abNames, ...abRenderNames];
 const abApi = runInNewContext(`${abStubs}${abAll.map(name => sliceDeclaration(source, name)).join("\n")}; ({${abAll.join(",")}})`, {});
@@ -4255,6 +4320,7 @@ const psStubs = `
   const localeCode = () => "en-US";
   const localizedUi = value => String(value);
 ${sliceDeclaration(source, "fixedNum")}
+${sliceDeclaration(source, "expNum")}
 `;
 const psAll = [...psNames, ...psRenderNames];
 const psApi = runInNewContext(`${psStubs}${psAll.map(name => sliceDeclaration(source, name)).join("\n")}; ({${psAll.join(",")}})`, {});
@@ -4611,6 +4677,7 @@ const fcStubs = `
   const localeCode = () => "en-US";
   const localizedUi = value => String(value);
 ${sliceDeclaration(source, "fixedNum")}
+${sliceDeclaration(source, "expNum")}
 `;
 const fcAll = [...fcNames, ...fcRenderNames];
 const fcApi = runInNewContext(`${fcStubs}${fcAll.map(name => sliceDeclaration(source, name)).join("\n")}; ({${fcAll.join(",")}})`, {});
@@ -5082,6 +5149,7 @@ const seStubs = `
   const localeCode = () => "en-US";
   const localizedUi = value => String(value);
 ${sliceDeclaration(source, "fixedNum")}
+${sliceDeclaration(source, "expNum")}
 `;
 const seAll = [...seNames, ...seRenderNames];
 const seApi = runInNewContext(`${seStubs}${seAll.map(name => sliceDeclaration(source, name)).join("\n")}; ({${seAll.join(",")}})`, {});
@@ -5384,6 +5452,7 @@ const dhStubs = `
   const localeCode = () => "en-US";
   const localizedUi = value => String(value);
 ${sliceDeclaration(source, "fixedNum")}
+${sliceDeclaration(source, "expNum")}
 `;
 const dhAll = [...dhNames, ...dhRenderNames];
 const dhApi = runInNewContext(`${dhStubs}${dhAll.map(name => sliceDeclaration(source, name)).join("\n")}; ({${dhAll.join(",")}})`, {});
@@ -5712,7 +5781,7 @@ if (!source.includes("lrMin=.1*max")) throw new Error("optimizer: alpha_min is a
 if (!source.includes("η_min ist auf 0,1·η_max gesetzt")) throw new Error("optimizer: the panel must say which value alpha_min is fixed to");
 if (source.includes("${fixedNum(lrMin,4)}"))
   throw new Error("optimizer: alpha_min must not be printed with four decimals, it rounds to zero on the small half of the slider");
-if ((source.match(/\$\{lrMin\.toExponential\(2\)\}/g) || []).length !== 2)
+if ((source.match(/\$\{expNum\(lrMin,2\)\}/g) || []).length !== 2)
   throw new Error("optimizer: both branches of the printed formula must spell alpha_min out");
 // Repairing schedule() is not enough: both call sites have to hand it the chosen horizon,
 // otherwise the lab keeps drawing the pinned curve while the function is correct.
@@ -7212,6 +7281,7 @@ function renderApi(names, globals, prose = true) {
     const localeCode = () => "en-US";
     const localizedUi = value => ${prose ? "String(value)" : '""'};
 ${sliceDeclaration(source, "fixedNum")}
+${sliceDeclaration(source, "expNum")}
 `;
   return runInNewContext(`${stubs}${ordered.map(name => sliceDeclaration(source, name)).join("\n")}; ({${ordered.join(",")}})`, globals);
 }
@@ -8523,6 +8593,7 @@ const englishRender = lab => {
     const esc = value => String(value ?? "").replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
     const localeCode = () => "en-US";
 ${sliceDeclaration(source, "fixedNum")}
+${sliceDeclaration(source, "expNum")}
 `;
   return runInNewContext(`${stubs}${ordered.map(name => sliceDeclaration(source, name)).join("\n")}; ({${ordered.join(",")}})`,
     { localizedUi: panelTranslator });
@@ -9912,6 +9983,16 @@ console.log(`english render OK: ${englishStates} states across ${englishLabs} la
       const allowed = (out.de.match(/nicht definiert/gu) || []).length;
       const english = (out.en.match(/undefined/gu) || []).length;
       if (english > allowed) throw new Error(`lab render sweep: ${lab.id}/en prints "undefined" ${english} time(s) at ${state}, but the German render says "nicht definiert" only ${allowed} time(s) -- the extra one is a missing value, not a translation`);
+      // The source-side guard proves every exponential goes through expNum. This is the other
+      // half of the same claim, and the half that cannot be fooled by a helper that exists but
+      // is never called: read the rendered text back and require the separator to match the
+      // language -- in BOTH directions, because an invariant checked one way is half checked.
+      // Attributes are skipped deliberately: data-bv-crossover and its kind carry raw values as
+      // machine-readable anchors, and a raw value is exactly right there.
+      for (const [language, wrong] of [["de", /\d\.\d+e[+-]?\d/u], ["en", /\d,\d+e[+-]?\d/u]]) {
+        const stray = out[language].replace(/<[^>]*>/gu, " ").match(wrong);
+        if (stray) throw new Error(`lab render sweep: ${lab.id}/${language} prints the exponential ${stray[0]} at ${state} -- the mantissa separator has to follow the language (expNum)`);
+      }
       const visible = out.en.replace(/<pre[^>]*data-no-i18n[\s\S]*?<\/pre>/gu, " ").replace(/<[^>]*>/gu, " ");
       const residue = visible.split(/\s{2,}/u).map(part => part.trim()).filter(part => part && GERMAN_WORDS.test(part));
       if (residue.length) throw new Error(`lab render sweep: ${lab.id}/en still shows German at ${state} -- ${residue[0].slice(0, 90)}`);
