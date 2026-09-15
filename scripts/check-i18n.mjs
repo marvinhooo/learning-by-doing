@@ -9871,8 +9871,9 @@ console.log(`english render OK: ${englishStates} states across ${englishLabs} la
   // decides `a5:grpo_train_step_off_policy` (2.5 points), and A5 §6.4 prescribes numbers --
   // 256 against 8, 32 steps, cliprange 0.2 against 3e-4, the clip fraction to log -- that no
   // screen of the app computed.
-  const LR_NO_STAGE = ["policy-loss-tracer",
-    "scaling-transfer", "moe-routing"];
+  // scaling-transfer and moe-routing are objective short checks: their surface is a question
+  // form, not a computed stage. policy-loss-tracer left this list in v112 when it got one.
+  const LR_NO_STAGE = ["scaling-transfer", "moe-routing"];
   // One lab's branch of initLab, cut by balancing braces from `if(id==="<lab>")`.
   const lrBranch = labId => {
     const marker = source.indexOf(`if(id==="${labId}"){`);
@@ -13809,3 +13810,196 @@ if (!fbReportSource.includes("const forward=ledger.forward.reduce((sum,row)=>sum
   throw new Error("ffn-backward: both totals must be summed from the listed matmuls, not restated as a closed form");
 
 console.log(`ffn-backward OK: ${fbValues} values, all four gradients match A2's equations (24)-(30) within ${fbCorrect.reduce((worst, row) => Math.max(worst, row.deviation), 0).toExponential(2)} of the central difference, the missing branch leaves dW₁/dW₂/dW₃ exact while dx breaks, every case gives 2 / 4 / 6 per parameter per token, and lecture 2's own 70B question moves from ${fbDays[0].toFixed(2)} to ${fbDays[2].toFixed(2)} days`);
+
+// ---- policy-loss-tracer: the lab that had nothing to check ----------------------------------
+// Until v112 this lab printed a fixed shape table and a derivation typed by hand. It was also the
+// one lab on LR_NO_STAGE with prose numbers -- so the render sweep never saw it, and 23 decimal
+// points stood in German text behind that excuse. It computes now. This block recomputes the same
+// figures by a different route and then requires the panel to print them.
+{
+  const pltNames = ["PLT_PAD", "PLT_ROLLOUT", "pltRead", "pltNumber", "pltMaskRow", "pltTokenLoss", "pltReport"];
+  const pltApi = runInNewContext(`${numberPrelude}${pltNames.map(name => sliceDeclaration(source, name)).join("\n")}; ({${pltNames.join(",")}})`, {});
+  let pltChecks = 0;
+  const pltFail = message => { throw new Error(`policy-loss-tracer: ${message}`); };
+  const pltAt = (mode, sign, reduce = "sequence") => pltApi.pltReport({ pltMask: mode, pltSign: sign, pltReduce: reduce });
+
+  // --- the independent route -------------------------------------------------------------
+  // The app decides what a label is from the two counts it stores (prompt, response). This reads
+  // the same positions off the token ids instead -- 0 is the pad, 7 and 8 are the prompt -- so a
+  // wrong count cannot agree with itself. The two readings are required to match, both ways.
+  const pltRole = (row, index) => {
+    const token = row.tokens[index];
+    if (token === pltApi.PLT_PAD) return "pad";
+    return token === 7 || token === 8 ? "prompt" : "response";
+  };
+  for (const row of pltApi.PLT_ROLLOUT) {
+    const roles = row.tokens.map((token, index) => pltRole(row, index));
+    if (roles.filter(role => role === "prompt").length !== row.prompt)
+      pltFail(`${row.key}: the stored prompt length ${row.prompt} disagrees with the token ids`);
+    if (roles.filter(role => role === "response").length !== row.response)
+      pltFail(`${row.key}: the stored response length ${row.response} disagrees with the token ids`);
+    if (roles.slice(0, row.prompt).some(role => role !== "prompt"))
+      pltFail(`${row.key}: the prompt has to be the leading run of tokens`);
+    if (row.logp.length !== row.tokens.length - 1)
+      pltFail(`${row.key}: one aligned log p per shifted label, got ${row.logp.length} for ${row.tokens.length - 1}`);
+    if (row.logp.some(value => value > 0)) pltFail(`${row.key}: a log probability cannot be positive`);
+    pltChecks += 5;
+  }
+  if (pltApi.PLT_ROLLOUT.some(row => row.tokens.length !== pltApi.PLT_ROLLOUT[0].tokens.length))
+    pltFail("the batch is padded to one width, that is what makes the padding label reachable");
+  if (!pltApi.PLT_ROLLOUT.some(row => row.advantage > 0) || !pltApi.PLT_ROLLOUT.some(row => row.advantage < 0))
+    pltFail("the group needs one better and one worse response, otherwise the sign teaches nothing");
+  if (new Set(pltApi.PLT_ROLLOUT.map(row => row.response)).size < 2)
+    pltFail("the two responses must differ in length, otherwise the two reductions can never part");
+
+  // Masks and both reductions, rebuilt from the roles rather than from the app's own arithmetic.
+  const pltExpect = (mode, sign) => {
+    const perRow = pltApi.PLT_ROLLOUT.map(row => {
+      const keep = [];
+      for (let t = 0; t < row.tokens.length - 1; t++) {
+        const role = pltRole(row, mode === "unshifted" ? t : t + 1);
+        if (mode === "prompt" ? role !== "pad" : role === "response")
+          keep.push((sign === "plus" ? 1 : -1) * row.advantage * row.logp[t]);
+      }
+      return keep;
+    });
+    const flat = perRow.flat();
+    const mean = list => list.reduce((sum, value) => sum + value, 0) / list.length;
+    return {
+      sequence: mean(perRow.map(keep => (keep.length ? mean(keep) : 0))),
+      token: flat.length ? mean(flat) : 0,
+      count: flat.length
+    };
+  };
+  for (const mode of ["shifted", "unshifted", "prompt"])
+    for (const sign of ["minus", "plus"]) {
+      const expected = pltExpect(mode, sign);
+      for (const reduce of ["sequence", "token"]) {
+        const report = pltAt(mode, sign, reduce);
+        if (Math.abs(report.sequence - expected.sequence) > 1e-12)
+          pltFail(`${mode}/${sign}: the batch loss is ${report.sequence}, recomputed ${expected.sequence}`);
+        if (Math.abs(report.token - expected.token) > 1e-12)
+          pltFail(`${mode}/${sign}: the token mean is ${report.token}, recomputed ${expected.token}`);
+        if (report.tokenCount !== expected.count)
+          pltFail(`${mode}/${sign}: ${report.tokenCount} masked tokens against ${expected.count} recounted`);
+        pltChecks += 3;
+      }
+      // The reduction picker may move the marker, never a number.
+      if (pltAt(mode, sign, "sequence").sequence !== pltAt(mode, sign, "token").sequence)
+        pltFail(`${mode}/${sign}: choosing a reduction must not change what the other one is`);
+      // Both directions: the two reductions agree exactly when every response contributes the
+      // same number of masked tokens, and only then. That is the answer to the lab's own
+      // transfer question, so it is held as an invariant rather than stated in prose.
+      const report = pltAt(mode, sign);
+      const uniform = new Set(report.rows.map(entry => entry.count)).size === 1;
+      if (uniform !== (Math.abs(report.sequence - report.token) < 1e-12))
+        pltFail(`${mode}/${sign}: equal token counts (${uniform}) has to mean equal reductions`);
+      pltChecks += 2;
+    }
+
+  // --- what each wrong setting actually costs -----------------------------------------------
+  const pltDefaults = pltAt("shifted", "minus");
+  const pltUnshifted = pltAt("unshifted", "minus");
+  const pltPrompt = pltAt("prompt", "minus");
+  if (pltDefaults.padHits || pltDefaults.promptHits)
+    pltFail("the correct mask may charge neither a padding nor a prompt label");
+  if (pltDefaults.responseHits !== pltDefaults.responseTotal)
+    pltFail(`the correct mask has to charge all ${pltDefaults.responseTotal} response tokens, it charges ${pltDefaults.responseHits}`);
+  if (!pltUnshifted.padHits) pltFail("the unshifted mask has to reach a padding label, otherwise the trap is not set");
+  if (pltUnshifted.responseHits >= pltDefaults.responseHits)
+    pltFail("the unshifted mask has to lose response tokens as well as gain a padding one");
+  if (Math.abs(pltUnshifted.sequence) < Math.abs(pltDefaults.sequence) * 10)
+    pltFail("the padding label has to move the batch loss by an order of magnitude, that is the lesson");
+  if (!pltPrompt.promptHits) pltFail("the prompt mask has to charge prompt labels");
+  if (pltPrompt.padHits) pltFail("the prompt mask excludes padding by construction");
+  // Every charged label is a response, a prompt or a padding label -- exactly one of the three.
+  // Without this the three counters could all be the masked total and still look plausible.
+  for (const mode of ["shifted", "unshifted", "prompt"])
+    for (const sign of ["minus", "plus"]) {
+      const report = pltAt(mode, sign);
+      if (report.responseHits + report.promptHits + report.padHits !== report.tokenCount)
+        pltFail(`${mode}/${sign}: ${report.tokenCount} charged labels split into ${report.responseHits}/${report.promptHits}/${report.padHits}, which is not a partition`);
+      pltChecks++;
+    }
+  if (pltPrompt.responseHits >= pltPrompt.tokenCount)
+    pltFail("the prompt mask charges more labels than it has response tokens, so the two counts must differ");
+  pltChecks += 8;
+
+  // Flipping the sign negates the batch loss exactly -- no more, no less.
+  for (const mode of ["shifted", "unshifted", "prompt"]) {
+    if (Math.abs(pltAt(mode, "minus").sequence + pltAt(mode, "plus").sequence) > 1e-12)
+      pltFail(`${mode}: flipping the sign has to negate the batch loss exactly`);
+    pltChecks++;
+  }
+  // The direction of the method itself, in both directions: with a positive advantage a likelier
+  // response has to lower the loss, with a negative one it has to raise it. A lab that got this
+  // backwards would still print tidy numbers.
+  for (const row of pltApi.PLT_ROLLOUT) {
+    const now = pltApi.pltTokenLoss(row, "minus");
+    const likelier = pltApi.pltTokenLoss({ ...row, logp: row.logp.map(value => value / 2) }, "minus");
+    const ordered = row.advantage > 0
+      ? likelier.every((value, t) => value < now[t])
+      : likelier.every((value, t) => value > now[t]);
+    if (!ordered) pltFail(`${row.key}: a likelier response has to move the loss the way its advantage points`);
+    pltChecks++;
+  }
+
+  // --- the exact zero the lab claims ---------------------------------------------------------
+  // The derivation and the success note both say the global token mean is 0 here. In floating
+  // point it is not: it is a residue near 1e-16, and toLocaleString would print that as "-0.00"
+  // next to a sentence promising zero. pltNumber exists for that, so the residue is required to
+  // still be there -- if it ever became an exact zero the guard would be watching nothing.
+  // Checked over every state, not just the defaults: there the residue happens to be positive,
+  // and toLocaleString prints a positive residue as "0.00" all by itself. Only the state whose
+  // residue is negative tells pltNumber apart from a bare fixedNum, so that state is required to
+  // exist -- a guard aimed only at the default would be watching nothing.
+  const pltResidues = [];
+  for (const mode of ["shifted", "unshifted", "prompt"])
+    for (const sign of ["minus", "plus"]) {
+      const value = pltAt(mode, sign).token;
+      if (value !== 0 && Math.abs(value) < 1e-12) pltResidues.push({ state: `${mode}/${sign}`, value });
+    }
+  if (!pltResidues.length)
+    pltFail("the residue this check rests on is gone -- re-point the guard at whatever now produces the zero");
+  if (!pltResidues.some(entry => entry.value < 0))
+    pltFail("no state leaves a negative residue, so nothing here can tell pltNumber from a bare fixedNum");
+  for (const entry of pltResidues) {
+    if (pltApi.pltNumber(entry.value) !== pltApi.pltNumber(0))
+      pltFail(`${entry.state}: the residue ${entry.value} has to print as an exact zero, it prints ${pltApi.pltNumber(entry.value)}`);
+    pltChecks++;
+  }
+  pltChecks += 2;
+
+  // --- the answer key is a claim too ---------------------------------------------------------
+  // The short check grades against typed options. If the rollout moves and they do not, the key
+  // certifies the wrong answer -- so each one is required to equal what the lab now computes.
+  const pltPanel = source.slice(source.indexOf('if(id==="policy-loss-tracer") return `'), source.indexOf('if(id==="grpo") return `'));
+  for (const needle of ['id="pltMask"', 'id="pltSign"', 'id="pltReduce"', 'id="pltStage"'])
+    if (!pltPanel.includes(needle)) pltFail(`the panel has to carry ${needle}`);
+  if (!pltPanel.includes('<option value="correct">${fixedNum(-0.15,2)}</option>'))
+    pltFail("the reduction key has to be the batch loss itself");
+  if (pltApi.pltNumber(pltDefaults.sequence) !== pltApi.pltNumber(-0.15))
+    pltFail(`the reduction key says ${pltApi.pltNumber(-0.15)}, the lab computes ${pltApi.pltNumber(pltDefaults.sequence)}`);
+  if (pltApi.pltNumber(pltDefaults.rows[0].mean) !== pltApi.pltNumber(0.3) || pltApi.pltNumber(pltDefaults.rows[1].mean) !== pltApi.pltNumber(-0.6))
+    pltFail("the sequence-mean key disagrees with what the lab computes");
+  pltChecks += 7;
+
+  // --- the render half: computing it is not showing it ---------------------------------------
+  const pltStage = sliceDeclaration(source, "pltStageMarkup");
+  for (const [needle, why] of [
+    ["response_mask", "the mask row is the subject of this lab and has to be on the screen"],
+    ["input_ids", "the shift is only visible if input_ids sits under the full tokens"],
+    ["pltNumber(report.sequence,4)", "the sequence reduction has to be printed, not merely computed"],
+    ["pltNumber(report.token,4)", "the token reduction has to be printed beside it"],
+    ["report.padHits", "a charged padding label is the failure this lab exists to show"],
+    ["report.promptHits", "a charged prompt label is the other one"],
+    ["report.responseHits", "the reader has to see how many response tokens survived the mask"]
+  ]) if (!pltStage.includes(needle)) pltFail(why);
+  // Every figure the stage prints goes through pltNumber, so the separator follows the reader's
+  // language. A bare fixedNum would be correct today and wrong the first time a value lands on a
+  // residue; the render half of that claim is held per state by the lab render sweep.
+  if (/[^t]fixedNum\(/u.test(pltStage)) pltFail("the stage has to format through pltNumber, not fixedNum directly");
+  pltChecks += 8;
+
+  console.log(`policy-loss-tracer OK: ${pltChecks} checks -- A5's shift/mask/sign/reduce chain made computable, every mask rebuilt from the token ids rather than from the stored lengths and both reductions recomputed over all 12 states; the correct mask charges ${pltDefaults.responseHits} of ${pltDefaults.responseTotal} response tokens and no padding, while the input-axis mask charges a padding label whose log p of -9 moves the batch loss from ${pltApi.pltNumber(pltDefaults.sequence)} to ${pltApi.pltNumber(pltUnshifted.sequence)} and the prompt mask charges ${pltPrompt.promptHits} prompt labels; the two reductions are shown to agree exactly when every response contributes equally many masked tokens and only then (${pltApi.pltNumber(pltDefaults.sequence)} against ${pltApi.pltNumber(pltDefaults.token)} at the defaults, equal at ${pltApi.pltNumber(pltUnshifted.sequence)} once the mask leaves one token each), a sign flip negates the loss exactly in all three masks, a likelier response moves it the way its advantage points, and the zero the derivation promises is a 1e-16 residue that pltNumber is required to print as an exact zero`);
+}
