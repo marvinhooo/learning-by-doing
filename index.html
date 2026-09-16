@@ -873,7 +873,7 @@
       *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
     }
   </style>
-  <script src="i18n-en.js?v=92"></script>
+  <script src="i18n-en.js?v=93"></script>
   <script src="config.js"></script>
   <script src="vendor/supabase.js"></script>
 </head>
@@ -5262,7 +5262,7 @@
         mental:"Sparse Routing ist zugleich Wahrscheinlichkeits- und Systemvertrag. Top-k bestimmt aktive Experts, Capacity begrenzt Assignments, Overflow braucht eine Regel, und der Balance-Loss verwendet harte Dispatchhäufigkeit plus differenzierbare Routerwahrscheinlichkeit.",
         formula:"capacity=ceil(c·T·k/E)  ·  L_balance=αEΣ_e f_eP_e",
         symbols:[["T,k,E","Tokens, gewählte Experts pro Token und Expertzahl."],["c","Capacity Factor."],["f_e","harter Dispatchanteil."],["P_e","mittlere Routerwahrscheinlichkeit."]],
-        observe:"Nutze T=8, k=2, E=4 und c=1.0. Berechne Capacity, Overflow bei sechs Assignments zu Expert 0 und den Aux-Loss bei uniformem Routing.",
+        observe:"Leite zuerst ohne Regler her: T=8, k=2, E=4 und c=1,0 geben Capacity, den Overflow bei sechs Assignments zu Expert 0 und den Aux-Loss bei ausgeglichenem Routing. Stelle danach das Routing auf „schief“ und lies ab, welche zwei Assignments ihren Platz verlieren. Senke c auf 0,5 und sieh, dass auch perfekte Balance dann die Hälfte verwirft. Vergleiche zuletzt die beiden Expert-zu-Gerät-Zuordnungen bei unveränderten Expertlasten.",
         misconception:"Der Balance-Loss ist bei uniformem Routing nicht null; sein Gradient kann trotzdem Balance fördern. Expert Load und Device Load sind außerdem nicht immer identisch.",
         transferQuestion:"Warum kann perfekte Expertbalance trotzdem einen langsamen All-to-All-Step erzeugen?"
       },
@@ -5570,18 +5570,6 @@
           {prompt:"Readout: std and Adam LR factors",options:[["readout","std×1/4 · lr×1/4"],["hidden","std×1/2 · lr×1/4"],["square","std×1/16 · lr×1/16"]]},
           {prompt:"Final WSD checkpoint",options:[["decayed","Stable starting point plus its defined decay"],["stable","any Stable checkpoint before decay"],["warmup","end of warmup"]]}
         ],hint:"Take the square root of the variance factor for std; Stable is a starting point for decay.",success:"The μP roles and the Warmup-Stable-Decay finality boundary are correct."},answers:["hidden","readout","decayed"]
-      },
-      "moe-routing": {
-        de:{title:"Fester MoE-Fall · T=8, k=2, E=4, c=1",questions:[
-          {prompt:"Capacity pro Expert",options:[["4","4 Assignments"],["2","2 Assignments"],["8","8 Assignments"]]},
-          {prompt:"Overflow bei 6 Assignments zu Expert 0",options:[["2","2 Assignments"],["0","kein Overflow"],["4","4 Assignments"]]},
-          {prompt:"L_balance bei uniformem Routing",options:[["alpha","α, nicht null"],["zero","0"],["four-alpha","4α"]]}
-        ],hint:"Capacity zählt T·k Assignments; bei f_e=P_e=1/E ergibt αEΣf_eP_e=α.",success:"Capacity, Overflow und der nichtnullige uniforme Balance-Loss sind korrekt."},
-        en:{title:"Fixed MoE case · T=8, k=2, E=4, c=1",questions:[
-          {prompt:"Capacity per expert",options:[["4","4 assignments"],["2","2 assignments"],["8","8 assignments"]]},
-          {prompt:"Overflow when expert 0 receives 6 assignments",options:[["2","2 assignments"],["0","no overflow"],["4","4 assignments"]]},
-          {prompt:"L_balance under uniform routing",options:[["alpha","α, not zero"],["zero","0"],["four-alpha","4α"]]}
-        ],hint:"Capacity counts T·k assignments; with f_e=P_e=1/E, αEΣf_eP_e=α.",success:"Capacity, overflow, and the nonzero uniform balance loss are correct."},answers:["4","2","alpha"]
       }
     };
 
@@ -6024,8 +6012,8 @@
     function updateProgressUI(){}
     function toggleBookmark(type,id,focusSelector=""){ const key=type+":"+id; user.bookmarks=user.bookmarks.includes(key)?user.bookmarks.filter(x=>x!==key):[...user.bookmarks,key]; saveUser(true); toast(user.bookmarks.includes(key)?"Gespeichert":"Lesezeichen entfernt"); renderCurrent(); if(focusSelector)document.querySelector(focusSelector)?.focus(); }
     function isBookmarked(type,id){ return user.bookmarks.includes(type+":"+id); }
-    const OBJECTIVE_LAB_IDS = new Set(["ffn-backward","transformer-ledger","rlvr-system-transfer","pytorch-debugger","shapes","einsum-pattern","loss-and-clip","bpe-encode","rope-rotation","triton-tile","online-softmax-kata","scaling-fit","filtering-mechanics","bloom-filter","dedup-pipeline","dpo-loss","policy-loss-tracer","grpo","norm-and-ffn","comm-crossover","answer-parsing","decode-sampling","winrate-lc","batch-windows","mixed-precision","checkpoint-segments","shard-ledger","offpolicy-clip","advantage-normalizers","microbatch-denominator","baseline-variance","lsh-bands","quality-threshold","compression-ratio","resume-contract","ablation-controls","position-signal","stability-edge","pipeline-yield","decay-horizon","run-budget-ledger","target-config","run-plan","seed-variance","kernel-contracts","distributed-runtime",...Object.keys(LAB_OBJECTIVES)]);
-    function labHasObjectiveCheck(id){return OBJECTIVE_LAB_IDS.has(id)}
+    const OBJECTIVE_LAB_IDS = new Set(["moe-routing","ffn-backward","transformer-ledger","rlvr-system-transfer","pytorch-debugger","shapes","einsum-pattern","loss-and-clip","bpe-encode","rope-rotation","triton-tile","online-softmax-kata","scaling-fit","filtering-mechanics","bloom-filter","dedup-pipeline","dpo-loss","policy-loss-tracer","grpo","norm-and-ffn","comm-crossover","answer-parsing","decode-sampling","winrate-lc","batch-windows","mixed-precision","checkpoint-segments","shard-ledger","offpolicy-clip","advantage-normalizers","microbatch-denominator","baseline-variance","lsh-bands","quality-threshold","compression-ratio","resume-contract","ablation-controls","position-signal","stability-edge","pipeline-yield","decay-horizon","run-budget-ledger","target-config","run-plan","seed-variance","kernel-contracts","distributed-runtime",...Object.keys(LAB_OBJECTIVES)]);
+    function labHasObjectiveCheck(id){return OBJECTIVE_LAB_IDS.has(id)||Boolean(LAB_OBJECTIVES[id])}
     function labCheckPassed(id){return labHasObjectiveCheck(id)&&Boolean(user.labChecks[id])}
 
     function stateJson(value){return JSON.stringify(value)}
@@ -7059,6 +7047,7 @@
     }
 
     function labMarkup(id){
+      if(id==="moe-routing"){const facts=moeKeyFacts();return `<div class="lab-layout"><div class="panel lab-controls"><h2>Ein fester Mini-Batch · T=${MOE_T} Token, E=${MOE_E} Experts</h2><div class="callout"><strong>Jede Router-Zeile ist eine Permutation von [${fixedNum(0.4,2)}, ${fixedNum(0.3,2)}, ${fixedNum(0.15,2)}, ${fixedNum(0.15,2)}]</strong><p>${esc(localizedUi(`Deshalb summiert jede Zeile auf 1, und weil alle vier Werte verschieden sind, hängt keine Zuteilung an einer Tie-Break-Regel. Was sich zwischen den Routings ändert, ist allein, welcher Expert oben steht.`))}</p></div><p class="lab-note">Stelle die vier Regler um und lies rechts ab, was sie kosten: wie viele Token die Capacity abweist, wie weit der Balance-Loss über α steht und welches Gerät zum Straggler wird.</p><label class="field">Routing <select class="select" id="moeRouting">${MOE_ROUTINGS.map((entry,index)=>`<option value="${entry.key}" ${index===0?"selected":""}>${esc(localizedUi(entry.label))}</option>`).join("")}</select></label><label class="field">Experts je Token <select class="select" id="moeK">${MOE_KS.map((entry,index)=>`<option value="${entry.key}" ${index===0?"selected":""}>${esc(localizedUi(entry.label))}</option>`).join("")}</select></label><label class="field">Capacity Factor c <select class="select" id="moeFactor">${MOE_FACTORS.map((entry,index)=>`<option value="${entry.key}" ${index===0?"selected":""}>${fixedNum(entry.value,1)}</option>`).join("")}</select></label><label class="field">Expert-zu-Gerät-Zuordnung <select class="select" id="moePlacement">${MOE_PLACEMENTS.map((entry,index)=>`<option value="${entry.key}" ${index===0?"selected":""}>${esc(localizedUi(entry.label))}</option>`).join("")}</select></label><fieldset class="question" style="margin-top:1rem"><legend><strong>Objektiver Transfer-Kurzcheck</strong></legend><p class="small muted">Fester Fall: T=${MOE_T}, k=2, E=${MOE_E}, c=${fixedNum(1,1)}. Leite zuerst ohne Regler her.</p><label class="field">1. Capacity pro Expert <select class="select" id="moeCheckCapacity"><option value="">Noch nicht gewählt</option><option value="correct">${esc(localizedUi(`${facts.capacity} Assignments`))}</option><option value="half">${esc(localizedUi(`${facts.capacity/2} Assignments`))}</option><option value="double">${esc(localizedUi(`${facts.capacity*2} Assignments`))}</option></select></label><label class="field">${esc(localizedUi(`2. Overflow, wenn Expert 0 ${facts.hot} Assignments zieht`))} <select class="select" id="moeCheckOverflow"><option value="">Noch nicht gewählt</option><option value="correct">${esc(localizedUi(`${facts.overflow} Assignments`))}</option><option value="none">kein Overflow</option><option value="all">${esc(localizedUi(`${facts.hot} Assignments`))}</option></select></label><label class="field">3. L_balance bei ausgeglichenem Routing <select class="select" id="moeCheckAux"><option value="">Noch nicht gewählt</option><option value="correct">${esc(localizedUi(`${fixedNum(facts.aux,2)}·α, also nicht null`))}</option><option value="zero">${fixedNum(0,2)}</option><option value="scaled">${esc(localizedUi(`${fixedNum(MOE_E*facts.aux,2)}·α`))}</option></select></label><button class="button" id="moeCheck" type="button">Kurzcheck prüfen</button><div id="moeCheckResult" role="status" aria-live="polite"></div></fieldset><details class="answer-disclosure" data-transient-key="moe-routing-derivation" style="margin-top:1rem"><summary>Geführte Herleitung öffnen, wenn du feststeckst</summary><ol class="steps"><li><strong>Assignments:</strong> ${esc(localizedUi(`Jedes der ${MOE_T} Token wählt k Experts, also verteilt der Router T·k = ${MOE_T*2} Assignments — nicht ${MOE_T}.`))}</li><li><strong>Capacity:</strong> ${esc(localizedUi(`ceil(c·T·k/E) teilt diese Assignments gleichmäßig auf die ${MOE_E} Experts auf: bei c=${fixedNum(1,1)} sind das ${facts.capacity} Plätze je Expert. Die Capacity ist ein Puffer pro Expert, keine Grenze für den ganzen Batch.`))}</li><li><strong>Overflow:</strong> ${esc(localizedUi(`Ein Expert mit ${facts.hot} Assignments nimmt die ersten ${facts.capacity} in Tokenreihenfolge an und weist ${facts.overflow} ab. Wen es trifft, entscheidet die Position im Batch.`))}</li><li><strong>Aux-Loss:</strong> ${esc(localizedUi(`L = αEΣ_e f_e·P_e. Bei ausgeglichenem Routing ist f_e = P_e = 1/E, die Summe also E·(1/E²) = 1/E und L = α. Null ist unerreichbar, α ist das Minimum.`))}</li></ol></details></div><div class="lab-stage" role="region" aria-label="Routing, Capacity und Geräteauslastung" id="moeStage"></div></div>`;}
       if(LAB_OBJECTIVES[id])return objectiveLabMarkup(id);
       if(id==="transformer-ledger") return transformerLedgerMarkup();
       if(id==="rlvr-system-transfer") return rlvrSystemMarkup();
@@ -7188,6 +7177,7 @@
       if(id==="winrate-lc"){["winrateProfile","winrateBound","winrateVariant"].forEach(x=>document.getElementById(x).oninput=updateWinrateLc);document.getElementById("winrateCheck").onclick=checkWinrateLc;updateWinrateLc()}
       if(id==="inference-budget"){["infL","infB","infT","infD","infHq","infHkv","infTied","infKvBytes","infWeightBits","infBW"].forEach(x=>document.getElementById(x).oninput=updateInferenceBudget);updateInferenceBudget()}
       if(id==="policy-loss-tracer"){["pltMask","pltSign","pltReduce"].forEach(x=>document.getElementById(x).oninput=updatePolicyLossTracer);document.getElementById("policyLossCheck").onclick=checkPolicyLossTracer;updatePolicyLossTracer()}
+      if(id==="moe-routing"){["moeRouting","moeK","moeFactor","moePlacement"].forEach(x=>document.getElementById(x).oninput=updateMoeRouting);document.getElementById("moeCheck").onclick=checkMoeRouting;updateMoeRouting()}
       if(id==="grpo"){document.querySelectorAll(".grpoReward,.grpoLength,#grpoStd,#grpoStdMode,#grpoAggregation").forEach(x=>x.oninput=updateGrpo);document.getElementById("grpoCheck").onclick=checkGrpoTransfer;updateGrpo()}
       restorePassedLab(id);
     }
@@ -7232,6 +7222,7 @@
         "shard-ledger":{shardCheckJump:"lazyState",shardCheckQuarter:"oneOfThree",shardCheckFloor:"bufferFloor"},
         "winrate-lc":{winrateCheckGap:"length",winrateCheckShortcut:"matched",winrateCheckClaim:"uncertain"},
         "policy-loss-tracer":{policyCheckAlignment:"correct",policyCheckMeans:"correct",policyCheckReduction:"correct"},
+        "moe-routing":{moeCheckCapacity:"correct",moeCheckOverflow:"correct",moeCheckAux:"correct"},
         grpo:{grpoCheckMean:"0.50",grpoCheckStd:"0.577",grpoCheckAdv:"+0.866",grpoCheckWeight:"+0.866"}
       }[id]||{};
       Object.entries(presets).forEach(([fieldId,value])=>{const field=document.getElementById(fieldId);if(field&&field.value==="")field.value=value});
@@ -7286,6 +7277,7 @@
       if(id==="bloom-filter")document.getElementById("bloomCheckResult").innerHTML=bloomSuccessMarkup();
       if(id==="dedup-pipeline"){dedupLabStep=6;updateDedupPipeline();document.getElementById("dedupCheckResult").innerHTML=dedupSuccessMarkup()}
       if(id==="policy-loss-tracer")document.getElementById("policyLossCheckResult").innerHTML=policyLossSuccessMarkup();
+      if(id==="moe-routing")document.getElementById("moeCheckResult").innerHTML=moeSuccessMarkup();
       if(id==="grpo")document.getElementById("grpoCheckResult").innerHTML=grpoSuccessMarkup();
     }
 
@@ -15093,6 +15085,122 @@ p99 went from 12.4ms to 8.1ms but RSS is back to ~78MB, so it is a real tradeoff
       if(values.some(value=>!value)){toast("Beantworte alle drei Policy-Loss-Kurzcheck-Felder.");return}
       if(values.some(value=>value!=="correct")){result.innerHTML=`<div class="callout warning" style="margin-top:.7rem"><strong>${tr("Noch nicht.")}</strong><br>${tr("Arbeite in dieser Reihenfolge: next-token Shift, Antwortmaske auf der Labelachse, Gather des beobachteten Labels, −A·log p, dann erst die zwei Reduktionen. Promptlabel 8 und Paddinglabel 0 müssen Gewicht null erhalten.")}</div>`;return}
       user.labChecks["policy-loss-tracer"]=true;saveUser(true);result.innerHTML=policyLossSuccessMarkup()
+    }
+
+    // ---- moe-routing ---------------------------------------------------------------
+    // Bis v113 war dieses Lab ein reines Fragenformular. Seine Aufgabe lautete „Berechne
+    // Capacity, Overflow bei sechs Assignments zu Expert 0 und den Aux-Loss bei uniformem
+    // Routing" -- und keine Flaeche der App zeigte auch nur eine dieser drei Zahlen. Damit war
+    // es nach policy-loss-tracer das letzte Lab, das der Render-Sweep nie sah (LR_NO_STAGE):
+    // dieselbe Doppelluecke wie in v112, ein Inhaltsloch und ein Guardloch an derselben Stelle.
+    const MOE_T=8;
+    const MOE_E=4;
+    // Jede Zeile ist dieselbe Permutation von [0,40 0,30 0,15 0,15]. Daraus folgt zweierlei:
+    // jede Zeile summiert auf 1, und weil alle vier Werte verschieden sind, ist die Top-k-Wahl
+    // nie ein Gleichstand -- die Zuteilung haengt also nirgends an einer Tie-Break-Regel.
+    function moeRow(top,second){const row=[0.15,0.15,0.15,0.15];row[top]=0.4;row[second]=0.3;return row}
+    const MOE_ROUTINGS=[
+      {key:"balanced",label:"ausgeglichen · die Präferenz rotiert über die vier Experts",pairs:[[0,1],[1,2],[2,3],[3,0],[0,1],[1,2],[2,3],[3,0]]},
+      {key:"skewed",label:"schief · Expert 0 steht bei 6 der 16 Assignments",pairs:[[0,1],[0,1],[1,0],[0,2],[2,0],[0,3],[1,3],[3,2]]},
+      {key:"collapsed",label:"kollabiert · jedes Token wählt Expert 0 zuerst",pairs:[[0,1],[0,1],[0,1],[0,1],[0,1],[0,1],[0,2],[0,3]]}
+    ];
+    const MOE_KS=[{key:"2",value:2,label:"k = 2 · zwei Experts je Token"},{key:"1",value:1,label:"k = 1 · Switch-Routing, ein Expert je Token"}];
+    const MOE_FACTORS=[{key:"1",value:1},{key:"0.5",value:0.5},{key:"1.25",value:1.25},{key:"1.5",value:1.5},{key:"2",value:2}];
+    // Dieselben vier Experts, zwei Geraete, zwei Zuordnungen. Die Expertlasten aendern sich
+    // dadurch nicht -- nur, welche davon auf demselben Link zusammenfallen.
+    const MOE_PLACEMENTS=[
+      {key:"blocked",label:"blockweise · Gerät 0 hält Expert 0 und 1",lists:[[0,1],[2,3]]},
+      {key:"interleaved",label:"reihum · Gerät 0 hält Expert 0 und 2",lists:[[0,2],[1,3]]}
+    ];
+    // Zwei Wege zur selben Zahl koennen sich im letzten Bit unterscheiden: P_2 und P_3 sind
+    // beide exakt 0,21875, entstehen aber aus verschieden geordneten Summen. Ohne Bereinigung
+    // druckt die eine 0,2187 und die andere 0,2188 -- untereinander, in derselben Spalte, und
+    // der Leser sieht einen Unterschied, den es nicht gibt.
+    function moeNumber(value,digits){return fixedNum(Math.round(value*1e12)/1e12,digits)}
+    function moeRead(values){return id=>values?values[id]:document.getElementById(id).value}
+    function moePick(list,key,fallback){return list.find(entry=>entry.key===key)||list.find(entry=>entry.key===fallback)}
+    function moeReport(values){
+      const read=moeRead(values);
+      const routing=moePick(MOE_ROUTINGS,read("moeRouting"),"balanced");
+      const kEntry=moePick(MOE_KS,read("moeK"),"2"),k=kEntry.value;
+      const factorEntry=moePick(MOE_FACTORS,read("moeFactor"),"1"),factor=factorEntry.value;
+      const placement=moePick(MOE_PLACEMENTS,read("moePlacement"),"blocked");
+      const table=routing.pairs.map(([top,second])=>moeRow(top,second));
+      // Genau die Formel der Karte: capacity = ceil(c · T · k / E).
+      const capacity=Math.ceil(factor*MOE_T*k/MOE_E);
+      const counts=Array(MOE_E).fill(0),kept=Array(MOE_E).fill(0),dropped=Array(MOE_E).fill(0);
+      // Die Token werden in ihrer Reihenfolge zugeteilt. Wer zu spaet kommt, faellt heraus --
+      // welches Token ein Overflow trifft, ist damit eine Eigenschaft der Position, nicht des
+      // Routers.
+      const rows=table.map((row,t)=>{
+        const choice=row.map((p,e)=>[p,e]).sort((a,b)=>b[0]-a[0]||a[1]-b[1]).slice(0,k).map(pair=>pair[1]);
+        const seats=choice.map(e=>{counts[e]++;const room=kept[e]<capacity;if(room)kept[e]++;else dropped[e]++;return{expert:e,kept:room}});
+        return{t,row,choice,seats,gate:choice.reduce((sum,e)=>sum+row[e],0)};
+      });
+      const assignments=MOE_T*k;
+      const f=counts.map(n=>n/assignments);
+      const P=Array.from({length:MOE_E},(_,e)=>table.reduce((sum,row)=>sum+row[e],0)/MOE_T);
+      const aux=MOE_E*f.reduce((sum,value,e)=>sum+value*P[e],0);
+      const drops=dropped.reduce((sum,value)=>sum+value,0);
+      const loadOf=lists=>lists.map(experts=>experts.reduce((sum,e)=>sum+counts[e],0));
+      const placements=MOE_PLACEMENTS.map(entry=>{const load=loadOf(entry.lists);return{entry,load,max:Math.max.apply(null,load)}});
+      return{routing,kEntry,k,factorEntry,factor,placement,table,capacity,counts,kept,dropped,drops,f,P,aux,rows,assignments,
+        padded:MOE_E*capacity,paddedPerDevice:capacity*(MOE_E/MOE_PLACEMENTS[0].lists.length),
+        placements,here:placements.find(entry=>entry.entry.key===placement.key),
+        balanced:new Set(counts).size===1,gate:rows[0].gate};
+    }
+    function moeStageMarkup(values){
+      const tr=value=>esc(localizedUi(value));
+      const report=moeReport(values);
+      const share=(part,total)=>total?moeNumber(100*part/total,2):moeNumber(0,2);
+      const head=Array.from({length:MOE_E},(_,e)=>`<th scope="col">e${e}</th>`).join("");
+      const body=report.rows.map(entry=>{
+        const cells=entry.row.map((p,e)=>{
+          const seat=entry.seats.find(item=>item.expert===e);
+          if(!seat)return `<td><span class="muted">${moeNumber(p,2)}</span></td>`;
+          return `<td><strong>${moeNumber(p,2)}</strong>${seat.kept?"":` <span class="muted">✕</span>`}</td>`;
+        }).join("");
+        return `<tr><th scope="row">t=${entry.t}</th>${cells}<td>${entry.seats.map(seat=>`e${seat.expert}`).join(", ")}</td></tr>`;
+      }).join("");
+      const router=`<h3>${tr("Router-Wahrscheinlichkeiten und die Top-k-Wahl")}</h3><table class="matrix-table"><caption class="sr-only">${tr("Eine Zeile je Token, eine Spalte je Expert; fett sind die gewählten Experts, ✕ markiert ein Assignment, das die Capacity abweist.")}</caption><thead><tr><th scope="col">${tr("Token")}</th>${head}<th scope="col">${tr("gewählt")}</th></tr></thead><tbody>${body}</tbody></table>`;
+      const ledger=Array.from({length:MOE_E},(_,e)=>`<tr><th scope="row">e${e}</th><td>${report.counts[e]}</td><td>${report.kept[e]}</td><td>${report.dropped[e]?`<strong>${report.dropped[e]}</strong>`:report.dropped[e]}</td><td>${moeNumber(report.f[e],4)}</td><td>${moeNumber(report.P[e],4)}</td></tr>`).join("");
+      const experts=`<h3>${tr("Was jeder Expert wirklich bekommt")}</h3><table class="matrix-table"><caption class="sr-only">${tr("Assignments, verarbeitete Token, Overflow, harter Dispatchanteil und mittlere Routerwahrscheinlichkeit je Expert.")}</caption><thead><tr><th scope="col">Expert</th><th scope="col">${tr("Assignments")}</th><th scope="col">${tr("verarbeitet")}</th><th scope="col">Overflow</th><th scope="col">f_e</th><th scope="col">P_e</th></tr></thead><tbody>${ledger}</tbody></table>`;
+      // Der Aux-Loss ist bei ausgeglichenem Routing nicht null, sondern genau alpha -- das ist
+      // der Irrtum, den die misconception des Labs benennt.
+      const balance=`<h3>${tr("Der Balance-Loss")}</h3><div class="calculation-ledger"><div class="calculation-row"><span>Σ_e f_e·P_e</span><strong>${moeNumber(report.aux/MOE_E,6)}</strong></div><div class="calculation-row"><span>L_balance / α = E·Σ_e f_e·P_e</span><strong>${moeNumber(report.aux,6)}</strong></div></div><div class="shape-change"><strong>${tr("Nicht null, sondern α")}</strong><span>${report.balanced?tr("Bei völlig ausgeglichenem Routing ist f_e = P_e = 1/E, und αEΣf_eP_e wird exakt α — nicht null. Ein Balance-Loss von null wäre gar nicht erreichbar; α ist sein Minimum, und nur was darüber liegt, ist Unwucht."):tr("Dieses Routing liegt über dem Minimum α, das ausgeglichenes Routing erreicht. Die Differenz ist die Unwucht, auf die der Gradient drückt.")}</span></div>`;
+      const capacity=`<h3>${tr("Capacity, Overflow und der Preis des Puffers")}</h3><div class="calculation-ledger"><div class="calculation-row"><span>capacity = ceil(c·T·k/E) = ceil(${moeNumber(report.factor,1)}·${MOE_T}·${report.k}/${MOE_E})</span><strong>${report.capacity}</strong></div><div class="calculation-row"><span>${tr("Assignments insgesamt")} = T·k</span><strong>${report.assignments}</strong></div><div class="calculation-row"><span>${tr("abgewiesen durch Capacity")}</span><strong>${report.drops} (${share(report.drops,report.assignments)} %)</strong></div><div class="calculation-row"><span>${tr("gepufferte Plätze")} = E·capacity</span><strong>${report.padded}</strong></div><div class="calculation-row"><span>${tr("davon leer mitbewegt")}</span><strong>${Math.max(0,report.padded-(report.assignments-report.drops))} (${share(Math.max(0,report.padded-(report.assignments-report.drops)),report.padded)} %)</strong></div></div><div class="shape-change"><strong>${tr("Die Abwägung, die c entscheidet")}</strong><span>${tr("Ein größeres c wirft weniger Token weg und bewegt dafür mehr leere Plätze durch das All-to-All. Beide Kosten stehen oben nebeneinander: die eine zählt verlorene Token, die andere umsonst kopierte Slots.")}</span></div>`;
+      const devices=report.placements.map(item=>`<div class="calculation-row"><span>${report.placement.key===item.entry.key?"▸ ":""}${tr(item.entry.label)}</span><strong>${item.load.join(" · ")} → max ${item.max}</strong></div>`).join("");
+      const moved=report.placements[0].max!==report.placements[1].max;
+      const solo=report.counts.some(n=>n===report.assignments);
+      const deviceNote=report.balanced
+        ?tr("Die Expertlasten sind gleich, und deshalb kann keine Zuordnung einen Straggler erzeugen: beide Geräte tragen dasselbe. Perfekte Expertbalance ist hier auch Gerätebalance.")
+        :moved
+        ?tr("Dieselben Expertlasten, zwei Zuordnungen, zwei verschiedene Straggler. Die Lastzahl je Expert hat sich nicht geändert — nur, welche Experts auf demselben Gerät zusammenfallen. Genau das entscheidet, wie lange das All-to-All dauert.")
+        :solo
+        ?tr("Hier ändert die Zuordnung nichts, und das hat einen Grund: ein einziger Expert hält alle Assignments. Sein Gerät ist der Straggler, wo immer man ihn hinlegt. Die Zuordnung ist ein Hebel nur, solange sich die Last überhaupt verteilen lässt.")
+        :tr("Diese beiden Zuordnungen kommen auf denselben Straggler, obwohl die Experts ungleich beladen sind.");
+      const deviceSection=`<h3>${tr("Expertlast ist nicht Gerätelast")}</h3><div class="calculation-ledger"><div class="calculation-row"><span>${tr("gepufferte Plätze je Gerät")} = capacity · ${MOE_E/2}</span><strong>${report.paddedPerDevice} · ${report.paddedPerDevice}</strong></div>${devices}</div><div class="shape-change"><strong>${tr("Warum perfekte Expertbalance noch kein schnelles All-to-All ist")}</strong><span>${deviceNote}</span></div>`;
+      const renorm=`<h3>${tr("Top-k-Normalisierung")}</h3><div class="calculation-ledger"><div class="calculation-row"><span>${tr("Σ der gewählten Gates, roh")}</span><strong>${moeNumber(report.gate,2)}</strong></div><div class="calculation-row"><span>${tr("Σ der gewählten Gates, renormalisiert")}</span><strong>${moeNumber(1,2)}</strong></div></div><div class="shape-change"><strong>${tr("Was die Normalisierung am Ausgang ändert")}</strong><span>${tr("Ohne Renormalisierung trägt der Expertenzweig nur mit der Summe der gewählten Wahrscheinlichkeiten bei — der Rest der Softmaxmasse liegt bei Experts, die gar nicht gerechnet wurden. Der Zweig wird dadurch gedämpft, und zwar umso stärker, je kleiner k ist.")}</span></div>`;
+      return `<h2>${tr("Vom Router bis zum All-to-All")}</h2>${router}${experts}${balance}${capacity}${deviceSection}${renorm}`;
+    }
+    function updateMoeRouting(){document.getElementById("moeStage").innerHTML=moeStageMarkup()}
+    // Der Antwortschluessel ist eine Behauptung: die drei Optionen werden aus genau den
+    // Zustaenden gerechnet, die das Lab selbst rendert, damit kein eingetipptes Feld einen
+    // ueberholten Weg zertifizieren kann.
+    function moeKeyFacts(){
+      const base=moeReport({moeRouting:"balanced",moeK:"2",moeFactor:"1",moePlacement:"blocked"});
+      const skew=moeReport({moeRouting:"skewed",moeK:"2",moeFactor:"1",moePlacement:"blocked"});
+      return{capacity:base.capacity,hot:skew.counts[0],overflow:skew.dropped[0],aux:base.aux};
+    }
+    function moeSuccessMarkup(){
+      const tr=value=>esc(localizedUi(value)),facts=moeKeyFacts();
+      return `<div class="callout accent" style="margin-top:.7rem"><strong>${tr("✓ Transfer-Kurzcheck bestanden")}</strong><br>${tr(`capacity = ceil(1·8·2/4) = ${facts.capacity}. Ein Expert mit ${facts.hot} Assignments gibt davon ${facts.overflow} ab, weil die Capacity und nicht der Router das letzte Wort hat. Und bei ausgeglichenem Routing steht der Balance-Loss auf ${fixedNum(facts.aux,2)}·α, also auf α und nicht auf null.`)}</div>`;
+    }
+    function checkMoeRouting(){
+      const values=[document.getElementById("moeCheckCapacity").value,document.getElementById("moeCheckOverflow").value,document.getElementById("moeCheckAux").value],result=document.getElementById("moeCheckResult"),tr=value=>esc(localizedUi(value));
+      if(values.some(value=>!value)){toast("Beantworte alle drei MoE-Kurzcheck-Felder.");return}
+      if(values.some(value=>value!=="correct")){result.innerHTML=`<div class="callout warning" style="margin-top:.7rem"><strong>${tr("Noch nicht.")}</strong><br>${tr("Rechne in dieser Reihenfolge: erst T·k Assignments, dann capacity = ceil(c·T·k/E), dann was ein Expert über dieser Grenze abgeben muss. Der Balance-Loss ist zuletzt αEΣf_eP_e — setze f_e = P_e = 1/E ein, bevor du auf null tippst.")}</div>`;return}
+      user.labChecks["moe-routing"]=true;saveUser(true);result.innerHTML=moeSuccessMarkup()
     }
 
     function checkGrpoTransfer(){const values=[document.getElementById("grpoCheckMean").value,document.getElementById("grpoCheckStd").value,document.getElementById("grpoCheckAdv").value,document.getElementById("grpoCheckWeight").value],result=document.getElementById("grpoCheckResult"),tr=value=>esc(localizedUi(value));if(values.some(value=>!value)){toast("Beantworte alle vier GRPO-Kurzcheck-Felder.");return}if(values.join(",")!=="0.50,0.577,+0.866,+0.866"){result.innerHTML=`<div class="callout warning" style="margin-top:.7rem"><strong>${tr("Noch nicht.")}</strong><br>${tr("Zentriere zuerst um μ=0.5. Für Sample-Std teilst du die Summe der vier quadrierten Abweichungen durch G−1=3. Beim Sequenzmittel wird der Advantage auf die Tokens verteilt, aber über die ganze Antwort wieder zu A_i aufsummiert.")}</div>`;return}user.labChecks.grpo=true;saveUser(true);result.innerHTML=grpoSuccessMarkup()}

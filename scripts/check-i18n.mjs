@@ -698,9 +698,12 @@ if (Math.abs(scoreGradients.reduce((sum, value) => sum + value, 0)) > 1e-12) thr
 // rlvr-system-transfer left it in v107: its three fixed answers mapped Dr. GRPO, GSPO and the
 // DPO inputs onto labels, which advantage-normalizers, offpolicy-clip and dpo-loss all compute;
 // the lab now computes the off-policy plan and the clip fraction, held by `clip fraction` below.
+// moe-routing left it in v113 for the reason its own task line gave away: it said
+// "Berechne Capacity, Overflow bei sechs Assignments zu Expert 0 und den Aux-Loss", and no
+// surface of the app showed one of those three numbers. The lab now computes all three, and
+// `moe capacity` below holds its arithmetic; its options are built from what it computes.
 for (const [id, answers] of Object.entries({
-  "scaling-transfer":["hidden","readout","decayed"],
-  "moe-routing":["4","2","alpha"]
+  "scaling-transfer":["hidden","readout","decayed"]
 })) if (JSON.stringify(labObjectives[id]?.answers) !== JSON.stringify(answers)) throw new Error(`labObjectives.${id}: fixed answer regression`);
 
 // The DPO lab only teaches anything as long as every wrong variant stays bit-identical to the
@@ -9871,9 +9874,11 @@ console.log(`english render OK: ${englishStates} states across ${englishLabs} la
   // decides `a5:grpo_train_step_off_policy` (2.5 points), and A5 §6.4 prescribes numbers --
   // 256 against 8, 32 steps, cliprange 0.2 against 3e-4, the clip fraction to log -- that no
   // screen of the app computed.
-  // scaling-transfer and moe-routing are objective short checks: their surface is a question
-  // form, not a computed stage. policy-loss-tracer left this list in v112 when it got one.
-  const LR_NO_STAGE = ["scaling-transfer", "moe-routing"];
+  // scaling-transfer is an objective short check: its surface is a question form, not a
+  // computed stage. policy-loss-tracer left this list in v112 when it got one.
+  // moe-routing left this list in v113 when it got a computed stage; scaling-transfer stays,
+  // its surface is a question form and nothing it could compute.
+  const LR_NO_STAGE = ["scaling-transfer"];
   // One lab's branch of initLab, cut by balancing braces from `if(id==="<lab>")`.
   const lrBranch = labId => {
     const marker = source.indexOf(`if(id==="${labId}"){`);
@@ -14002,4 +14007,285 @@ console.log(`ffn-backward OK: ${fbValues} values, all four gradients match A2's 
   pltChecks += 8;
 
   console.log(`policy-loss-tracer OK: ${pltChecks} checks -- A5's shift/mask/sign/reduce chain made computable, every mask rebuilt from the token ids rather than from the stored lengths and both reductions recomputed over all 12 states; the correct mask charges ${pltDefaults.responseHits} of ${pltDefaults.responseTotal} response tokens and no padding, while the input-axis mask charges a padding label whose log p of -9 moves the batch loss from ${pltApi.pltNumber(pltDefaults.sequence)} to ${pltApi.pltNumber(pltUnshifted.sequence)} and the prompt mask charges ${pltPrompt.promptHits} prompt labels; the two reductions are shown to agree exactly when every response contributes equally many masked tokens and only then (${pltApi.pltNumber(pltDefaults.sequence)} against ${pltApi.pltNumber(pltDefaults.token)} at the defaults, equal at ${pltApi.pltNumber(pltUnshifted.sequence)} once the mask leaves one token each), a sign flip negates the loss exactly in all three masks, a likelier response moves it the way its advantage points, and the zero the derivation promises is a 1e-16 residue that pltNumber is required to print as an exact zero`);
+}
+
+// ---- moe-routing: capacity, overflow, the balance loss and the straggler --------------------
+// Until v113 this lab was a question form. Its own task line read "compute capacity, overflow at
+// six assignments to expert 0, and the aux loss under uniform routing" -- and no surface of the
+// app printed one of those three numbers, so the reader could only guess from three options.
+// It was also the last lab but one on LR_NO_STAGE. It computes now; this block recomputes the
+// same figures by a different route and then requires the panel to print them.
+{
+  const moeNames = ["MOE_T", "MOE_E", "moeRow", "MOE_ROUTINGS", "MOE_KS", "MOE_FACTORS", "MOE_PLACEMENTS", "moeRead", "moePick", "moeNumber", "moeReport", "moeKeyFacts"];
+  const moeApi = runInNewContext(`${numberPrelude}${moeNames.map(name => sliceDeclaration(source, name)).join("\n")}; ({${moeNames.join(",")},fixedNum})`, {});
+  let moeChecks = 0;
+  const moeFail = message => { throw new Error(`moe-routing: ${message}`); };
+  const moeAt = (routing, k, factor, placement = "blocked") =>
+    moeApi.moeReport({ moeRouting: routing, moeK: k, moeFactor: factor, moePlacement: placement });
+  const close = (a, b) => Math.abs(a - b) < 1e-12;
+
+  // --- the router table has to be a router table ---------------------------------------------
+  // Every row a permutation of the same four values: that is what makes each row a distribution
+  // and every top-k choice tie-free. If a value were duplicated the ranking would depend on a
+  // tie-break rule, and the whole lab would rest on it.
+  for (const routing of moeApi.MOE_ROUTINGS) {
+    if (routing.pairs.length !== moeApi.MOE_T) moeFail(`${routing.key}: ${routing.pairs.length} rows for ${moeApi.MOE_T} tokens`);
+    for (const [top, second] of routing.pairs) {
+      if (top === second) moeFail(`${routing.key}: a token cannot pick the same expert twice`);
+      const row = moeApi.moeRow(top, second);
+      if (!close(row.reduce((sum, value) => sum + value, 0), 1))
+        moeFail(`${routing.key}: a router row sums to ${row.reduce((sum, value) => sum + value, 0)}, not 1`);
+      if (new Set(row).size !== 3) moeFail(`${routing.key}: a row must hold 0.40, 0.30 and two 0.15 so the top two are unambiguous`);
+      if (row[top] <= row[second] || row[second] <= Math.min(...row))
+        moeFail(`${routing.key}: the stated top/second order is not the order of the probabilities`);
+      moeChecks += 4;
+    }
+  }
+  // The three routings have to actually differ in balance, or the lab teaches one case three times.
+  const moeSpread = moeApi.MOE_ROUTINGS.map(routing => {
+    const counts = moeAt(routing.key, "2", "1").counts;
+    return Math.max(...counts) - Math.min(...counts);
+  });
+  if (new Set(moeSpread).size !== moeApi.MOE_ROUTINGS.length)
+    moeFail(`the three routings must differ in imbalance, their spreads are ${moeSpread.join(", ")}`);
+  if (moeSpread[0] !== 0) moeFail("the first routing is the balanced reference and must be perfectly balanced");
+  moeChecks += 2;
+
+  // --- the independent route -----------------------------------------------------------------
+  // The app walks the tokens and keeps a running seat counter. This builds the assignment list
+  // explicitly, closes the kept count with min() instead of a counter, and reads P_e off the
+  // pairs spec (0.40 when top, 0.30 when second, 0.15 otherwise) rather than by summing the
+  // rendered table -- so a wrong table cannot agree with itself.
+  const moeExpect = (routingKey, k, factor) => {
+    const routing = moeApi.MOE_ROUTINGS.find(entry => entry.key === routingKey);
+    const capacity = Math.ceil(factor * moeApi.MOE_T * k / moeApi.MOE_E);
+    const seats = [];
+    routing.pairs.forEach(([top, second], t) => {
+      const picked = k === 1 ? [top] : [top, second];
+      picked.forEach(e => seats.push({ t, e }));
+    });
+    const counts = Array.from({ length: moeApi.MOE_E }, (_, e) => seats.filter(seat => seat.e === e).length);
+    const kept = counts.map(n => Math.min(n, capacity));
+    const dropped = counts.map((n, e) => n - kept[e]);
+    const assignments = moeApi.MOE_T * k;
+    const f = counts.map(n => n / assignments);
+    const P = Array.from({ length: moeApi.MOE_E }, (_, e) => {
+      const tops = routing.pairs.filter(([top]) => top === e).length;
+      const seconds = routing.pairs.filter(([, second]) => second === e).length;
+      const picked = k === 1 ? tops : tops + seconds;
+      void picked;
+      return (0.4 * tops + 0.3 * seconds + 0.15 * (moeApi.MOE_T - tops - seconds)) / moeApi.MOE_T;
+    });
+    const aux = moeApi.MOE_E * f.reduce((sum, value, e) => sum + value * P[e], 0);
+    return { capacity, seats, counts, kept, dropped, f, P, aux, assignments,
+      drops: dropped.reduce((sum, value) => sum + value, 0) };
+  };
+
+  const moeStates = [];
+  for (const routing of moeApi.MOE_ROUTINGS)
+    for (const kEntry of moeApi.MOE_KS)
+      for (const factorEntry of moeApi.MOE_FACTORS)
+        for (const placement of moeApi.MOE_PLACEMENTS)
+          moeStates.push({ routing: routing.key, k: kEntry.key, factor: factorEntry.key, placement: placement.key });
+  if (moeStates.length !== 60) moeFail(`expected 60 reachable states, the controls offer ${moeStates.length}`);
+  // The card writes capacity = ceil(c*T*k/E), and with T = 8 and E = 4 that is 2ck -- an integer
+  // for every c that is a multiple of a half. Before v113 every offered factor was one, so the
+  // ceil never rounded anywhere in the lab and a floor would have computed the same table
+  // everywhere: the reader could not see that capacity rounds up. At least one state has to
+  // round, and it has to round up, or that blind spot is back.
+  const moeRounding = moeStates.filter(state => !Number.isInteger(Number(state.factor) * moeApi.MOE_T * Number(state.k) / moeApi.MOE_E));
+  if (!moeRounding.length) moeFail("no offered capacity factor leaves a fraction, so the ceil in the card's own formula is never exercised");
+  for (const state of moeRounding) {
+    const raw = Number(state.factor) * moeApi.MOE_T * Number(state.k) / moeApi.MOE_E;
+    const report = moeAt(state.routing, state.k, state.factor, state.placement);
+    if (report.capacity !== Math.ceil(raw)) moeFail(`c=${state.factor}/k=${state.k}: capacity ${report.capacity} is not ceil(${raw})`);
+    if (report.capacity === Math.floor(raw)) moeFail(`c=${state.factor}/k=${state.k}: the capacity agrees with a floor, the rounding is not visible`);
+    moeChecks += 2;
+  }
+
+  for (const state of moeStates) {
+    const report = moeAt(state.routing, state.k, state.factor, state.placement);
+    const expected = moeExpect(state.routing, Number(state.k), Number(state.factor));
+    const where = `${state.routing}/k=${state.k}/c=${state.factor}`;
+    if (report.capacity !== expected.capacity) moeFail(`${where}: capacity ${report.capacity} against ${expected.capacity} recomputed`);
+    report.counts.forEach((n, e) => { if (n !== expected.counts[e]) moeFail(`${where}: e${e} holds ${n} assignments, recounted ${expected.counts[e]}`); });
+    report.kept.forEach((n, e) => { if (n !== expected.kept[e]) moeFail(`${where}: e${e} processes ${n}, recomputed ${expected.kept[e]}`); });
+    report.dropped.forEach((n, e) => { if (n !== expected.dropped[e]) moeFail(`${where}: e${e} drops ${n}, recomputed ${expected.dropped[e]}`); });
+    if (report.drops !== expected.drops) moeFail(`${where}: ${report.drops} drops against ${expected.drops}`);
+    report.P.forEach((value, e) => { if (!close(value, expected.P[e])) moeFail(`${where}: P_${e} is ${value}, recomputed ${expected.P[e]}`); });
+    if (!close(report.aux, expected.aux)) moeFail(`${where}: the balance loss is ${report.aux}, recomputed ${expected.aux}`);
+    // f and P are distributions, or nothing downstream of them means anything.
+    if (!close(report.f.reduce((sum, value) => sum + value, 0), 1)) moeFail(`${where}: the dispatch shares do not sum to 1`);
+    if (!close(report.P.reduce((sum, value) => sum + value, 0), 1)) moeFail(`${where}: the router probabilities do not sum to 1`);
+    // Capacity is a per-expert buffer, never a batch-wide one.
+    if (report.kept.some(n => n > report.capacity)) moeFail(`${where}: an expert processes more than its capacity`);
+    if (report.assignments !== moeApi.MOE_T * Number(state.k)) moeFail(`${where}: T*k assignments is the whole point of the count`);
+    // The overflow is the tail in token order -- which token loses its seat is a property of the
+    // position, and the panel says so. Rebuilt here from the explicit assignment list.
+    const seatedByOrder = Array.from({ length: moeApi.MOE_E }, () => 0);
+    for (const seat of expected.seats) seatedByOrder[seat.e]++;
+    seatedByOrder.forEach((n, e) => { if (n !== expected.counts[e]) moeFail(`${where}: the ordered walk lost an assignment at e${e}`); });
+    moeChecks += 13;
+  }
+
+  // --- the balance loss has a floor, and the floor is alpha -----------------------------------
+  // The misconception this lab names: L is not zero under uniform routing, it is exactly alpha.
+  // Held in both directions -- the balanced routing reaches it, and every other routing is
+  // strictly above it, at every k.
+  for (const kEntry of moeApi.MOE_KS) {
+    const balanced = moeAt("balanced", kEntry.key, "1").aux;
+    if (!close(balanced, 1)) moeFail(`k=${kEntry.key}: balanced routing must put L_balance on exactly alpha, it gives ${balanced}`);
+    for (const routing of moeApi.MOE_ROUTINGS.slice(1)) {
+      const aux = moeAt(routing.key, kEntry.key, "1").aux;
+      if (!(aux > balanced + 1e-9)) moeFail(`k=${kEntry.key}/${routing.key}: an unbalanced routing has to sit strictly above alpha, it gives ${aux}`);
+      moeChecks++;
+    }
+    moeChecks++;
+  }
+  // And it is a floor over the whole reachable set, not only over the three named routings: no
+  // state anywhere may fall below alpha.
+  for (const state of moeStates) {
+    const aux = moeAt(state.routing, state.k, state.factor, state.placement).aux;
+    if (aux < 1 - 1e-12) moeFail(`${state.routing}/k=${state.k}: L_balance fell below alpha to ${aux}`);
+    moeChecks++;
+  }
+
+  // --- capacity buys fewer drops with more empty slots -----------------------------------------
+  // Both halves of the trade-off the panel prints, checked as monotonicity rather than on one
+  // example: raising c never increases drops, and always increases the buffer.
+  for (const routing of moeApi.MOE_ROUTINGS)
+    for (const kEntry of moeApi.MOE_KS) {
+      const sorted = [...moeApi.MOE_FACTORS].sort((a, b) => a.value - b.value);
+      let previous = null;
+      for (const factorEntry of sorted) {
+        const report = moeAt(routing.key, kEntry.key, factorEntry.key);
+        if (report.padded !== moeApi.MOE_E * report.capacity) moeFail(`${routing.key}: the buffer is E*capacity`);
+        if (previous) {
+          if (report.drops > previous.drops) moeFail(`${routing.key}/k=${kEntry.key}: raising c from ${previous.factor} to ${factorEntry.value} increased the drops`);
+          if (!(report.padded >= previous.padded)) moeFail(`${routing.key}/k=${kEntry.key}: raising c has to widen the buffer`);
+        }
+        previous = { drops: report.drops, padded: report.padded, factor: factorEntry.value };
+        moeChecks += 2;
+      }
+    }
+  // A capacity factor of 1 does not mean "nothing is dropped": it means the buffer equals the
+  // average load, which a skewed router still overruns. Both readings have to be reachable, or
+  // the c control teaches only one of its two lessons.
+  if (moeAt("balanced", "2", "1").drops !== 0) moeFail("balanced routing at c=1 has to fit exactly, that is the reference the reader starts from");
+  if (moeAt("skewed", "2", "1").drops === 0) moeFail("a skewed router at c=1 has to overrun the buffer, otherwise the overflow lesson has no state");
+  if (moeAt("balanced", "2", "0.5").drops === 0) moeFail("at c=0.5 even perfect balance has to drop, or the reader learns that balance alone prevents overflow");
+  moeChecks += 3;
+
+  // --- expert load is not device load, and the claim has a limit -------------------------------
+  // The transfer question. Held in both directions: under perfect balance no placement can move
+  // the straggler, and under imbalance it generally does. The exceptions are not waved away --
+  // they are required to be exactly the states in which one expert holds every assignment, so
+  // its device is the straggler wherever it is put.
+  let moeBalancedSame = 0, moeMoved = 0;
+  const moeSoloStates = [];
+  for (const state of moeStates.filter(entry => entry.placement === "blocked")) {
+    const report = moeAt(state.routing, state.k, state.factor);
+    const [first, second] = report.placements;
+    // the two placements must not change any expert's load -- only who shares a device
+    if (first.load.reduce((sum, value) => sum + value, 0) !== second.load.reduce((sum, value) => sum + value, 0))
+      moeFail(`${state.routing}: a placement changed the total load, it may only regroup it`);
+    const solo = report.counts.some(n => n === report.assignments);
+    if (report.balanced) {
+      if (first.max !== second.max) moeFail(`${state.routing}/k=${state.k}: balanced experts cannot produce different stragglers`);
+      moeBalancedSame++;
+    } else if (first.max !== second.max) moeMoved++;
+    else if (solo) moeSoloStates.push(`${state.routing}/k=${state.k}/c=${state.factor}`);
+    else moeFail(`${state.routing}/k=${state.k}/c=${state.factor}: the placements agree although the load is spread over more than one expert -- the panel's explanation does not cover this state`);
+    // the padded buffer is placement-blind by construction: that is the other half of the point
+    if (report.paddedPerDevice * moeApi.MOE_PLACEMENTS.length !== report.padded)
+      moeFail(`${state.routing}: the padded slots per device have to tile the whole buffer`);
+    moeChecks += 3;
+  }
+  if (!moeBalancedSame) moeFail("no balanced state remains, so the 'cannot move the straggler' direction is unguarded");
+  if (!moeMoved) moeFail("no state remains in which the placement moves the straggler -- the transfer question has no evidence");
+  if (!moeSoloStates.length) moeFail("the single-expert exception is gone; re-point the panel's third explanation or drop it");
+  moeChecks += 3;
+
+  // --- equal numbers have to print equally ----------------------------------------------------
+  // P_e is a mean over a column of the router table, and two columns holding the same multiset in
+  // a different order sum to the same real number by different float roundings. P_2 and P_3 of the
+  // skewed routing are both exactly 7/32, but one arrives as 0.21874999999999997: printed raw at
+  // four digits they read 0.2187 and 0.2188, one under the other in the same column. The guard is
+  // pointed at the pair that actually diverges, and it first insists such a pair exists -- aimed
+  // only at a state where the two agree it would be watching nothing.
+  const moeTies = [];
+  for (const state of moeStates) {
+    const report = moeAt(state.routing, state.k, state.factor, state.placement);
+    for (let a = 0; a < moeApi.MOE_E; a++) for (let b = a + 1; b < moeApi.MOE_E; b++) {
+      for (const [name, list] of [["P", report.P], ["f", report.f]]) {
+        if (list[a] === list[b] || Math.abs(list[a] - list[b]) > 1e-9) continue;
+        moeTies.push({ state: `${state.routing}/k=${state.k}`, name, a: list[a], b: list[b] });
+      }
+    }
+  }
+  if (!moeTies.length)
+    moeFail("no two equal figures differ in their last bits any more -- re-point this guard at whatever now needs the snapping, or drop moeNumber");
+  for (const tie of moeTies) {
+    for (const digits of [2, 4, 6]) {
+      if (moeApi.moeNumber(tie.a, digits) !== moeApi.moeNumber(tie.b, digits))
+        moeFail(`${tie.state}: two equal ${tie.name} values print as ${moeApi.moeNumber(tie.a, digits)} and ${moeApi.moeNumber(tie.b, digits)} at ${digits} digits`);
+      moeChecks++;
+    }
+  }
+  // The snap has to be invisible on a figure that is already exact at the printed precision --
+  // it may only pull a last-bit stray onto its own value, never re-round an honest one.
+  for (const [value, digits] of [[0.5, 2], [12.5, 2], [0.0625, 4], [0.25, 4], [1.046875, 6], [1.278125, 6]]) {
+    if (moeApi.moeNumber(value, digits) !== moeApi.fixedNum(value, digits))
+      moeFail(`moeNumber moved ${value} at ${digits} digits: ${moeApi.moeNumber(value, digits)} against ${moeApi.fixedNum(value, digits)}`);
+    moeChecks++;
+  }
+  // and it has to be doing something: on at least one of the tied pairs a bare fixedNum must
+  // still disagree with itself, or moeNumber is guarding nothing.
+  if (!moeTies.some(tie => moeApi.fixedNum(tie.a, 4) !== moeApi.fixedNum(tie.b, 4)))
+    moeFail("a bare fixedNum already prints every tied pair alike, so moeNumber is not what keeps the column honest");
+  moeChecks++;
+
+  // --- the answer key is a claim too -----------------------------------------------------------
+  // The short check grades against three options. They are built from moeKeyFacts, so this holds
+  // that function against the states the lab actually renders rather than against typed numbers.
+  const moeFacts = moeApi.moeKeyFacts();
+  const moeBase = moeAt("balanced", "2", "1"), moeSkew = moeAt("skewed", "2", "1");
+  if (moeFacts.capacity !== moeBase.capacity) moeFail(`the capacity key says ${moeFacts.capacity}, the lab computes ${moeBase.capacity}`);
+  if (moeFacts.capacity !== 4) moeFail(`ceil(1*8*2/4) is 4, the key offers ${moeFacts.capacity}`);
+  if (moeFacts.hot !== moeSkew.counts[0]) moeFail(`the key says expert 0 draws ${moeFacts.hot}, the skewed state gives it ${moeSkew.counts[0]}`);
+  if (moeFacts.overflow !== moeSkew.dropped[0]) moeFail(`the key says ${moeFacts.overflow} overflow, the lab computes ${moeSkew.dropped[0]}`);
+  if (moeFacts.overflow !== moeFacts.hot - moeFacts.capacity) moeFail("the overflow has to be exactly what sits above the capacity");
+  if (!close(moeFacts.aux, 1)) moeFail(`the balance-loss key has to be alpha itself, it is ${moeFacts.aux}`);
+  // the three wrong options must all be wrong, and distinct from the right one
+  if (moeFacts.capacity / 2 === moeFacts.capacity || moeFacts.capacity * 2 === moeFacts.capacity)
+    moeFail("the capacity distractors collapse onto the answer");
+  if (moeFacts.hot === moeFacts.overflow) moeFail("the overflow distractor 'all of them' equals the answer");
+  if (close(moeApi.MOE_E * moeFacts.aux, moeFacts.aux)) moeFail("the scaled balance-loss distractor equals the answer");
+  moeChecks += 9;
+
+  // --- the render half: computing it is not showing it -----------------------------------------
+  const moePanel = source.slice(source.indexOf('if(id==="moe-routing"){const facts=moeKeyFacts();'), source.indexOf('if(LAB_OBJECTIVES[id])return objectiveLabMarkup(id);'));
+  for (const needle of ['id="moeRouting"', 'id="moeK"', 'id="moeFactor"', 'id="moePlacement"', 'id="moeStage"', 'id="moeCheck"'])
+    if (!moePanel.includes(needle)) moeFail(`the panel has to carry ${needle}`);
+  // the key must be interpolated from moeKeyFacts, never typed
+  for (const typed of ['<option value="correct">4 Assignments', '<option value="correct">2 Assignments'])
+    if (moePanel.includes(typed)) moeFail("the short-check key is typed in again -- it has to be built from what the lab computes");
+  const moeStage = sliceDeclaration(source, "moeStageMarkup");
+  if (/[^e]fixedNum\(/u.test(moeStage)) moeFail("the stage has to format through moeNumber, not fixedNum directly");
+  moeChecks++;
+  for (const [needle, why] of [
+    ["report.capacity", "capacity is the first number the lab's own task line asks for"],
+    ["report.drops", "the overflow is the second, and it has to be on the screen"],
+    ["report.aux", "the balance loss is the third"],
+    ["report.counts[e]", "the reader has to see the per-expert assignment counts the loss is built from"],
+    ["report.f[e]", "f_e and P_e are the two factors of the balance loss"],
+    ["report.P[e]", "the mean router probability has to be printed beside the hard share"],
+    ["report.padded", "the buffer is the cost that rises while the drops fall"],
+    ["item.max", "the straggler is what the transfer question turns on"],
+    ["report.paddedPerDevice", "the padded half of the device story has to stand next to the actual one"]
+  ]) if (!moeStage.includes(needle)) moeFail(why);
+  moeChecks += 15;
+
+  const moeHeavy = moeAt("collapsed", "2", "1");
+  console.log(`moe-routing OK: ${moeChecks} checks -- the lab's own task line ("capacity, overflow at six assignments, the aux loss under uniform routing") made computable, every assignment rebuilt as an explicit list and every P_e read off the routing spec rather than the rendered table, across all ${moeStates.length} states: capacity = ceil(c*T*k/E) puts ${moeBase.capacity} seats under each expert at c = 1, where balanced routing fits exactly and the skewed router hands expert 0 ${moeSkew.counts[0]} of ${moeSkew.assignments} assignments and loses ${moeSkew.dropped[0]} of them to the buffer, while at c = 0.5 even perfect balance drops ${moeAt("balanced", "2", "0.5").drops}; the balance loss is shown to have alpha as its floor and not zero -- exactly alpha for balanced routing at both k, strictly above it for every other routing, and never below it in any of the ${moeStates.length} states (${moeSkew.aux.toFixed(6)} skewed, ${moeHeavy.aux.toFixed(6)} collapsed); and expert load is held apart from device load in both directions, with the same expert loads regrouped over two placements moving the straggler in ${moeMoved} states and provably unable to move it in the ${moeBalancedSame} balanced ones, the ${moeSoloStates.length} remaining ties being exactly the states where one expert holds all ${moeHeavy.assignments} assignments and is therefore the straggler wherever it is placed`);
 }

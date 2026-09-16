@@ -814,3 +814,54 @@ Iteration Counter: 1
   Wortliste kannte "Zuerst Lecture 2s eigenes Beispiel" nicht. Die Rueckstandspruefung liest
   seitdem **die Uebersetzungsmap selbst** statt einer Wortliste, damit sie nicht ueber jede
   Schreibweise schweigt, die sie nicht kennt.
+
+## 2026-09-16 - Das Lab, das rechnen liess, ohne zu rechnen (geplanter Deep Review, v113)
+
+- Status: abgeschlossen. Worktree stand auf v99, Kettenkopf auf v112 (`371338a`); Ahnenpruefung
+  ueber alle 74 Branch-Spitzen: **kein verlorener Zweig**. Kein Codex auf diesem Repo.
+- **Befund:** `moe-routing` forderte in seiner `observe`-Zeile "Berechne Capacity, Overflow bei
+  sechs Assignments zu Expert 0 und den Aux-Loss" - und keine Flaeche der App zeigte eine dieser
+  drei Zahlen. Die einzige Rueckmeldung war ein Ratefeld mit drei Dropdowns. Weil das Lab keine
+  rechnende Buehne hatte, stand es zugleich auf `LR_NO_STAGE` und wurde vom Render-Sweep nie
+  gerendert - dieselbe Doppelluecke wie bei `policy-loss-tracer` in v112.
+- **Gebaut:** vier Regler (Routing ausgeglichen/schief/kollabiert, k = 2/1, Capacity Factor
+  1/0,5/1,25/1,5/2, Expert-zu-Geraet blockweise/reihum) ueber einem festen Mini-Batch aus 8 Token
+  und 4 Experts. Jede Router-Zeile ist dieselbe Permutation von [0,40 0,30 0,15 0,15], also
+  summiert jede auf 1 und keine Top-k-Wahl haengt an einer Tie-Break-Regel. Die Buehne rechnet
+  Router-Tabelle, Expert-Ledger (Assignments, verarbeitet, Overflow, f_e, P_e), Balance-Loss,
+  Capacity-Bilanz, Geraeteauslastung und Top-k-Normalisierung.
+- Die drei Zahlen der Aufgabe sind jetzt Ablesungen: Capacity **4**, Overflow **2** bei 6
+  Assignments, L_balance **1,000000·α** statt null. Der Antwortschluessel wird aus genau diesen
+  Zustaenden gerechnet statt eingetippt.
+- Sichtbar gemacht: α ist der Boden des Balance-Loss (schief 1,046875·α, kollabiert 1,278125·α);
+  bei c = 0,5 verwirft **auch perfekte Balance** 8 von 16 Assignments; der Puffer kostet, was er
+  rettet (bei c = 2 werden 16 von 32 Plaetzen leer mitbewegt); und dieselben Expertlasten geben
+  blockweise `max 10`, reihum `max 9` - die Antwort auf die Transferfrage, gerechnet.
+- **Die Invariante hat drei Faelle, nicht zwei.** Ueber 60 Zustaende: 10 ausgeglichene, in denen
+  die Zuordnung den Straggler nicht bewegen *kann*; 15 unausgeglichene, in denen sie ihn bewegt;
+  und **5, in denen sie es nicht tut**. Die fuenf sind genau die Zustaende, in denen ein einziger
+  Expert alle 16 Assignments haelt. Der Guard fordert diese Charakterisierung, statt die Ausnahmen
+  zu dulden.
+- **Zwei Fehler, die erst Mutationstest und Probelauf zeigten:** (1) `ceil -> floor` war inert,
+  weil `c·T·k/E` bei T=8/E=4 gleich `2ck` ist und jeder angebotene Faktor ein Vielfaches von 0,5
+  war - alle acht Capacities ganzzahlig, das `ceil` der Karte rundete nirgends. Behoben durch
+  c = 1,25 (Switch Transformers eigener Default), der bei k=1 auf `ceil(2,5) = 3` fuehrt. (2) `P_2`
+  und `P_3` sind beide exakt 7/32, entstehen aber aus verschieden geordneten Summen - untereinander
+  in derselben Spalte las der Leser 0,2187 und 0,2188. `moeNumber` schnappt auf 1e-12; der Guard
+  ist auf das Paar gerichtet, das wirklich auseinanderlaeuft, und fordert, dass es existiert.
+- **Nebenbefund behoben:** `labHasObjectiveCheck` las nur `OBJECTIVE_LAB_IDS`, waehrend
+  `moe-routing` und `scaling-transfer` ihren Kurzcheck ueber `LAB_OBJECTIVES` beziehen. Beide
+  konnten bestanden werden, ohne je "✓ objektiver Kurzcheck bestanden" zu zeigen. Das Praedikat
+  liest jetzt beide Listen; das repariert `scaling-transfer` mit.
+- Guard-Suite **64 -> 65 Bloecke gruen**, neuer Block `moe-routing` mit **1444 Checks**.
+  Render-Sweep **62 -> 63 von 64 Labs**, 1314 -> **1350 Renders**, `LR_NO_STAGE` 2 -> **1**.
+  Cache-Bump auf **v93** (4 Stellen).
+- **Mutationstest gegen die Schlankfassung** (0,24 s je Lauf): **20 Mutationen, 20 gefangen,
+  0 entkommen, 0 inert**, Kontrolle vor und nach dem Lauf gruen.
+- **Lehre aus dem Lauf:** der moeNumber-Guard landete zuerst im `policy-loss-tracer`-Block, weil
+  beide denselben Ankerkommentar tragen und `String.replace` das erste Vorkommen nimmt. Die
+  Schlankfassung enthaelt `policy-loss-tracer` nicht und meldete trotzdem gruen. Sie ist schnell,
+  aber kein Beleg dafuer, dass eine Aenderung dort gelandet ist, wo sie hingehoert.
+- **Kein Browsertest** - in geplanten Laeufen gesperrt. Ersatz: alle **60 Zustaende in beiden
+  Sprachen** headless gerendert (120 Renders), auf Platzhalter, `undefined`, negative Nullen,
+  falsche Dezimaltrennzeichen und deutsche Rueckstaende geprueft.
