@@ -5059,7 +5059,7 @@ window.CS336_EN = Object.freeze({
           "derive": "Maintain a Shape Ledger from token_ids [B,T] to logits [B,T,V], marking exactly where positions are mixed, features are mixed, Heads are separated, and future positions are excluded.",
           "evidence": "You can derive non-square Query/Key lengths, mask Broadcasting, the QKV Head split, Residual paths, and parameter and FLOP terms without trial and error.",
           "failure": "First lead: Test causal invariance—a change to a future token must not alter earlier logits—and then isolate the first failing Block.",
-          "concepts": ["attention", "causal-mask", "transformer-block", "resource-accounting", "transformer-ledger", "einsum-notation"],
+          "concepts": ["attention", "causal-mask", "transformer-block", "resource-accounting", "transformer-ledger", "einsum-notation", "embeddings"],
           "labs": ["attention", "causal-invariance", "shapes", "resources", "transformer-ledger", "einsum-pattern"]
         },
         {
@@ -5089,7 +5089,7 @@ window.CS336_EN = Object.freeze({
           "derive": "Before running anything, specify the hypothesis, control variable, budget, metric, and stopping criterion for Sampling, Learning Rate, Batch size, and every Ablation.",
           "evidence": "You can explain EOS, Temperature, and Top-p using toy logits, compare fair runs under documented compute, and infer more from learning curves than only the best final value.",
           "failure": "First lead: If a comparison is ambiguous, first check for unequal tokens, seeds, evaluation protocols, Checkpoints, or multiple variables changed at once.",
-          "concepts": ["sampling", "training-loop", "benchmark-validity"],
+          "concepts": ["sampling", "training-loop", "benchmark-validity", "pre-post-norm", "perplexity-eval"],
           "labs": ["ablation-controls", "position-signal", "stability-edge", "decode-sampling", "attention", "evaluation"]
         }
       ],
@@ -5429,7 +5429,7 @@ window.CS336_EN = Object.freeze({
           "derive": "Before comparing variants, define the binary format, token dtype, document terminator, split boundaries, token budget, and controlled training and evaluation conditions.",
           "evidence": "You can verify a round trip and sample from the serialized corpus, rule out verbatim, near-duplicate, and semantically equivalent train–validation overlap, and compare data variants at equal model, token, and training budgets. If validation guided filter development, you label it a development metric and reserve an untouched test set for the final comparison.",
           "failure": "First lead: Better Loss may come from more tokens, different Tokenization, train–evaluation contamination, or repeated adaptation to validation; control these causes separately before making a claim about data quality.",
-          "concepts": ["tokenizer-tradeoffs", "training-loop", "benchmark-validity"],
+          "concepts": ["tokenizer-tradeoffs", "training-loop", "benchmark-validity", "perplexity-eval"],
           "labs": ["compression-ratio", "data-pipeline", "evaluation"]
         }
       ],

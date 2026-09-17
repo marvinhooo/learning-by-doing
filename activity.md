@@ -865,3 +865,52 @@ Iteration Counter: 1
 - **Kein Browsertest** - in geplanten Laeufen gesperrt. Ersatz: alle **60 Zustaende in beiden
   Sprachen** headless gerendert (120 Renders), auf Platzhalter, `undefined`, negative Nullen,
   falsche Dezimaltrennzeichen und deutsche Rueckstaende geprueft.
+
+## 2026-09-17 - Die Konzeptseite wusste nicht, wofuer man sie liest (geplanter Deep Review, v114)
+
+- **Der Befund.** `PROBLEM_CONCEPTS` ist eine Behauptung in einer Richtung - "dieses Problem haengt
+  an diesen Ideen" - und die Assignment-Seite hat sie immer so gerendert: 211 Verknuepfungen ueber
+  alle 124 Handout-Probleme. **Rueckwaerts hat sie nie jemand gelesen.** Eine Konzeptseite endete
+  deshalb im Lesen: Orientierung, mentales Modell, Beispiel, Regeln, Fehlannahmen, Labs,
+  Selbstcheck, Formelkarten - und dann nichts. Die eine Frage, die aus Lesen Fortschritt macht
+  ("was genau kann ich damit abgeben?"), konnte die Seite nicht beantworten. Dieselbe Einbahnstrasse
+  wie im Tafelwerk vor v108, nur auf der Flaeche, die der Lernpfad staendig benutzt.
+- **Gebaut.** `conceptProblemMarkup` rendert auf **allen 75 Konzeptseiten** die Probleme, die genau
+  dieses Konzept entscheiden - nach Assignment gruppiert, mit Punktzahl, Art der Arbeit, GPU-Budget,
+  dem Adapter-Hook und dem `uv run pytest`-Befehl aus dem Handout, und mit **den uebrigen Konzepten
+  desselben Problems** ("Braucht ausserdem"), damit sichtbar ist, was noch fehlt. 215 Problemzeilen,
+  76 Assignment-Knoepfe, 62 Konzepte mit Abgabe.
+- **Die Umkehrung war selbst der Pruefstand.** Drei Konzepte, deren Gegenstand ein Handout in seinem
+  eigenen Problemtitel nennt, waren von **keinem Themenblock** gelistet und konnten deshalb von
+  keinem Problem genannt werden: `pre-post-norm` (A1: *"Modify your pre-norm Transformer
+  implementation into a post-norm one"*), `embeddings` (A1: *"the dimensionality of the token
+  embedding matrix"*) und `perplexity-eval` (A1: *"submit your attained perplexities to a
+  leaderboard"*; A4: *"minimizes validation perplexity on ... Paloma"*). Vier neue Verknuepfungen,
+  drei Themenblock-Eintraege - und **gemessen null Verzoegerung**: kein einziges der 124 Probleme
+  oeffnet dadurch spaeter.
+- **Der Fehler, den die Umkehrung nebenbei fand.** Der Lecture-Ausblick seedet "abgedeckt" mit dem
+  Foundations-Modul und den Lectures. Sechs Konzepte stehen in keinem von beiden - `lm-objective`,
+  `causal-mask`, `cross-entropy`, `adamw`, `clipping`, `sampling` -, und die App **sagt das selbst**
+  auf der Assignment-Seite ("Was dieses Assignment braucht, aber keine Lecture liefert"). Der
+  Ausblick behandelte sie als fuer immer fehlend: **11 der 124 Probleme** tauchten im Ausblick
+  keiner einzigen Lecture auf - darunter `a1:adamw`, `a1:cross_entropy`, `a1:decoding` -, und A1
+  stand auch nach Lecture 17 noch bei **29 von 38**. Jetzt **124 von 124**; kein bereits offenes
+  Problem bewegt sich, und ein Problem, das gar keine Lecture braucht, wird gezaehlt, ohne dass
+  Lecture 1 behauptet, es geoeffnet zu haben.
+- Guard-Suite **65 -> 67 Bloecke gruen**: `concept deliverables` (**657 Checks**) und
+  `lecture outlook coverage` (**151 Checks**). Cache-Bump auf **v94** (4 Stellen).
+- **Mutationstest gegen die Schlankfassung:** **24 Mutationen, 24 gefangen, 0 entkommen, 0 inert**,
+  Kontrolle vor und nach dem Lauf gruen. Zwei Mutationen entkamen im ersten Durchgang und schlossen
+  je eine echte Luecke: die **Punktsumme je Assignment-Block** war ungeprueft (nur die Gesamtzeile),
+  und eine **spaeter gelehrte Verknuepfung, die ein Problem verzoegert**, war unsichtbar, weil der
+  Vergleich "mit/ohne die vier neuen Links" eine fuenfte auf beiden Seiten stehen laesst. Jetzt ist
+  die **Form des Ausblicks** festgeschrieben (wie viele der 124 Probleme jede Lecture oeffnet).
+- **Lehre aus dem Lauf:** ein **Apostroph in einem Kommentar** innerhalb einer Funktion, die ein
+  Guard per `sliceDeclaration` schneidet, liest sich fuer dessen Scanner als String-Anfang - der
+  Schnitt lief bis zum Dateiende (1,3 MB statt 1,3 kB) und meldete sich als *"Identifier
+  'LAB_CONCEPTS' has already been declared"*, was ueber die Ursache nichts sagt. Der Guard benennt
+  das jetzt selbst, bevor der Code stirbt, der daran stirbt.
+- **Kein Browsertest** - in geplanten Laeufen gesperrt. Ersatz: alle **75 Konzeptseiten in beiden
+  Sprachen** headless gerendert (150 Renders), geprueft auf Platzhalter, Tag-Balance und deutsche
+  Rueckstaende im englischen Render; der Scanner vorher als sehend belegt (er war es zuerst nicht -
+  seine Regex kannte `</h2>` nicht, weil sie Ziffern im Tagnamen ausschloss).

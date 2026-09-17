@@ -14289,3 +14289,378 @@ console.log(`ffn-backward OK: ${fbValues} values, all four gradients match A2's 
   const moeHeavy = moeAt("collapsed", "2", "1");
   console.log(`moe-routing OK: ${moeChecks} checks -- the lab's own task line ("capacity, overflow at six assignments, the aux loss under uniform routing") made computable, every assignment rebuilt as an explicit list and every P_e read off the routing spec rather than the rendered table, across all ${moeStates.length} states: capacity = ceil(c*T*k/E) puts ${moeBase.capacity} seats under each expert at c = 1, where balanced routing fits exactly and the skewed router hands expert 0 ${moeSkew.counts[0]} of ${moeSkew.assignments} assignments and loses ${moeSkew.dropped[0]} of them to the buffer, while at c = 0.5 even perfect balance drops ${moeAt("balanced", "2", "0.5").drops}; the balance loss is shown to have alpha as its floor and not zero -- exactly alpha for balanced routing at both k, strictly above it for every other routing, and never below it in any of the ${moeStates.length} states (${moeSkew.aux.toFixed(6)} skewed, ${moeHeavy.aux.toFixed(6)} collapsed); and expert load is held apart from device load in both directions, with the same expert loads regrouped over two placements moving the straggler in ${moeMoved} states and provably unable to move it in the ${moeBalancedSame} balanced ones, the ${moeSoloStates.length} remaining ties being exactly the states where one expert holds all ${moeHeavy.assignments} assignments and is therefore the straggler wherever it is placed`);
 }
+
+// ---- concept deliverables: the inverse of the problem-to-concept table (v114) ---------------
+// PROBLEM_CONCEPTS is a claim in one direction -- "this problem turns on these ideas" -- and the
+// assignment page has always rendered it that way. Read backwards it answers the question that
+// decides whether reading feels like progress: which of the 124 deliverables does understanding
+// this concept actually unlock? For 113 versions nothing read it backwards, so a concept page
+// ended in reading, exactly like the Tafelwerk did before `formula route`.
+//
+// The inversion is also an audit of the table, and it found three holes: A1 asks you to
+// "Modify your pre-norm Transformer implementation into a post-norm one" while no block offered
+// the pre-norm/post-norm page, A1's transformer_lm names the "token embedding matrix" while no
+// block offered the embeddings page, and both A1's leaderboard ("submit your attained
+// perplexities") and A4's train_model ("minimizes validation perplexity on ... Paloma") are
+// scored on a metric whose concept page no assignment reached. Those three are added here with
+// the handout wording that backs them, and this block holds four things: the rendered rows are
+// the table and nothing else, in both directions; the numbers in the prose are computed; the
+// concepts that legitimately reach no deliverable are named rather than silently empty; and the
+// three additions may not delay a single problem in the lecture outlook.
+{
+  const cdSource = source;
+  const cdAssignments = base.assignments;
+  const cdConcepts = base.concepts;
+  const cdProblemConcepts = readConstant("PROBLEM_CONCEPTS");
+  const cdHandout = readConstant("HANDOUT_PROBLEMS");
+  let cdChecks = 0;
+  const cdFail = message => { throw new Error(`concept deliverables: ${message}`); };
+
+  // --- 1. the page renders it, after the reading and before the aside ------------------------
+  const cdRenderer = cdSource.slice(cdSource.indexOf("function renderConceptDetail"), cdSource.indexOf("function renderFormulaDetail"));
+  const cdCall = cdRenderer.indexOf("${conceptProblemMarkup(c)}");
+  if (cdCall < 0) cdFail("renderConceptDetail does not render conceptProblemMarkup, so the route back to the deliverable is gone");
+  const cdSelfCheck = cdRenderer.indexOf("Selbstcheck mit Musterantworten");
+  const cdAside = cdRenderer.indexOf('<aside class="detail-aside">');
+  if (!(cdSelfCheck >= 0 && cdSelfCheck < cdCall && cdCall < cdAside)) cdFail("the deliverable section belongs in the reading flow, after the self-check and before the aside");
+  cdChecks += 2;
+
+  // --- 2. the renderer, run for real --------------------------------------------------------
+  const cdApi = runInNewContext(
+    `const esc = value => String(value ?? "").replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+     const byId = (arr,id) => arr.find(x=>x.id===id);
+     ${sliceDeclaration(cdSource, "missionProblems")}
+     ${sliceDeclaration(cdSource, "problemModeLabels")}
+     ${sliceDeclaration(cdSource, "problemVerifyMarkup")}
+     ${sliceDeclaration(cdSource, "problemDecidingConcepts")}
+     ${sliceDeclaration(cdSource, "conceptProblems")}
+     ${sliceDeclaration(cdSource, "conceptProblemMarkup")}
+     ({render: conceptProblemMarkup, setLanguage: value => { currentLanguage = value; }})`,
+    { CONCEPTS: cdConcepts, ASSIGNMENTS: cdAssignments, HANDOUT_PROBLEMS: cdHandout,
+      PROBLEM_CONCEPTS: cdProblemConcepts, currentLanguage: "de" });
+
+  // --- 3. the expected inversion, rebuilt from the table rather than from the renderer -------
+  // Built the long way round -- walking assignments and blocks the way the assignment page does --
+  // so a renderer that agreed with itself could not pass.
+  const cdExpected = new Map(cdConcepts.map(concept => [concept.id, []]));
+  const cdSeenPerAssignment = new Map();
+  for (const assignment of cdAssignments) {
+    const seen = new Set();
+    for (const mission of assignment.missions || []) {
+      for (const part of String(mission.scope).split("·").map(value => value.trim()).filter(Boolean)) {
+        if (seen.has(part)) continue;
+        seen.add(part);
+        const key = `${assignment.id}:${part}`;
+        const deciding = cdProblemConcepts[key] && cdProblemConcepts[key].length ? cdProblemConcepts[key] : (mission.concepts || []);
+        for (const conceptId of deciding) {
+          if (!cdExpected.has(conceptId)) cdFail(`${key} names ${conceptId}, which is not a concept`);
+          cdExpected.get(conceptId).push(key);
+        }
+      }
+    }
+    cdSeenPerAssignment.set(assignment.id, seen);
+  }
+  const cdLinkTotal = [...cdExpected.values()].reduce((sum, list) => sum + list.length, 0);
+  if (cdLinkTotal < 200) cdFail(`only ${cdLinkTotal} concept links found, the walk is not seeing the table any more`);
+  cdChecks++;
+
+  // --- 4. both directions, read out of the rendered markup ----------------------------------
+  const cdRows = html => [...html.matchAll(/<code data-no-i18n>([^<]+)<\/code>/gu)].map(match => match[1]);
+  const cdLectureOnly = [];
+  let cdRendered = 0, cdRowsTotal = 0;
+  for (const concept of cdConcepts) {
+    const html = cdApi.render(concept);
+    cdRendered++;
+    const want = cdExpected.get(concept.id);
+    const wantIds = want.map(key => key.slice(key.indexOf(":") + 1));
+    const got = cdRows(html).filter(value => !value.startsWith("adapters.") && !value.startsWith("uv run pytest"));
+    if (JSON.stringify([...got].sort()) !== JSON.stringify([...wantIds].sort()))
+      cdFail(`${concept.id} renders ${JSON.stringify(got.slice(0, 6))} where the table says ${JSON.stringify(wantIds.slice(0, 6))}`);
+    cdRowsTotal += got.length;
+    if (!want.length) {
+      cdLectureOnly.push(concept.id);
+      if (!/class="callout"/u.test(html)) cdFail(`${concept.id} reaches no deliverable and says nothing about it`);
+      if (/class="problem-row"/u.test(html)) cdFail(`${concept.id} reaches no deliverable but renders a problem row`);
+    } else {
+      if (/class="callout"/u.test(html)) cdFail(`${concept.id} reaches ${want.length} problem(s) and still prints the "none" callout`);
+      // The reader is on this concept, so its own name is not news; the other deciding concepts are.
+      if (html.includes(`data-open-concept="${concept.id}"`)) cdFail(`${concept.id} offers a button back to the page the reader is already on`);
+      const siblings = new Set(want.flatMap(key => (cdProblemConcepts[key] || []).filter(id => id !== concept.id)));
+      for (const sibling of siblings)
+        if (!html.includes(`data-open-concept="${sibling}"`)) cdFail(`${concept.id} hides ${sibling}, which decides the same problem`);
+      cdChecks += siblings.size;
+      // Every assignment that owns a row is reachable, and no other one is offered.
+      const offered = new Set([...html.matchAll(/data-open-assignment="([a-z0-9]+)"/gu)].map(match => match[1]));
+      const owed = new Set(want.map(key => key.slice(0, key.indexOf(":"))));
+      if (JSON.stringify([...offered].sort()) !== JSON.stringify([...owed].sort()))
+        cdFail(`${concept.id} offers ${JSON.stringify([...offered])} where its rows belong to ${JSON.stringify([...owed])}`);
+      // The points the section prints are the handout's, added up rather than typed.
+      const points = want.reduce((sum, key) => sum + cdHandout[key][0], 0);
+      if (!html.includes(`>${want.length} ${want.length === 1 ? "Problem" : "Probleme"} · ${points} Punkte · `))
+        cdFail(`${concept.id} does not print its own ${want.length} problems and ${points} points`);
+      // Every group header carries its own count and sum, and a total that is right while its parts
+      // are wrong is the easiest way for a ledger to look correct, so each part is read back too.
+      for (const assignmentId of owed) {
+        const mine = want.filter(key => key.startsWith(`${assignmentId}:`));
+        const ownPoints = mine.reduce((sum, key) => sum + cdHandout[key][0], 0);
+        const assignment = cdAssignments.find(entry => entry.id === assignmentId);
+        const header = `— ${mine.length} ${mine.length === 1 ? "Problem" : "Probleme"} · ${ownPoints} ${ownPoints === 1 ? "Punkt" : "Punkte"}</span>`;
+        if (!html.includes(header))
+          cdFail(`${concept.id} does not print ${assignment.label} as ${mine.length} problems and ${ownPoints} points`);
+        cdChecks++;
+      }
+      cdChecks += 3;
+    }
+    cdChecks++;
+  }
+  if (cdRendered !== cdConcepts.length) cdFail("not every concept was rendered");
+  if (cdRowsTotal !== cdLinkTotal) cdFail(`${cdRowsTotal} rendered rows against ${cdLinkTotal} links in the table`);
+  cdChecks++;
+
+  // --- 5. the prose counts what is there, rather than repeating a number someone typed -------
+  const cdSample = cdApi.render(cdConcepts.find(concept => concept.id === "matmul"));
+  if (!cdSample.includes(`keines der ${Object.keys(cdHandout).length} Probleme`))
+    cdFail("the empty state has to name the real number of handout problems, not a typed one");
+  if (!cdSample.includes(`Kein Themenblock der ${cdAssignments.length} Assignments`))
+    cdFail("the empty state has to name the real number of assignments");
+  cdChecks += 2;
+
+  // --- 6. the concepts that reach no deliverable, named rather than merely empty -------------
+  // Each of these is a lecture topic the five handouts never ask for; MQA and GQA, for one, appear
+  // zero times in A1 and A2. They are pinned so that adding one to a topic block is a decision
+  // somebody makes, not a silent drift -- and so that a concept dropping off the map is caught.
+  const cdRecordedLectureOnly = ["matmul", "gradients", "lm-objective", "architecture-stability-shapes",
+    "attention-variants", "moe", "moe-routing-capacity", "dataset-lineage", "copyright-licensing",
+    "inference-workload", "kv-serving", "serving-optimizations", "alternative-sequence-models"];
+  if (JSON.stringify([...cdLectureOnly].sort()) !== JSON.stringify([...cdRecordedLectureOnly].sort()))
+    cdFail(`the concepts reaching no deliverable are ${JSON.stringify(cdLectureOnly)}, the recorded list is ${JSON.stringify(cdRecordedLectureOnly)}`);
+  // Both directions: a recorded one may not be listed by any block either, or the record is stale.
+  const cdInBlocks = new Set(cdAssignments.flatMap(assignment => [...(assignment.concepts || []), ...(assignment.missions || []).flatMap(mission => mission.concepts || [])]));
+  for (const conceptId of cdRecordedLectureOnly) {
+    if (!cdConcepts.some(concept => concept.id === conceptId)) cdFail(`the recorded lecture-only concept ${conceptId} no longer exists`);
+    if (cdInBlocks.has(conceptId)) cdFail(`${conceptId} is listed by a topic block now, so it no longer belongs on the lecture-only list`);
+  }
+  cdChecks += cdRecordedLectureOnly.length + 1;
+
+  // --- 7. the three additions, each backed by the handout's own wording ----------------------
+  for (const [key, conceptId, evidence] of [
+    ["a1:transformer_lm", "embeddings", 'A1 §3.5: "vocab_size ... necessary for determining the dimensionality of the token embedding matrix"'],
+    ["a1:pre_norm_ablation", "pre-post-norm", 'A1 §7.5: "Modify your pre-norm Transformer implementation into a post-norm one"'],
+    ["a1:leaderboard", "perplexity-eval", 'A1 §1: "submit your attained perplexities to a leaderboard"'],
+    ["a4:train_model", "perplexity-eval", 'A4 §5: "minimizes validation perplexity on the C4 100 domains subset of the Paloma benchmark"']
+  ]) {
+    if (!(cdProblemConcepts[key] || []).includes(conceptId)) cdFail(`${key} no longer names ${conceptId}, although ${evidence}`);
+    if (!cdInBlocks.has(conceptId)) cdFail(`${conceptId} is not listed by any topic block, so ${key} could not reach it`);
+    cdChecks += 2;
+  }
+
+  // --- 8. sharpening the map may not delay a single problem ---------------------------------
+  // The lecture page derives which problems a lecture opens from exactly these concept lists, so a
+  // link to a concept taught later would silently push a deliverable behind a lecture that has
+  // nothing to do with it. The outlook is recomputed with the four links removed and has to agree
+  // on every problem -- which is the property that made these four additions safe in the first place.
+  const cdGuides = base.lectureGuides;
+  const cdLectureIds = Object.keys(cdGuides);
+  const cdFoundations = base.modules.find(module => module.id === "foundations")?.concepts || [];
+  // Same seed the renderer uses: a concept no lecture teaches is not gated by one. See the
+  // `lecture outlook coverage` block, which holds that rule and what it repaired.
+  const cdTaught = new Set(cdLectureIds.flatMap(lectureId => cdGuides[lectureId].concepts || []));
+  const cdSeed = [...cdFoundations, ...cdConcepts.filter(concept => !cdTaught.has(concept.id)).map(concept => concept.id)];
+  const cdOutlook = (problemConcepts, assignments) => {
+    const opened = {};
+    cdLectureIds.forEach((lectureId, index) => {
+      const covered = new Set(cdSeed);
+      cdLectureIds.slice(0, index + 1).forEach(earlier => (cdGuides[earlier].concepts || []).forEach(id => covered.add(id)));
+      for (const assignment of assignments) {
+        const seen = new Set();
+        for (const mission of assignment.missions || [])
+          for (const part of String(mission.scope).split("·").map(value => value.trim()).filter(Boolean)) {
+            if (seen.has(part)) continue;
+            seen.add(part);
+            const key = `${assignment.id}:${part}`;
+            const deciding = problemConcepts[key] && problemConcepts[key].length ? problemConcepts[key] : (mission.concepts || []);
+            if (deciding.length && deciding.every(id => covered.has(id)) && !(key in opened)) opened[key] = lectureId;
+          }
+      }
+    });
+    return opened;
+  };
+  const cdWith = cdOutlook(cdProblemConcepts, cdAssignments);
+  const cdWithout = JSON.parse(JSON.stringify(cdProblemConcepts));
+  for (const [key, conceptId] of [["a1:transformer_lm", "embeddings"], ["a1:pre_norm_ablation", "pre-post-norm"],
+    ["a1:leaderboard", "perplexity-eval"], ["a4:train_model", "perplexity-eval"]])
+    cdWithout[key] = cdWithout[key].filter(id => id !== conceptId);
+  const cdBefore = cdOutlook(cdWithout, cdAssignments);
+  const cdMoved = Object.keys(cdWith).filter(key => cdWith[key] !== cdBefore[key]);
+  if (cdMoved.length) cdFail(`the four added links delay ${cdMoved.length} problem(s) in the lecture outlook (${cdMoved.slice(0, 3).join(", ")}) -- a concept taught later must not gate a deliverable`);
+  if (Object.keys(cdWith).length !== Object.keys(cdBefore).length) cdFail("the added links changed which problems open at all");
+  // The comparison above is blind to a fifth link added later: it would sit on both sides and cancel
+  // out. So the shape of the derivation is recorded as well -- how many of the 124 problems each
+  // lecture opens. A link to a concept the course teaches later moves a problem down this list, and
+  // that has to be a decision somebody writes down, not a number that drifts.
+  const cdOpeningShape = cdLectureIds.map(lectureId => Object.values(cdWith).filter(value => value === lectureId).length);
+  const cdRecordedShape = [18, 6, 7, 0, 2, 10, 15, 0, 1, 0, 3, 15, 5, 6, 11, 19, 6];
+  if (JSON.stringify(cdOpeningShape) !== JSON.stringify(cdRecordedShape))
+    cdFail(`the lecture path now opens ${JSON.stringify(cdOpeningShape)} problems where the recorded shape is ${JSON.stringify(cdRecordedShape)} -- if a deliverable moved to a later lecture, say why here`);
+  if (cdOpeningShape.reduce((sum, value) => sum + value, 0) !== Object.keys(cdHandout).length)
+    cdFail("the recorded shape does not add up to every handout problem");
+  cdChecks += cdOpeningShape.length + Object.keys(cdWith).length;
+
+  // --- 9. the English render is a different render, and carries no German back --------------
+  cdApi.setLanguage("en");
+  const cdEnglishSample = cdApi.render(cdConcepts.find(concept => concept.id === "resource-accounting"));
+  cdApi.setLanguage("de");
+  const cdGermanSample = cdApi.render(cdConcepts.find(concept => concept.id === "resource-accounting"));
+  if (cdEnglishSample === cdGermanSample) cdFail("the English render is identical to the German one, so the language branch is dead");
+  let cdEnglish = 0;
+  cdApi.setLanguage("en");
+  for (const concept of cdConcepts) {
+    const scan = cdApi.render(concept)
+      .replace(/<code data-no-i18n>[\s\S]*?<\/code>/gu, "")
+      .replace(/<span class="problem-title" data-no-i18n>[\s\S]*?<\/span>/gu, "");
+    for (const word of ["Probleme", "Punkte", "Konzept", "Braucht außerdem", "Öffnen", "Themenblock", "Abgabe", "GPU-Std.", "Schreiben", "Messen"])
+      if (scan.includes(word)) cdFail(`the English render of ${concept.id} still says "${word}"`);
+    if (/undefined|NaN|\[object Object\]/u.test(scan)) cdFail(`the English render of ${concept.id} carries a placeholder`);
+    cdEnglish++;
+  }
+  cdApi.setLanguage("de");
+  cdChecks += cdEnglish;
+
+  console.log(`concept deliverables OK: ${cdChecks} checks -- PROBLEM_CONCEPTS read backwards on all ${cdConcepts.length} concept pages, so reading ends at a deliverable instead of at the self-check: ${cdRowsTotal} problem rows rebuilt by walking the blocks the long way round and compared against the rendered markup in both directions, every sibling concept of a shared problem offered while the page the reader is on is not, each section's problem count and point sum re-added from the handout, and the ${cdRecordedLectureOnly.length} concepts that reach no deliverable named and held against the topic blocks in both directions; the three holes the inversion exposed are closed with the handout wording that backs them (post-norm, the token embedding matrix, and the perplexity both leaderboards are scored on), and the four new links are proven to delay none of the ${Object.keys(cdWith).length} problems in the lecture outlook; ${cdEnglish} English renders carry no German back`);
+}
+
+// ---- lecture outlook coverage: the problems the derivation used to lose (v114) --------------
+// Found by reading PROBLEM_CONCEPTS backwards for the block above. The lecture page derives which
+// problems a lecture opens by asking whether every concept a problem turns on is already covered,
+// and it seeded "covered" with the foundations module and the lectures. Six concepts are in
+// neither -- lm-objective, causal-mask, cross-entropy, adamw, clipping, sampling -- and the app
+// already says so on the assignment page, where assignmentSelfStudyConcepts lists them under
+// "what this assignment needs but no lecture hands you". The outlook, reading the same data,
+// treated them as forever missing instead: 11 of the 124 problems, among them a1:adamw,
+// a1:cross_entropy and a1:decoding, appeared in no lecture's outlook at all, and A1 still read
+// 29 of 38 after Lecture 17. This block holds the repair and its boundary -- it may only ever
+// add, never move a problem earlier.
+{
+  const loSource = source;
+  let loChecks = 0;
+  const loFail = message => { throw new Error(`lecture outlook coverage: ${message}`); };
+  const loGuides = base.lectureGuides;
+  const loIds = Object.keys(loGuides);
+  const loConcepts = base.concepts;
+  const loAssignments = base.assignments;
+  const loProblemConcepts = readConstant("PROBLEM_CONCEPTS");
+  const loHandout = readConstant("HANDOUT_PROBLEMS");
+
+  // --- 1. the app's own function, run for real ----------------------------------------------
+  // sliceDeclaration reads an apostrophe in a comment as the start of a string and then runs to the
+  // end of the file. That failure arrives as a SyntaxError about a duplicated declaration, which says
+  // nothing about its cause, so it is named here -- before the code that would die on it.
+  if (sliceDeclaration(loSource, "lectureProblemOutlook").includes("function lectureProblemOutlookMarkup"))
+    loFail("the slice of lectureProblemOutlook ran past the end of the function -- an apostrophe in one of its comments reads as a string opener to sliceDeclaration");
+  const loApi = runInNewContext(
+    `const byId = (arr,id) => arr.find(x=>x.id===id);
+     ${sliceDeclaration(loSource, "missionProblems")}
+     ${sliceDeclaration(loSource, "problemDecidingConcepts")}
+     ${sliceDeclaration(loSource, "assignmentSelfStudyConcepts")}
+     ${sliceDeclaration(loSource, "conceptLabs")}
+     ${sliceDeclaration(loSource, "LAB_CONCEPTS")}
+     ${sliceDeclaration(loSource, "lectureProblemOutlook")}
+     ({outlook: lectureProblemOutlook, selfStudy: assignmentSelfStudyConcepts})`,
+    { CONCEPTS: loConcepts, ASSIGNMENTS: loAssignments, MODULES: base.modules,
+      LECTURE_IDS: loIds, LECTURE_GUIDES: loGuides, LABS: base.labs,
+      PROBLEM_CONCEPTS: loProblemConcepts, HANDOUT_PROBLEMS: loHandout });
+
+  // --- 2. no problem is lost ----------------------------------------------------------------
+  const loScoped = new Set();
+  for (const assignment of loAssignments) {
+    const seen = new Set();
+    for (const mission of assignment.missions || [])
+      for (const part of String(mission.scope).split("·").map(value => value.trim()).filter(Boolean)) {
+        if (seen.has(part)) continue;
+        seen.add(part);
+        loScoped.add(`${assignment.id}:${part}`);
+      }
+  }
+  const loLast = loApi.outlook(loIds[loIds.length - 1]);
+  for (const entry of loLast.totals) {
+    if (entry.done !== entry.all)
+      loFail(`after the last lecture ${entry.assignment.id} still stands at ${entry.done} of ${entry.all} problems -- a deliverable the whole course never opens is a hole in the derivation, not a fact about the course`);
+    loChecks++;
+  }
+  if (loLast.totals.length !== loAssignments.length) loFail("an assignment reaches the last lecture with nothing opened at all");
+  const loOpenedTotal = loLast.totals.reduce((sum, entry) => sum + entry.done, 0);
+  if (loOpenedTotal !== loScoped.size) loFail(`${loOpenedTotal} of ${loScoped.size} problems are open after the last lecture`);
+  loChecks += 2;
+
+  // --- 3. the seeding rule is the app's, and it matches the other surface --------------------
+  const loRenderer = sliceDeclaration(loSource, "lectureProblemOutlook");
+  if (!loRenderer.includes("LECTURE_GUIDES[id].concepts||[]).includes(concept.id)"))
+    loFail("the derivation no longer seeds the concepts no lecture teaches, so the lost problems come back");
+  const loTaught = new Set(loIds.flatMap(id => loGuides[id].concepts || []));
+  const loHomeless = loConcepts.filter(concept => !loTaught.has(concept.id)).map(concept => concept.id);
+  if (loHomeless.length < 4) loFail(`only ${loHomeless.length} concepts without a lecture home, the walk is not seeing the guides`);
+  // The assignment page's "not on the lecture path" list must be a subset of the same set, or the
+  // two surfaces are working from different definitions of the same word.
+  const loSelfStudy = new Set(loAssignments.flatMap(assignment => loApi.selfStudy(assignment).map(entry => entry.concept.id)));
+  for (const conceptId of loSelfStudy) {
+    if (!loHomeless.includes(conceptId))
+      loFail(`the assignment page calls ${conceptId} "not on the lecture path" while a lecture teaches it`);
+    loChecks++;
+  }
+  if (!loSelfStudy.size) loFail("no assignment names a self-study concept any more, so the two surfaces cannot be compared");
+  loChecks += 2;
+
+  // --- 4. the repair only ever adds -----------------------------------------------------------
+  // The old derivation, rebuilt here, is the comparison: every problem it did open has to open at
+  // exactly the same lecture. A seed that moved a problem earlier would be a different claim about
+  // the course, not a repair of a lost one.
+  const loFoundations = base.modules.find(module => module.id === "foundations")?.concepts || [];
+  const loRun = seed => {
+    const opened = {};
+    loIds.forEach((lectureId, index) => {
+      const covered = new Set(seed);
+      loIds.slice(0, index + 1).forEach(earlier => (loGuides[earlier].concepts || []).forEach(id => covered.add(id)));
+      for (const assignment of loAssignments) {
+        const seen = new Set();
+        for (const mission of assignment.missions || [])
+          for (const part of String(mission.scope).split("·").map(value => value.trim()).filter(Boolean)) {
+            if (seen.has(part)) continue;
+            seen.add(part);
+            const key = `${assignment.id}:${part}`;
+            const deciding = loProblemConcepts[key] && loProblemConcepts[key].length ? loProblemConcepts[key] : (mission.concepts || []);
+            if (deciding.length && deciding.every(id => covered.has(id)) && !(key in opened)) opened[key] = lectureId;
+          }
+      }
+    });
+    return opened;
+  };
+  const loOld = loRun(loFoundations), loNew = loRun([...loFoundations, ...loHomeless]);
+  const loEarlier = Object.keys(loOld).filter(key => loOld[key] !== loNew[key]);
+  if (loEarlier.length) loFail(`the seed moves ${loEarlier.length} already-open problem(s) (${loEarlier.slice(0, 3).join(", ")}) -- it may only add the lost ones`);
+  const loRecovered = Object.keys(loNew).filter(key => !(key in loOld));
+  if (!loRecovered.length) loFail("the seed recovers nothing, so either the hole is gone or the comparison is broken");
+  if (Object.keys(loNew).length !== loScoped.size) loFail("the seeded derivation still loses a problem");
+  loChecks += Object.keys(loNew).length;
+
+  // --- 5. recovered is not the same as announced ----------------------------------------------
+  // A problem that needs no lecture at all is available from the start; saying "Lecture 1 opens it"
+  // would be a new false claim in place of the old lost one. The renderer only announces a problem
+  // whose deciding set was not already complete before this lecture, so those stay unannounced.
+  const loFirst = loApi.outlook(loIds[0]);
+  const loAnnounced = new Set(loFirst.opened.flatMap(entry => entry.problems.map(problem => `${entry.assignment.id}:${problem.id}`)));
+  for (const key of loRecovered) {
+    const deciding = loProblemConcepts[key] || [];
+    if (deciding.every(id => loHomeless.includes(id)) && loAnnounced.has(key))
+      loFail(`${key} needs no lecture at all, so Lecture 1 must not announce it as newly opened`);
+    loChecks++;
+  }
+  // And the announcement still works where it should: a1:transformer_lm turns on concepts Lecture 3
+  // teaches, so Lecture 3 has to name it.
+  const loThird = loApi.outlook("l03");
+  const loThirdNames = new Set(loThird.opened.flatMap(entry => entry.problems.map(problem => `${entry.assignment.id}:${problem.id}`)));
+  for (const key of ["a1:transformer_lm", "a1:scaled_dot_product_attention"])
+    if (!loThirdNames.has(key)) loFail(`Lecture 3 no longer announces ${key}, so the announcement itself is broken`);
+  loChecks += 2;
+
+  console.log(`lecture outlook coverage OK: ${loChecks} checks -- all ${loScoped.size} handout problems now open somewhere on the lecture path, against ${Object.keys(loOld).length} before: the ${loHomeless.length} concepts no lecture teaches are seeded the way the foundations module already was, which recovers exactly the ${loRecovered.length} problems the derivation used to drop (a1:adamw, a1:cross_entropy and a1:decoding among them) and moves not one of the ${Object.keys(loOld).length} it already opened; every assignment reaches ${loLast.totals.map(entry => `${entry.done}/${entry.all}`).join(" ")} after the last lecture, the assignment page's ${loSelfStudy.size} self-study concepts are checked to be the same lecture-less set rather than a second opinion, and a problem that needs no lecture is counted without Lecture 1 claiming to have opened it`);
+}
