@@ -148,3 +148,36 @@
 - **Eine Gesamtsumme kann stimmen, waehrend jeder ihrer Teile falsch ist.** Der Mutationstest schrieb die Punktsumme je Assignment-Block auf 1 Punkt je Problem um; die Gesamtzeile wurde separat gerechnet und blieb richtig, also entkam die Mutation. Jede gedruckte Teilsumme braucht ihre eigene Rueckleseprobe.
 - **Ein Apostroph in einem Kommentar zerstoert `sliceDeclaration`.** Dessen Scanner liest `'` als String-Anfang und schneidet bis zum Dateiende; das kommt als `SyntaxError: Identifier 'X' has already been declared` an und sagt ueber die Ursache nichts. In Funktionen, die ein Guard schneidet, gehoert kein Apostroph in einen Kommentar - und der Guard sollte den ueberlangen Schnitt selbst benennen.
 - **Einen Scanner erst als sehend belegen, dann ihm glauben.** Die Tag-Balance-Pruefung des Render-Sweeps meldete 75 von 75 Seiten kaputt; die Ursache war ihre eigene Regex (`[a-z]+` kennt `</h2>` nicht). Eine Pruefung, die auf *allen* Faellen anschlaegt, ist genauso verdaechtig wie eine, die auf keinem anschlaegt.
+
+- **Ein Renderer kann alles enthalten ausser dem einen Baustein, der den Leser weiterbringt - und
+  genau der fehlt auf der haeufigsten Flaeche.** `formulaAccordion` trug Primer, Lernsequenz,
+  Intuition, Dimensionen, Fehlerbild und Selbstcheck, also **alles** aus `renderFormulaDetail`
+  ausser `formulaRouteMarkup`. Der Diff zweier Renderer derselben Sache ist deshalb ein eigenes
+  Suchwerkzeug: was die seltenere Flaeche hat und die haeufigere nicht, ist fast immer der Befund.
+  Hier 82 Detailseiten gegen 262 Akkordeon-Instanzen.
+- **Ein Knopf, dessen Beschriftung mehr verspricht als er liefert, wird bewusst nicht gedrueckt.**
+  „Vollstaendig oeffnen" versprach Erklaerung und lieferte Navigation zu demselben Text; wer die
+  Karte offen hat, hat damit einen *aktiven* Grund, ihn zu meiden. Ein Ausgang muss sagen, wohin er
+  fuehrt, nicht was dahinter Schoenes liegt.
+- **Einen zweiten Parameter an eine Funktion haengen, die per `.map(fn)` aufgerufen wird, uebergibt
+  den Array-Index.** `.map(formulaAccordion)` reicht `(element, index, array)` durch. Das faellt
+  nicht auf, solange der neue Parameter mit Strings verglichen wird - es ist eine stille Bombe.
+  Beim Erweitern einer Signatur **alle** Aufrufstellen auf explizite Pfeilfunktionen umstellen und
+  die nackte Form per Guard verbieten.
+- **Eine geerbte Kennzahl gehoert nachgerechnet, bevor man auf ihr baut.** v114 nannte 294
+  Akkordeon-Instanzen; gerechnet sind es 262, weil eine Konzeptseite `conceptFormulaIds(c,
+  lectureId)` rendert (aus einer Lecture heraus nur deren kuratierte Formeln) und die
+  `sources`-Rueckfallebene in `lectureForConcept` uebersehen worden war. Die Richtung des Befunds
+  hielt, die Zahl nicht. Siehe [[cs336-metric-is-a-suspicion]].
+- **Ein Feld ohne Uebersetzung faellt auf die Ausgangssprache durch, und kein Paket-Guard sieht
+  das.** `compression-ratio.expr` - die angezeigte Gleichung - zeigte jedem englischen Leser
+  „Dateigroesse(uint16)", weil die deutschen Rueckstandspruefungen ueber die Pakete und ueber
+  Renderer laufen, die `expr` nie zeichnen. Die Pruefung gehoert an die **Durchfallstelle**: welche
+  Felder haben keine Uebersetzung (hier 145 von 1066, und nur `expr` und `aliases` koennen es
+  ueberhaupt), und ist das Durchfallende frei von der Ausgangssprache.
+- **Zwei Mutationswerkzeug-Fehler, die wie Guard-Luecken aussehen.** (1) Ein Anker, den der neue
+  Code mit einer aelteren Funktion teilt, trifft die falsche Stelle - Trefferzahl `!== 1` heisst
+  abbrechen, nicht ersetzen. (2) Ein eingefuegter **doppelter Objektschluessel** (`aliases` zweimal
+  in derselben Formel) ist wirkungslos, weil der letzte gewinnt - die Mutation meldet „entkommen",
+  obwohl sie nie stattfand. Eine entkommene Mutation zuerst daraufhin pruefen, ob sie ueberhaupt
+  etwas veraendert hat.

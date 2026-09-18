@@ -14664,3 +14664,283 @@ console.log(`ffn-backward OK: ${fbValues} values, all four gradients match A2's 
 
   console.log(`lecture outlook coverage OK: ${loChecks} checks -- all ${loScoped.size} handout problems now open somewhere on the lecture path, against ${Object.keys(loOld).length} before: the ${loHomeless.length} concepts no lecture teaches are seeded the way the foundations module already was, which recovers exactly the ${loRecovered.length} problems the derivation used to drop (a1:adamw, a1:cross_entropy and a1:decoding among them) and moves not one of the ${Object.keys(loOld).length} it already opened; every assignment reaches ${loLast.totals.map(entry => `${entry.done}/${entry.all}`).join(" ")} after the last lecture, the assignment page's ${loSelfStudy.size} self-study concepts are checked to be the same lecture-less set rather than a second opinion, and a problem that needs no lecture is counted without Lecture 1 claiming to have opened it`);
 }
+
+// ---- accordion route: the way out, on the surface the reader actually stands on (v115) --------
+// v114 left this as lever 1, open since v108. formulaAccordion carries everything
+// renderFormulaDetail carries -- primer, learning sequence, intuition, dimensions, pitfall,
+// self-check -- except formulaRouteMarkup, and it is by far the more frequent surface: 82 detail
+// pages against 262 accordion instances. So the route out of the Tafelwerk was built exactly where
+// the reader rarely stands, and the accordion's one exit read "Vollstaendig oeffnen" /
+// "Open full explanation": a promise of more explanation that delivers navigation to the same text.
+// This block holds seven things: the inversion of CONCEPTS[].formulas is exact in both directions
+// on every card and in both languages; the concept page the reader stands on is dropped together
+// with its labs and nothing else; the branch that renders no route at all is really reached, so
+// the omission is not an inert check; the three call sites pass the context they should -- a bare
+// .map(formulaAccordion) would hand the array index to omitConceptId -- and all three surfaces
+// bind what they render; the exit label no longer promises explanation, and the second, disagreeing
+// English translation of it is gone from the ui pack; and the figures the source comment states are
+// recomputed here rather than trusted.
+{
+  const arEsc = source.slice(source.indexOf("const esc = value =>"), source.indexOf("\n", source.indexOf("const esc = value =>")));
+  const arRender = runInNewContext(
+    `let currentLanguage = "de";
+     ${arEsc}
+     const byId = (arr,id) => arr.find(x=>x.id===id);
+     const lectureNumber=id=>Number(id.slice(1));
+     const LECTURE_GUIDES = ${JSON.stringify(Object.fromEntries(Object.entries(base.lectureGuides).map(([id, guide]) => [id, { concepts: guide.concepts || [] }])))};
+     const LECTURE_IDS = Object.keys(LECTURE_GUIDES);
+     ${sliceDeclaration(source, "LAB_CONCEPTS")}
+     ${sliceDeclaration(source, "conceptLabs")}
+     ${sliceDeclaration(source, "prerequisiteConceptHome")}
+     ${sliceDeclaration(source, "formulaConcepts")}
+     ${sliceDeclaration(source, "formulaAccordionRoute")}
+     let CONCEPTS = [], LABS = [], MODULES = ${JSON.stringify(base.modules.map(module => ({ id: module.id, concepts: module.concepts || [] })))};
+     ({set:(concepts,labs,language)=>{CONCEPTS=concepts;LABS=labs;currentLanguage=language;},
+       markup:(formula,omit)=>formulaAccordionRoute(formula,omit),
+       home:conceptId=>prerequisiteConceptHome(conceptId).label})`,
+    {});
+
+  // The expectation is rebuilt from the data, not by calling the app's own formulaConcepts: a
+  // shared derivation would move both sides together and prove nothing. Order follows CONCEPTS
+  // for the rows and LABS for the buttons, which is what the two filters preserve.
+  const arLabConcepts = runInNewContext(`${sliceDeclaration(source, "LAB_CONCEPTS")} LAB_CONCEPTS`, {});
+  const arLabsFor = conceptId => base.labs.filter(lab => (arLabConcepts[lab.id] || []).includes(conceptId)).map(lab => lab.id);
+  const arDerivers = formulaId => base.concepts.filter(concept => (concept.formulas || []).includes(formulaId)).map(concept => concept.id);
+
+  const arGermanConcepts = base.concepts, arGermanLabs = base.labs;
+  const arEnglishConcepts = base.concepts.map(concept => ({ ...concept, ...(pack.concepts[concept.id] || {}) }));
+  const arEnglishLabs = base.labs.map(lab => ({ ...lab, ...(pack.labs[lab.id] || {}) }));
+  const arEscape = value => String(value).replace(/[&<>"]/gu, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+  const arFail = message => { throw new Error(`accordion route: ${message}`); };
+
+  let arChecks = 0, arRows = 0, arLabButtons = 0, arOmitted = 0, arSilent = 0;
+
+  // --- 1. every card, both languages, with nothing omitted (Tafelwerk and lecture page) --------
+  for (const formula of base.formulas) {
+    const expectedConcepts = arDerivers(formula.id);
+    if (!expectedConcepts.length) arFail(`${formula.id} reaches no concept at all, so no accordion of it could ever route anywhere`);
+    for (const language of ["de", "en"]) {
+      const concepts = language === "en" ? arEnglishConcepts : arGermanConcepts;
+      const labs = language === "en" ? arEnglishLabs : arGermanLabs;
+      arRender.set(concepts, labs, language);
+      const markup = arRender.markup(formula, "");
+      if (!markup) arFail(`${formula.id}/${language} renders no route at all on the Tafelwerk surface`);
+
+      // Both directions at once: a missing concept and an extra one are the same failure here.
+      const renderedConcepts = [...markup.matchAll(/data-open-concept="([a-z0-9-]+)"/gu)].map(hit => hit[1]);
+      if (JSON.stringify(renderedConcepts) !== JSON.stringify(expectedConcepts))
+        arFail(`${formula.id}/${language} routes to ${JSON.stringify(renderedConcepts)}, expected ${JSON.stringify(expectedConcepts)}`);
+      const expectedLabs = expectedConcepts.flatMap(conceptId => arLabsFor(conceptId));
+      const renderedLabs = [...markup.matchAll(/data-open-lab="([a-z0-9-]+)"/gu)].map(hit => hit[1]);
+      if (JSON.stringify(renderedLabs) !== JSON.stringify(expectedLabs))
+        arFail(`${formula.id}/${language} offers labs ${JSON.stringify(renderedLabs)}, expected ${JSON.stringify(expectedLabs)}`);
+
+      // The place, not the occurrence: the full fragment of each button, with its home badge and
+      // its lab title, so a row that loses its badge or its wording is caught where it stands.
+      for (const conceptId of expectedConcepts) {
+        const concept = concepts.find(entry => entry.id === conceptId);
+        const derived = language === "en" ? "Derived in" : "Hergeleitet in";
+        const fragment = `<button class="button ghost small" data-open-concept="${conceptId}">${derived}: ${arEscape(concept.title)} · ${arEscape(arRender.home(conceptId))}</button>`;
+        if (!markup.includes(fragment)) arFail(`${formula.id}/${language} does not print ${conceptId} as a "${derived}" button next to its home badge`);
+        arRows++;
+        for (const labId of arLabsFor(conceptId)) {
+          const lab = labs.find(entry => entry.id === labId);
+          const label = language === "en" ? "Practise" : "Üben";
+          if (!markup.includes(`<button class="button ghost small" data-open-lab="${labId}">${label}: ${arEscape(lab.title)}</button>`))
+            arFail(`${formula.id}/${language} does not offer ${labId} as a practice button under ${conceptId}`);
+          arLabButtons++;
+        }
+      }
+      // The block must be the accordion's own shape, not the detail page's section: a <section>
+      // with an <h2> inside a <details> body would be a second page heading in a card.
+      if (!markup.startsWith('<div class="accordion-route">')) arFail(`${formula.id}/${language} does not open with the accordion-route block`);
+      if (/<section|<h2|<article/u.test(markup)) arFail(`${formula.id}/${language} renders page furniture (section/h2/article) inside an accordion body`);
+      const heading = language === "en" ? "From reading to doing" : "Vom Lesen zum Können";
+      if (!markup.includes(`<span>${heading}</span>`)) arFail(`${formula.id}/${language} loses its "${heading}" label`);
+
+      if (markup.includes("undefined") || markup.includes("${"))
+        arFail(`${formula.id}/${language} leaves an undefined value or an uninterpolated placeholder on the screen`);
+      for (const tag of ["div", "button", "span"]) {
+        const open = (markup.match(new RegExp(`<${tag}[\\s>]`, "gu")) || []).length;
+        const close = (markup.match(new RegExp(`</${tag}>`, "gu")) || []).length;
+        if (open !== close) arFail(`${formula.id}/${language} leaves ${tag} unbalanced (${open} open, ${close} closed)`);
+      }
+      if (language === "en") {
+        const residue = markup.replace(/<[^>]*>/gu, " ").split(/\s{2,}/u).map(part => part.trim()).filter(part => part && GERMAN_WORDS.test(part));
+        if (residue.length) arFail(`${formula.id}/en still shows German -- ${residue[0].slice(0, 90)}`);
+      }
+      arChecks += 6;
+    }
+  }
+
+  // --- 2. the concept page: the reader's own page is dropped, and only it ----------------------
+  // Walked over the accordions a concept page really renders, which is conceptFormulaIds: with a
+  // lecture home, the intersection with that lecture's curated list; without one, all of them.
+  const arGuides = base.lectureGuides, arIds = Object.keys(arGuides);
+  const arLectureFor = conceptId => arIds.find(id => (arGuides[id].concepts || []).includes(conceptId))
+    || (base.concepts.find(concept => concept.id === conceptId)?.sources || []).find(id => arGuides[id]) || "";
+  const arPageFormulas = concept => {
+    const lectureId = arLectureFor(concept.id);
+    return lectureId ? (concept.formulas || []).filter(id => (arGuides[lectureId].formulas || []).includes(id)) : [...(concept.formulas || [])];
+  };
+  for (const language of ["de", "en"]) {
+    arRender.set(language === "en" ? arEnglishConcepts : arGermanConcepts, language === "en" ? arEnglishLabs : arGermanLabs, language);
+    for (const concept of base.concepts) for (const formulaId of arPageFormulas(concept)) {
+      const formula = base.formulas.find(entry => entry.id === formulaId);
+      if (!formula) arFail(`${concept.id} names ${formulaId}, which is no formula`);
+      const rest = arDerivers(formulaId).filter(id => id !== concept.id);
+      const markup = arRender.markup(formula, concept.id);
+      if (markup.includes(`data-open-concept="${concept.id}"`))
+        arFail(`${formulaId} on the page of ${concept.id} offers a button back to the page the reader is standing on`);
+      if (!rest.length) {
+        if (markup !== "") arFail(`${formulaId} on the page of ${concept.id} renders a route although ${concept.id} is its only deriving concept`);
+        arSilent++;
+      } else {
+        const renderedConcepts = [...markup.matchAll(/data-open-concept="([a-z0-9-]+)"/gu)].map(hit => hit[1]);
+        if (JSON.stringify(renderedConcepts) !== JSON.stringify(rest))
+          arFail(`${formulaId} on the page of ${concept.id} routes to ${JSON.stringify(renderedConcepts)}, expected ${JSON.stringify(rest)}`);
+        // Dropping a row drops its experiments with it, and nobody else's.
+        const renderedLabs = [...markup.matchAll(/data-open-lab="([a-z0-9-]+)"/gu)].map(hit => hit[1]);
+        if (JSON.stringify(renderedLabs) !== JSON.stringify(rest.flatMap(id => arLabsFor(id))))
+          arFail(`${formulaId} on the page of ${concept.id} keeps or loses the wrong practice buttons`);
+        arOmitted++;
+      }
+      arChecks += 2;
+    }
+  }
+  // Both branches have to be reachable, or one of the two readings above is decoration.
+  if (!arSilent) arFail("no accordion is ever silenced by the omission, so the branch that prints no route is inert");
+  if (!arOmitted) arFail("no accordion ever drops one concept and keeps another, so the omission is never shown to be surgical");
+
+  // --- 3. the call sites, and the wiring ------------------------------------------------------
+  // A block the page never renders is invisible; a button the page never binds is worse, because
+  // it looks like a route and does nothing. And .map(formulaAccordion) would pass the array index
+  // as omitConceptId, so every call site has to name what it omits.
+  const arCard = sliceDeclaration(source, "formulaAccordion");
+  if (arCard.includes("formulaAccordionRoute(f,omitConceptId)") === false)
+    arFail("formulaAccordion never calls formulaAccordionRoute, so the route exists but is never rendered");
+  if (!(arCard.indexOf("formulaAccordionRoute(f,omitConceptId)") > arCard.indexOf("Musterlösung anzeigen")))
+    arFail("the route belongs after the self-check, where the reading ends");
+  if (!(arCard.indexOf("formulaAccordionRoute(f,omitConceptId)") < arCard.indexOf("data-copy-latex")))
+    arFail("the route belongs before the card's own actions, not after Copy LaTeX and Save");
+  const arBare = (source.match(/\.map\(formulaAccordion\)/gu) || []).length;
+  if (arBare) arFail(`${arBare} call site(s) still pass formulaAccordion straight to .map, which hands the array index to omitConceptId`);
+  const arCallSites = [
+    ["renderFormulas", 'filteredF.map(f=>formulaAccordion(f))', "the Tafelwerk omits nothing"],
+    ["renderLectureDetail", 'formulas.map(f=>formulaAccordion(f))', "a lecture page omits nothing"],
+    ["renderConceptDetail", '.map(f=>formulaAccordion(f,c.id))', "a concept page omits the page it is"]
+  ];
+  for (const [fn, fragment, why] of arCallSites) {
+    const slice = sliceDeclaration(source, fn);
+    const hits = slice.split(fragment).length - 1;
+    if (hits !== 1) arFail(`${fn} contains ${hits} of the expected call site (${why}), expected exactly 1`);
+    if (!slice.includes("bindOpeners(el)")) arFail(`${fn} never calls bindOpeners, so every route button it renders is inert`);
+    arChecks += 2;
+  }
+
+  // --- 4. the label stopped promising explanation ---------------------------------------------
+  const arLabel = 'data-open-formula="${f.id}">${currentLanguage==="en"?"Open as its own page":"Als eigene Seite öffnen"}';
+  if (!arCard.includes(arLabel)) arFail("the accordion's exit button no longer carries the honest label");
+  for (const gone of ["Open full explanation", "Vollständig öffnen"]) {
+    const hits = (source.match(new RegExp(gone.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "gu")) || [])
+      .length - (source.split("\n").filter(line => line.trim().startsWith("//") && line.includes(gone)).length);
+    if (hits) arFail(`"${gone}" is still rendered somewhere, so the old promise survives`);
+    arChecks++;
+  }
+  // The ui pack carried a second English translation of the same button ("Open full page"), which
+  // could never fire because the ternary already answers in English. It has to be gone, not merely
+  // outvoted -- a stale mapping rewrites whatever German string later happens to match its key.
+  const arUi = pack.ui?.exact && typeof pack.ui.exact === "object" ? pack.ui.exact : (pack.ui || {});
+  for (const key of ["Vollständig öffnen", "Als eigene Seite öffnen"]) {
+    if (Object.hasOwn(arUi, key)) arFail(`the ui pack still translates "${key}", a second opinion next to the ternary in the renderer`);
+    arChecks++;
+  }
+
+  // --- 5. the figures in the source comment, recomputed ---------------------------------------
+  // Prose numerals do not move when the code does, so each one is read back out of the data.
+  const arUses = (lectureId, conceptId) => Boolean(arGuides[lectureId] && (((arGuides[lectureId].concepts || []).includes(conceptId))
+    || (arGuides[lectureId].prereqs || []).some(prereq => prereq.concept === conceptId)));
+  const arTafelwerk = base.formulas.length;
+  const arLecture = arIds.reduce((sum, id) => sum + ((arGuides[id].formulas || []).length), 0);
+  const arConceptDefault = base.concepts.reduce((sum, concept) => sum + arPageFormulas(concept).length, 0);
+  const arConceptMax = base.concepts.reduce((sum, concept) => {
+    const arrivals = [arLectureFor(concept.id), ...arIds.filter(id => arUses(id, concept.id))];
+    return sum + Math.max(...arrivals.map(lectureId => (lectureId
+      ? (concept.formulas || []).filter(id => (arGuides[lectureId].formulas || []).includes(id))
+      : (concept.formulas || [])).length));
+  }, 0);
+  const arTotal = arTafelwerk + arLecture + arConceptDefault, arMax = arTafelwerk + arLecture + arConceptMax;
+  const arComment = source.slice(source.indexOf("// The Tafelwerk's way back out existed only"), source.indexOf("function formulaAccordionRoute"));
+  for (const phrase of [
+    `${arTafelwerk} detail pages`,
+    `${arTotal} accordion instances`,
+    `(${arTafelwerk} Tafelwerk, ${arLecture} across the ${arIds.length} lectures, ${arConceptDefault} on concept pages)`,
+    `${arMax} if every concept page is opened from the lecture that shows it the most formulas`
+  ]) {
+    if (!arComment.includes(phrase)) arFail(`the source comment no longer states "${phrase}", which the data now says`);
+    arChecks++;
+  }
+  if (!(arTotal > arTafelwerk * 3)) arFail("the accordion is no longer the dominant surface, so the whole premise of this block has moved");
+
+  console.log(`accordion route OK: ${arChecks} checks -- the way out now sits on the surface the reader stands on: ${arTotal} accordion instances (${arTafelwerk} Tafelwerk, ${arLecture} across ${arIds.length} lectures, ${arConceptDefault} on concept pages, ${arMax} at the most formula-rich arrival) against ${arTafelwerk} detail pages, where before v115 only the ${arTafelwerk} detail pages carried one; ${arRows} concept buttons and ${arLabButtons} practice buttons read back out of the real markup in both languages with the inversion of CONCEPTS[].formulas checked in both directions per card; on a concept page the reader's own page is dropped with its experiments and nothing else -- ${arOmitted / 2} accordions keep a sibling concept and ${arSilent / 2} fall silent because the page itself is the only deriver, so neither branch is decoration; all three call sites name what they omit rather than handing .map's index to omitConceptId, and all three bind what they render; and the exit label no longer promises an explanation it does not add, with the ui pack's second, unreachable English translation of it removed`);
+}
+
+// ---- formula field fallthrough: the German a missing override leaves on an English card (v115) -
+// Found by rendering the whole formulaAccordion rather than only the fragment this run added.
+// A formula field the English pack does not override falls through to the German value, and the
+// reader sees it. 146 of the 1066 fields have no override, which is normal -- most are equations,
+// category names or numbers that read the same in both languages. Exactly one was not: the `expr`
+// of compression-ratio, the equation the card puts on screen in a display box, carried
+// "Dateigroesse(uint16)" into every English render of the Tafelwerk, its lecture page and its
+// concept page. No guard could see it, because the existing German-residue checks run over the
+// packs and over renderers that never draw `expr`.
+// The rule is the general one rather than the single repair: a field without an override may fall
+// through only if what falls through is free of German. The count of fields without an override is
+// pinned too -- a silent drop of an override is the same bug arriving from the other side.
+{
+  const ffGerman = GERMAN_WORDS;
+  const ffFields = ["cat", "title", "expr", "read", "purpose", "dims", "vars", "intuition", "pitfall", "example", "check", "aliases", "answer"];
+  const ffWalk = value => Array.isArray(value) ? value.flatMap(ffWalk)
+    : (value && typeof value === "object" ? Object.values(value).flatMap(ffWalk)
+      : (typeof value === "string" ? [value] : []));
+  // The field list is the app's own, not a second copy of it: a field added to I18N_FIELDS without
+  // a translation is exactly the case this block exists for, so it may not be invisible here.
+  const ffDeclared = runInNewContext(`${sliceDeclaration(source, "I18N_FIELDS")} I18N_FIELDS.formulas`, {});
+  if (JSON.stringify(ffDeclared) !== JSON.stringify(ffFields))
+    throw new Error(`formula field fallthrough: I18N_FIELDS.formulas is ${JSON.stringify(ffDeclared)}, but this block checks ${JSON.stringify(ffFields)}`);
+
+  let ffPresent = 0, ffMissing = 0, ffChecks = 0;
+  const ffLeaks = [];
+  for (const formula of base.formulas) {
+    const english = pack.formulas[formula.id] || {};
+    for (const field of ffFields) {
+      if (!Object.hasOwn(formula, field)) continue;
+      if (Object.hasOwn(english, field)) { ffPresent++; continue; }
+      ffMissing++;
+      const german = ffWalk(formula[field]).filter(value => ffGerman.test(value));
+      if (german.length) ffLeaks.push(`${formula.id}.${field}: ${german[0].slice(0, 80)}`);
+      ffChecks++;
+    }
+  }
+  if (ffLeaks.length)
+    throw new Error(`formula field fallthrough: ${ffLeaks.length} field(s) with no English override put German on an English card -- ${ffLeaks.slice(0, 3).join(" | ")}`);
+  if (!ffMissing) throw new Error("formula field fallthrough: every field is overridden, so the fallthrough this block guards cannot happen and the check is inert");
+
+  // The repaired card, by name and in both directions: the override exists, it is free of German,
+  // and it keeps the three-space separator the display box is laid out with.
+  const ffExpr = pack.formulas["compression-ratio"]?.expr;
+  if (typeof ffExpr !== "string") throw new Error("formula field fallthrough: compression-ratio has no English expr again");
+  if (ffGerman.test(ffExpr)) throw new Error(`formula field fallthrough: the English expr of compression-ratio is German again -- ${ffExpr}`);
+  const ffGermanExpr = base.formulas.find(formula => formula.id === "compression-ratio").expr;
+  if (!ffGerman.test(ffGermanExpr)) throw new Error("formula field fallthrough: the German expr of compression-ratio no longer contains German, so the repair guards nothing");
+  for (const [label, value] of [["German", ffGermanExpr], ["English", ffExpr]]) {
+    const parts = value.split("   ·   ");
+    if (parts.length !== 3) throw new Error(`formula field fallthrough: the ${label} expr of compression-ratio has ${parts.length} parts, expected 3 separated by exactly three spaces`);
+    ffChecks++;
+  }
+  if (ffGermanExpr.replace(/Dateigröße/u, "file size") !== ffExpr)
+    throw new Error("formula field fallthrough: the two exprs differ by more than the one translated word, so one of them has drifted");
+  ffChecks += 3;
+
+  console.log(`formula field fallthrough OK: ${ffChecks} checks -- of the ${ffPresent + ffMissing} translatable fields on ${base.formulas.length} formula cards, ${ffMissing} have no English override and fall through to the German value; all ${ffMissing} are now free of German, where compression-ratio's expr put "Dateigroesse(uint16)" into the display box of every English render of that card -- a leak no pack or renderer guard could see, because none of them draws expr; the field list is read from the app's own I18N_FIELDS rather than copied, and the repaired equation is held against its German twin word for word and separator for separator`);
+}

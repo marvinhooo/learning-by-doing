@@ -2720,6 +2720,7 @@ window.CS336_EN = Object.freeze({
     "compression-ratio": {
       "cat": "Tokenization",
       "title": "Compression Ratio: Bytes per Token",
+      "expr": "r = num_bytes / num_tokens   ·   num_tokens = num_bytes / r   ·   file size(uint16) / num_bytes = 2 / r",
       "read": "Count the UTF-8 bytes of the text, count the tokens your tokenizer splits it into, and divide the first by the second.",
       "purpose": "Converts between the two units this course counts in: text is measured in bytes, training in tokens. Every statement about data volume, file size, context window, or training budget goes through this one division.",
       "dims": "r has units of bytes per token. With a byte-level tokenizer every token consists of at least one byte, so r ≥ 1; a larger r means a shorter sequence for the same text. S/num_bytes, by contrast, is a pure ratio: below one the token file is smaller than the raw text, above one it is larger.",
@@ -11535,7 +11536,6 @@ window.CS336_EN = Object.freeze({
     "LaTeX kopieren": "Copy LaTeX",
     "★ Gespeichert": "★ Saved",
     "☆ Speichern": "☆ Save",
-    "Vollständig öffnen": "Open full page",
     "Kontext": "Context",
     "Dimension oder Warnung": "Dimension or warning",
     "Ausführlicher erklärt": "Detailed explanation",

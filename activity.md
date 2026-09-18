@@ -914,3 +914,46 @@ Iteration Counter: 1
   Sprachen** headless gerendert (150 Renders), geprueft auf Platzhalter, Tag-Balance und deutsche
   Rueckstaende im englischen Render; der Scanner vorher als sehend belegt (er war es zuerst nicht -
   seine Regex kannte `</h2>` nicht, weil sie Ziffern im Tagnamen ausschloss).
+
+## v115 - 2026-09-18 - der Rueckweg stand dort, wo der Leser selten steht
+
+- **Hebel 1 aus v108-v114 geschlossen.** `formulaAccordion` enthielt alles, was
+  `renderFormulaDetail` enthaelt - Primer, Lernsequenz, Intuition, Dimensionen, Fehlerbild,
+  Selbstcheck - **ausser `formulaRouteMarkup`**, also ausgerechnet den Weg vom Lesen zum Rechnen.
+  Der Rueckweg war damit auf der Flaeche gebaut, auf der der Leser **selten** steht (82
+  Detailseiten), und fehlte auf der, auf der er staendig steht (**262** Akkordeon-Instanzen: 82
+  Tafelwerk, 74 auf 17 Lecture-Seiten, 106 auf Konzeptseiten).
+- **Die Kennzahl aus v114 war falsch.** Dort standen **294** Instanzen; das summierte `c.formulas`
+  direkt, waehrend eine Konzeptseite `conceptFormulaIds(c, lectureId)` rendert - aus einer Lecture
+  heraus **nur die von ihr kuratierten** Formeln - und die `sources`-Rueckfallebene in
+  `lectureForConcept` uebersehen wurde. Gerechnet sind es **262** (267 bei der formelreichsten
+  Ankunft). Richtung unveraendert: die Akkordeon-Flaeche ist **3,2-mal** so gross.
+- `formulaAccordionRoute(f, omitConceptId)` rendert jetzt in jedem Akkordeon nach dem Selbstcheck
+  „Hergeleitet in: &lt;Konzept&gt; · &lt;Heimat&gt;" und „Üben: &lt;Lab&gt;" - dieselbe Umkehrung von
+  `CONCEPTS[].formulas`, die die Detailseite rendert, in der Form, die eine Karte tragen kann
+  (`<div>` statt `<section>`/`<h2>`). **Die Seite, auf der der Leser steht, wird nicht angeboten**:
+  64 Akkordeons behalten ein Geschwisterkonzept, **42 schweigen ganz**, weil die Seite selbst der
+  einzige Herleiter ist.
+- **Das Label war eine Luege.** „Vollstaendig oeffnen" / „Open full explanation" verspricht mehr
+  Erklaerung und liefert Navigation zu demselben Text - ein Leser mit offener Karte hat damit einen
+  aktiven Grund, ihn *nicht* zu druecken. Jetzt „Als eigene Seite oeffnen" / „Open as its own page".
+  Im `ui`-Paket lag dazu eine **zweite, abweichende** englische Uebersetzung („Open full page"), die
+  nie feuern konnte, weil die Ternaerform schon englisch antwortet; sie ist entfernt.
+- **Drei Aufrufstellen haetten den Array-Index uebergeben.** `.map(formulaAccordion)` reicht
+  `(element, index, array)` durch - der Index waere als `omitConceptId` angekommen. Alle drei sagen
+  jetzt, was sie auslassen; ein Guard verbietet die nackte Form.
+- **Der Render-Sweep fand einen Fehler, den kein Guard sehen konnte.** `compression-ratio.expr` -
+  die **angezeigte Gleichung** - hatte keine englische Fassung und fiel auf den deutschen Wert
+  zurueck: jeder englische Leser sah `Dateigroesse(uint16) / num_bytes = 2 / r` im Anzeigekasten.
+  Unsichtbar, weil die Rueckstandspruefungen ueber die Pakete und ueber Renderer laufen, die `expr`
+  nie zeichnen. Von 82 Karten x 13 Feldern haben **145 Felder keine englische Fassung**, und genau
+  **eines** trug Deutsch. Nur `expr` (70) und `aliases` (75) koennen ueberhaupt durchfallen.
+- Guard-Suite **67 -> 69 Bloecke gruen**: `accordion route` (**1422 Checks**) und
+  `formula field fallthrough` (**150 Checks**). Cache-Bump auf **v95** (4 Stellen).
+- **Mutationstest gegen die Schlankfassung:** `accordion route` **32/32 gefangen, 0 entkommen,
+  0 inert**; `formula field fallthrough` **8 von 9 gefangen, 0 entkommen, 1 inert mit gemessenem
+  Grund** (eine deutsche `cat` erreicht keinen Leser, weil `cat` auf jeder Karte uebersetzt ist).
+- **Kein Browsertest** - in geplanten Laeufen gesperrt. Ersatz: **440 Renders des vollstaendigen
+  Akkordeons** in DE und EN (82 Karten x beide Sprachen x jede Auslassung), geprueft auf Tag-Balance
+  ueber neun Tags, Platzhalter, `<details>`-Gestalt und die Position des Rueckwegs vor den
+  Aktionen - **0 Probleme**, mit dem Scanner vorher als sehend belegt.
