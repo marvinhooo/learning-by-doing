@@ -14944,3 +14944,296 @@ console.log(`ffn-backward OK: ${fbValues} values, all four gradients match A2's 
 
   console.log(`formula field fallthrough OK: ${ffChecks} checks -- of the ${ffPresent + ffMissing} translatable fields on ${base.formulas.length} formula cards, ${ffMissing} have no English override and fall through to the German value; all ${ffMissing} are now free of German, where compression-ratio's expr put "Dateigroesse(uint16)" into the display box of every English render of that card -- a leak no pack or renderer guard could see, because none of them draws expr; the field list is read from the app's own I18N_FIELDS rather than copied, and the repaired equation is held against its German twin word for word and separator for separator`);
 }
+
+// ---- late concepts: what the assignment needs before the course teaches it (v116) -------------
+// v115 left this as lever 1. The assignment page opens with "no hidden prerequisites" and carries
+// two sections that make good on it: the hand-written prerequisites, and assignmentSelfStudyConcepts
+// -- "what this assignment needs but no lecture hands you". That second one tests "taught by no
+// lecture at all", so it is blind to the other way the path fails a reader: a concept a lecture
+// does teach, long after the assignment that turns on it. A1 is the whole of that case. Its own
+// preparation ends at Lecture 3, while schedules is at home in Lecture 11 and benchmark-validity
+// and perplexity-eval in Lecture 12 -- and 10 of A1s 38 problems, 18 points, hang on those three.
+// This block holds six things: the selection rule is recomputed from the data rather than trusted,
+// in both directions, so neither a missing nor an extra concept passes; the three sets a deciding
+// concept can fall into -- in time, taught too late, taught by nobody -- are proved to partition
+// every deciding concept of every assignment, which is the real claim that the page no longer has
+// a silent category; the counts, points and distances are read back out of the rendered markup in
+// both languages instead of off the data; every branch is measured as reached, so no check is
+// decoration; the call site renders it and the binder binds what it renders; and the figures the
+// source comment states are recomputed here.
+{
+  const lcFail = message => { throw new Error(`late concepts: ${message}`); };
+  const lcEscape = value => String(value).replace(/[&<>"]/gu, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+  const lcEsc = source.slice(source.indexOf("const esc = value =>"), source.indexOf("\n", source.indexOf("const esc = value =>")));
+  const lcNames = ["CONCEPTS", "LECTURE_GUIDES", "ASSIGNMENTS", "HANDOUT_PROBLEMS", "PROBLEM_CONCEPTS", "LABS", "LAB_CONCEPTS", "MODULES"];
+  const lcFns = ["missionProblems", "problemDecidingConcepts", "conceptLabs", "assignmentLateConcepts", "assignmentLateMarkup", "assignmentSelfStudyConcepts"];
+  const lcRender = runInNewContext(
+    `let currentLanguage = "de";
+     ${lcEsc}
+     const byId = (arr,id) => arr.find(x=>x.id===id);
+     const lectureNumber = id => Number(id.slice(1));
+     ${lcNames.map(name => sliceDeclaration(source, name)).join("\n").replace("const CONCEPTS", "let CONCEPTS").replace("const LABS", "let LABS")}
+     const LECTURE_IDS = Object.keys(LECTURE_GUIDES);
+     ${lcFns.map(name => sliceDeclaration(source, name)).join("\n")}
+     ({germanConcepts:CONCEPTS, germanLabs:LABS, assignments:ASSIGNMENTS,
+       set:(concepts,labs,language)=>{CONCEPTS=concepts;LABS=labs;currentLanguage=language;},
+       late:a=>assignmentLateConcepts(a), markup:a=>assignmentLateMarkup(a),
+       selfStudy:a=>assignmentSelfStudyConcepts(a).map(entry=>entry.concept.id)})`,
+    {});
+  const lcEnglishConcepts = lcRender.germanConcepts.map(concept => ({ ...concept, ...(pack.concepts[concept.id] || {}) }));
+  const lcEnglishLabs = lcRender.germanLabs.map(lab => ({ ...lab, ...(pack.labs[lab.id] || {}) }));
+
+  // The expectation is rebuilt straight from the constants. Calling the app's own derivation here
+  // would move both sides together and prove nothing.
+  const lcLectureIds = Object.keys(base.lectureGuides);
+  const lcConceptHome = conceptId => lcLectureIds.find(id => (base.lectureGuides[id].concepts || []).includes(conceptId)) || "";
+  const lcLabHome = labId => lcLectureIds.find(id => (base.lectureGuides[id].labs || []).includes(labId)) || "";
+  const lcLabConcepts = runInNewContext(`${sliceDeclaration(source, "LAB_CONCEPTS")} LAB_CONCEPTS`, {});
+  const lcProblems = readConstant("HANDOUT_PROBLEMS");
+  const lcProblemConcepts = readConstant("PROBLEM_CONCEPTS");
+  const lcScope = (assignmentId, scope) => String(scope || "").split("·").map(part => part.trim()).filter(Boolean)
+    .map(id => ({ id, points: (lcProblems[`${assignmentId}:${id}`] || [0])[0] }));
+  const lcDeciding = (assignmentId, problemId, mission) => {
+    const named = lcProblemConcepts[`${assignmentId}:${problemId}`];
+    return named && named.length ? named : (mission.concepts || []);
+  };
+  // Every deciding concept of an assignment, sorted into the three fates a reader can meet.
+  const lcFoundations = new Set((base.modules.find(module => module.id === "foundations") || {}).concepts || []);
+  const lcSort = assignment => {
+    const border = Math.max(...(assignment.sources || []).map(id => lcLectureIds.indexOf(id)).filter(index => index >= 0), -Infinity);
+    const inTime = new Set(), late = new Map(), untaught = new Set(), moduleZero = new Set();
+    (assignment.missions || []).forEach(mission => lcScope(assignment.id, mission.scope).forEach(problem =>
+      lcDeciding(assignment.id, problem.id, mission).forEach(conceptId => {
+        // Order matters and mirrors the app: Module 00 is read before Lecture 1, so it wins over a
+        // lecture home however late that home is.
+        if (lcFoundations.has(conceptId)) { moduleZero.add(conceptId); return; }
+        const home = lcConceptHome(conceptId);
+        if (!home) { untaught.add(conceptId); return; }
+        if (lcLectureIds.indexOf(home) <= border) { inTime.add(conceptId); return; }
+        if (!late.has(conceptId)) late.set(conceptId, { home, problems: new Map() });
+        late.get(conceptId).problems.set(problem.id, problem.points);
+      })));
+    return { border, inTime, late, untaught, moduleZero };
+  };
+
+  // The measured reason the Module 00 clause cannot fire today, rather than a claim that it cannot.
+  const lcModuleZeroWithHome = [...lcFoundations].filter(conceptId => lcConceptHome(conceptId));
+  if (lcModuleZeroWithHome.some(conceptId => lcConceptHome(conceptId) !== "l02"))
+    lcFail("a Module 00 concept is now at home outside Lecture 2, so the clause may fire and needs a branch of its own rather than the agreement check");
+  let lcChecks = 0, lcRendered = 0, lcSilent = 0, lcWithLabs = 0, lcWithoutLabs = 0, lcSingular = 0, lcPlural = 0;
+  let lcTotalConcepts = 0, lcTotalProblems = 0, lcTotalPoints = 0, lcMaxDistance = 0;
+
+  for (const assignment of base.assignments) {
+    const expected = lcSort(assignment);
+    const actual = lcRender.late(assignment);
+
+    // --- 1. the selection rule, in both directions ------------------------------------------
+    const actualIds = actual.map(entry => entry.concept.id);
+    const expectedIds = [...expected.late.keys()].sort((x, y) => lcLectureIds.indexOf(expected.late.get(x).home) - lcLectureIds.indexOf(expected.late.get(y).home));
+    for (const conceptId of expectedIds) if (!actualIds.includes(conceptId))
+      lcFail(`${assignment.label} drops ${conceptId}, which is at home in ${expected.late.get(conceptId).home} and decides a problem here`);
+    for (const conceptId of actualIds) if (!expected.late.has(conceptId))
+      lcFail(`${assignment.label} names ${conceptId} as taught late although the data does not make it late`);
+    if (actualIds.length !== expectedIds.length) lcFail(`${assignment.label} lists ${actualIds.length} concepts against ${expectedIds.length} derived`);
+    // Sorted by arrival, so the nearest lecture is read first.
+    for (let index = 1; index < actual.length; index++)
+      if (lcLectureIds.indexOf(actual[index - 1].lectureId) > lcLectureIds.indexOf(actual[index].lectureId))
+        lcFail(`${assignment.label} lists ${actual[index].concept.id} after a concept that arrives later`);
+    lcChecks += expectedIds.length + actualIds.length + 2;
+
+    // --- 2. the four fates partition every deciding concept ---------------------------------
+    // This is the claim the page now makes good on: a concept a problem turns on is covered in
+    // time by a lecture, or handed over by Module 00, or named by this section, or named by the
+    // self-study section. There is no fifth, silent case -- which is exactly what was wrong
+    // before this block existed, when a concept taught too late fell through all of them.
+    const lcSelfStudy = new Set(lcRender.selfStudy(assignment));
+    const lcAllDeciding = new Set([...expected.inTime, ...expected.late.keys(), ...expected.untaught, ...expected.moduleZero]);
+    for (const conceptId of expected.untaught) if (!lcSelfStudy.has(conceptId))
+      lcFail(`${assignment.label}: ${conceptId} is taught by no lecture and by no module, and named by neither section`);
+    for (const conceptId of expected.late.keys()) {
+      if (lcSelfStudy.has(conceptId)) lcFail(`${assignment.label}: ${conceptId} is claimed by both sections at once`);
+      if (expected.inTime.has(conceptId) || expected.moduleZero.has(conceptId) || expected.untaught.has(conceptId))
+        lcFail(`${assignment.label}: ${conceptId} falls into two fates at once`);
+    }
+    // The buckets really are disjoint and really do cover everything the problems name.
+    const lcSizes = expected.inTime.size + expected.late.size + expected.untaught.size + expected.moduleZero.size;
+    if (lcSizes !== lcAllDeciding.size)
+      lcFail(`${assignment.label}: the four fates overlap -- ${lcSizes} entries across ${lcAllDeciding.size} distinct concepts`);
+    const lcNamed = new Set();
+    (assignment.missions || []).forEach(mission => lcScope(assignment.id, mission.scope).forEach(problem =>
+      lcDeciding(assignment.id, problem.id, mission).forEach(conceptId => lcNamed.add(conceptId))));
+    for (const conceptId of lcNamed) if (!lcAllDeciding.has(conceptId))
+      lcFail(`${assignment.label}: ${conceptId} decides a problem and lands in no fate at all`);
+    // Agreement with the other surface: the lecture outlook seeds Module 00 as covered from the
+    // start, so a concept it never waits for must not be sold here as arriving late.
+    for (const conceptId of expected.late.keys()) if (lcFoundations.has(conceptId))
+      lcFail(`${assignment.label}: ${conceptId} is a Module 00 concept, which lectureProblemOutlook counts as covered before Lecture 1 -- the two surfaces would contradict each other`);
+    lcChecks += expected.untaught.size + expected.late.size * 3 + lcNamed.size + 1;
+
+    // --- 3. both languages, read back out of the rendered markup ----------------------------
+    for (const language of ["de", "en"]) {
+      lcRender.set(language === "en" ? lcEnglishConcepts : lcRender.germanConcepts, language === "en" ? lcEnglishLabs : lcRender.germanLabs, language);
+      const markup = lcRender.markup(assignment);
+      if (!expectedIds.length) {
+        if (markup) lcFail(`${assignment.label}/${language} renders a section although no concept of it arrives late`);
+        if (language === "de") lcSilent++;
+        lcChecks++;
+        continue;
+      }
+      if (!markup) lcFail(`${assignment.label}/${language} renders nothing although ${expectedIds.length} concepts arrive late`);
+      if (language === "de") lcRendered++;
+
+      const renderedConcepts = [...markup.matchAll(/data-open-concept="([a-z0-9-]+)"/gu)].map(hit => hit[1]);
+      if (JSON.stringify(renderedConcepts) !== JSON.stringify(expectedIds))
+        lcFail(`${assignment.label}/${language} renders [${renderedConcepts}] where the data derives [${expectedIds}]`);
+
+      // Every number on the page against the data: distance, problem count, points, and the ids.
+      const distinct = new Map();
+      for (const conceptId of expectedIds) {
+        const entry = expected.late.get(conceptId);
+        entry.problems.forEach((points, id) => distinct.set(id, points));
+        const distance = lcLectureIds.indexOf(entry.home) - expected.border;
+        const points = [...entry.problems.values()].reduce((sum, value) => sum + value, 0);
+        const ids = [...entry.problems.keys()].join(" · ");
+        const badge = `<span class="badge">Lecture ${Number(entry.home.slice(1))}</span>`;
+        if (!markup.includes(badge)) lcFail(`${assignment.label}/${language}: ${conceptId} does not carry the badge of its arrival lecture ${entry.home}`);
+        const meta = language === "en"
+          ? `${distance} ${distance === 1 ? "lecture" : "lectures"} past Lecture ${Number(lcLectureIds[expected.border].slice(1))} · decides ${entry.problems.size} ${entry.problems.size === 1 ? "problem" : "problems"} · ${points} ${points === 1 ? "point" : "points"}: ${ids}`
+          : `${distance} ${distance === 1 ? "Lecture" : "Lectures"} nach Lecture ${Number(lcLectureIds[expected.border].slice(1))} · entscheidet ${entry.problems.size} ${entry.problems.size === 1 ? "Problem" : "Probleme"} · ${points} ${points === 1 ? "Punkt" : "Punkte"}: ${ids}`;
+        if (!markup.includes(meta)) lcFail(`${assignment.label}/${language}: ${conceptId} does not state "${meta}" -- the rendered line disagrees with the data`);
+        if (language === "de") { lcMaxDistance = Math.max(lcMaxDistance, distance); lcTotalConcepts++; }
+        lcChecks += 2;
+
+        // The practice buttons: only labs a reader can already have met, and the honest note when
+        // there are none. Both branches have to be reached or one of them is decoration.
+        const reachable = (lcRender.germanLabs.filter(lab => (lcLabConcepts[lab.id] || []).includes(conceptId)))
+          .filter(lab => { const home = lcLabHome(lab.id); return !home || lcLectureIds.indexOf(home) <= expected.border; }).map(lab => lab.id);
+        const later = (lcRender.germanLabs.filter(lab => (lcLabConcepts[lab.id] || []).includes(conceptId)))
+          .filter(lab => { const home = lcLabHome(lab.id); return home && lcLectureIds.indexOf(home) > expected.border; }).map(lab => lab.id);
+        for (const labId of reachable) if (!markup.includes(`data-open-lab="${labId}"`))
+          lcFail(`${assignment.label}/${language}: ${conceptId} does not offer ${labId}, a lab already reachable at ${lcLectureIds[expected.border]}`);
+        for (const labId of later) if (markup.includes(`data-open-lab="${labId}"`))
+          lcFail(`${assignment.label}/${language}: ${conceptId} offers ${labId} as practice although it sits on ${lcLabHome(labId)}, past the border`);
+        if (!reachable.length && later.length) {
+          const note = language === "en"
+            ? (later.length === 1 ? "The only experiment for this concept sits past the same border" : `All ${later.length} experiments for this concept sit past the same border`)
+            : (later.length === 1 ? "Das einzige Experiment zu diesem Konzept liegt selbst hinter derselben Grenze" : `Alle ${later.length} Experimente zu diesem Konzept liegen selbst hinter derselben Grenze`);
+          if (!markup.includes(note)) lcFail(`${assignment.label}/${language}: ${conceptId} offers no practice and does not say why -- expected "${note}"`);
+          if (language === "de") { lcWithoutLabs++; if (later.length === 1) lcSingular++; else lcPlural++; }
+        } else if (language === "de" && reachable.length) lcWithLabs++;
+        lcChecks += reachable.length + later.length + 1;
+      }
+
+      // --- 4. the totals, counted once across concepts that share a problem -----------------
+      const allProblems = (assignment.missions || []).reduce((sum, mission) => sum + lcScope(assignment.id, mission.scope).length, 0);
+      const points = [...distinct.values()].reduce((sum, value) => sum + value, 0);
+      const total = language === "en"
+        ? `${expectedIds.length} ${expectedIds.length === 1 ? "concept" : "concepts"} · ${distinct.size} ${distinct.size === 1 ? "problem" : "problems"} · ${points} points`
+        : `${expectedIds.length} ${expectedIds.length === 1 ? "Konzept" : "Konzepte"} · ${distinct.size} ${distinct.size === 1 ? "Problem" : "Probleme"} · ${points} Punkte`;
+      if (!markup.includes(`<p class="problem-total">${total}</p>`))
+        lcFail(`${assignment.label}/${language} does not state the total "${total}"`);
+      // leaderboard is decided by two of the three concepts; counting per concept would say 12.
+      const naive = expectedIds.reduce((sum, conceptId) => sum + expected.late.get(conceptId).problems.size, 0);
+      if (naive === distinct.size && expectedIds.length > 1)
+        lcFail(`${assignment.label}: no problem is shared between two late concepts any more, so the deduplication in the total is inert`);
+      const lede = language === "en" ? `${distinct.size} of the ${allProblems} problems here, ${points} points` : `${distinct.size} der ${allProblems} Probleme daran hängen, ${points} Punkte`;
+      if (!markup.includes(lede)) lcFail(`${assignment.label}/${language} does not put the share in the lede -- expected "${lede}"`);
+      if (language === "de") { lcTotalProblems += distinct.size; lcTotalPoints += points; }
+      lcChecks += 3;
+    }
+  }
+
+  // --- 4a. no German reaches the English render, and no English the German -------------------
+  // A list of forbidden words only ever catches the spellings someone thought of; the first draft
+  // of this block held nine German words and stayed silent when the whole eyebrow was switched to
+  // German, because none of the nine appeared in it. So the invariant is turned around and counted:
+  // every word-bearing text segment of the two renders must differ, and the ones that legitimately
+  // do not are derived rather than listed -- the badge, which reads "Lecture n" in both languages
+  // by design, and any concept title the English pack leaves identical to the German one.
+  // The boundary of this model, measured rather than assumed: it compares whole text segments, so
+  // it catches a branch of a ternary swapped for its twin -- the realistic edit, since each branch
+  // here is one contiguous literal -- and it does not catch an English half-sentence spliced into
+  // the middle of a longer German literal. Nothing else guards these inline strings; they are not
+  // in the pack, so the pack residue passes never look at them.
+  for (const assignment of base.assignments) {
+    const segments = language => {
+      lcRender.set(language === "en" ? lcEnglishConcepts : lcRender.germanConcepts, language === "en" ? lcEnglishLabs : lcRender.germanLabs, language);
+      const markup = lcRender.markup(assignment);
+      return markup ? markup.split(/<[^>]*>/u).map(part => part.trim()).filter(part => part.length > 3 && /\s/u.test(part)) : [];
+    };
+    const lcGermanText = segments("de"), lcEnglishText = segments("en");
+    if (!lcGermanText.length) continue;
+    if (lcGermanText.length !== lcEnglishText.length)
+      lcFail(`${assignment.label}: the two renders carry ${lcGermanText.length} and ${lcEnglishText.length} text segments, so they are not the same page in two languages`);
+    const allowed = new Set();
+    for (const entry of lcRender.late(assignment)) {
+      allowed.add(`Lecture ${Number(entry.lectureId.slice(1))}`);
+      const english = (pack.concepts[entry.concept.id] || {}).title;
+      const german = lcRender.germanConcepts.find(concept => concept.id === entry.concept.id).title;
+      if (english === undefined || english === german) allowed.add(lcEscape(german));
+    }
+    const shared = [...new Set(lcGermanText.filter(part => lcEnglishText.includes(part)))];
+    for (const part of shared) if (!allowed.has(part))
+      lcFail(`${assignment.label}: "${part.slice(0, 80)}" is word for word the same in both renders, so one language is showing the other language`);
+    // And the allowance is not a blanket: every segment it covers really is in both renders.
+    for (const part of allowed) if (lcGermanText.includes(part) !== lcEnglishText.includes(part))
+      lcFail(`${assignment.label}: "${part}" is allowed to be identical but appears in only one render`);
+    lcChecks += shared.length + allowed.size + 1;
+  }
+
+  // --- 4b. the deduplication, and the measured reason it cannot fire yet ---------------------
+  // A problem listed under two topic blocks must be counted once. Course-wide exactly one problem
+  // is listed twice -- A3 scaling_laws, under three blocks -- and A3 has no late concept at all,
+  // so no mutation of the dedup can change a rendered figure today. That is a fact about the data,
+  // not a hole: if a multiply-listed problem ever lands in a late set, the meta line read back from
+  // the markup counts it once and a double count fails there. This pins the reason so the day it
+  // changes is noticed.
+  const lcMultiListed = [];
+  for (const assignment of base.assignments) {
+    const seen = new Map();
+    (assignment.missions || []).forEach((mission, index) => lcScope(assignment.id, mission.scope)
+      .forEach(problem => seen.set(problem.id, [...(seen.get(problem.id) || []), index])));
+    [...seen].filter(([, blocks]) => blocks.length > 1).forEach(([id]) => lcMultiListed.push(`${assignment.id}:${id}`));
+  }
+  for (const assignment of base.assignments) {
+    const late = lcSort(assignment).late;
+    for (const entry of late.values()) for (const id of entry.problems.keys())
+      if (lcMultiListed.includes(`${assignment.id}:${id}`))
+        lcFail(`${assignment.label}: ${id} is listed under several topic blocks and now lands in a late set, so the deduplication became live -- give it a branch of its own here`);
+  }
+  lcChecks += lcMultiListed.length + base.assignments.length;
+
+  // --- 5. every branch reached, or the checks above are decoration ---------------------------
+  if (!lcRendered) lcFail("no assignment renders the section, so every check above is decoration");
+  if (!lcSilent) lcFail("every assignment renders the section, so the silent branch is never reached and untested");
+  if (!lcWithLabs) lcFail("no late concept offers a reachable lab, so the practice branch is never reached");
+  if (!lcWithoutLabs) lcFail("every late concept offers a lab, so the note that explains an empty strip is never reached");
+  if (!lcSingular || !lcPlural) lcFail(`the note is only ever rendered in one grammatical number (${lcSingular} singular, ${lcPlural} plural), so the other form is untested`);
+
+  // --- 6. the call site renders it, and the binder binds what it renders ---------------------
+  const lcDetail = sliceDeclaration(source, "renderAssignmentDetail");
+  if (!lcDetail.includes("${assignmentLateMarkup(a)}"))
+    lcFail("renderAssignmentDetail never calls assignmentLateMarkup, so the section exists but no reader ever sees it");
+  if (!(lcDetail.indexOf("${assignmentLateMarkup(a)}") > lcDetail.indexOf("${assignmentSelfStudyMarkup(a)}")))
+    lcFail("the late-concept section is rendered before the self-study section it extends");
+  if (!(lcDetail.indexOf("${assignmentLateMarkup(a)}") < lcDetail.indexOf("Themenblöcke aus dem Original-Handout")))
+    lcFail("the late-concept section is rendered after the topic blocks, so the reader meets the problems before the warning");
+  const lcBinders = sliceDeclaration(source, "bindOpeners");
+  for (const attribute of ["data-open-concept", "data-open-lab"])
+    if (!lcBinders.includes(`[${attribute}]`)) lcFail(`bindOpeners does not bind [${attribute}], so the buttons of this section are dead`);
+  if (!lcDetail.includes("bindOpeners(el)")) lcFail("renderAssignmentDetail does not call bindOpeners, so its buttons are dead");
+  lcChecks += 6;
+
+  // --- 7. the figures the source comment states ----------------------------------------------
+  const lcComment = source.slice(source.indexOf("// assignmentSelfStudyConcepts above answers"), source.indexOf("function assignmentLateConcepts"));
+  for (const [claim, value] of [["Lecture 3", 3], ["Lecture 11", 11], ["Lecture 12", 12]])
+    if (!lcComment.includes(claim)) lcFail(`the source comment no longer names ${claim}`);
+  if (!lcComment.includes(`Ten of A1s ${base.assignments.find(a => a.id === "a1").missions.reduce((sum, m) => sum + lcScope("a1", m.scope).length, 0)} problems`))
+    lcFail("the source comment states a problem total for A1 that the data no longer gives");
+  if (lcTotalProblems !== 10 || lcTotalPoints !== 18 || lcTotalConcepts !== 3)
+    lcFail(`the source comment claims 3 concepts, 10 problems and 18 points; the data now gives ${lcTotalConcepts}, ${lcTotalProblems} and ${lcTotalPoints}`);
+  if (!lcComment.includes("18 points")) lcFail("the source comment no longer states the 18 points");
+  lcChecks += 6;
+
+  console.log(`late concepts OK: ${lcChecks} checks -- the assignment page promised "no hidden prerequisites" and hid the ${lcTotalConcepts} concepts with the longest wait: assignmentSelfStudyConcepts asks "does any lecture teach this", so a concept taught ${lcMaxDistance} lectures too late passed it unnoticed. Of the ${base.assignments.length} assignments exactly ${lcRendered} renders the new section and ${lcSilent} stay silent, because A1 alone ends its own preparation before some of its concepts are taught -- ${lcTotalConcepts} of them, deciding ${lcTotalProblems} problems and ${lcTotalPoints} points. The selection is recomputed from LECTURE_GUIDES and the problem table in both directions, and the four fates a deciding concept can meet -- covered in time by a lecture, handed over by Module 00, taught too late, taught by nobody -- are proved disjoint and proved to cover every deciding concept of every assignment, so no silent fifth case is left; every distance, count, point total and problem id is read back out of the rendered markup in both languages rather than off the data; the shared problem that makes the total ${lcTotalProblems} instead of ${lcTotalProblems + 2} is proved to still be shared; ${lcWithLabs} concept offers ${lcWithLabs === 1 ? "labs" : "labs"} the reader can already have met and ${lcWithoutLabs} say instead that all of theirs sit past the same border, in both grammatical numbers; the Module 00 clause that keeps this surface agreeing with lectureProblemOutlook is currently unexercised for a measured reason -- all ${lcModuleZeroWithHome.length} foundations concepts that also have a lecture home are at home in Lecture 2, at or before the border of every assignment -- so it is held by the agreement check rather than by a branch; the deduplication of a problem listed under several topic blocks is unexercised for its own measured reason -- ${lcMultiListed.length} problem in the whole course is listed twice, A3 scaling_laws under three blocks, and A3 has no late concept -- and the day one lands in a late set the guard says so; no word-bearing segment of the German render survives into the English one except the badge and a concept title the English pack leaves unchanged, which is counted rather than matched against a word list that only knows the spellings someone thought of; and the call site renders it between the section it extends and the problems it warns about, with a binder that binds it`);
+}
