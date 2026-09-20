@@ -875,7 +875,7 @@
       *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
     }
   </style>
-  <script src="i18n-en.js?v=96"></script>
+  <script src="i18n-en.js?v=97"></script>
   <script src="config.js"></script>
   <script src="vendor/supabase.js"></script>
 </head>
@@ -6924,6 +6924,45 @@
       });
       return{opened,totals,waiting,missing:missing.map(conceptId=>byId(CONCEPTS,conceptId)).filter(Boolean)};
     }
+    // The totals strip above prints "A1 28/38" and then stands still for 9 lectures, because the
+    // outlook only ever names a concept when a problem hangs on exactly one and this lecture teaches
+    // another of its deciding concepts -- incidental cover. 5 of those 9 pages say nothing at
+    // all about it. Past an assignment's own preparation border, though, every problem still closed is closed
+    // by a concept the course teaches later: assignmentLateConcepts names that set on the assignment
+    // page, and reusing it here rather than deriving it again is what keeps the two surfaces from
+    // drifting apart. Only concepts still ahead of the reader count, so the strip shrinks as they
+    // arrive instead of repeating the assignment page's fixed total.
+    function lectureLateAssignments(lectureId){
+      const index=LECTURE_IDS.indexOf(lectureId);
+      return ASSIGNMENTS.map(assignment=>{
+        const sourceIndices=(assignment.sources||[]).map(id=>LECTURE_IDS.indexOf(id)).filter(value=>value>=0);
+        if(!sourceIndices.length||Math.max(...sourceIndices)>index)return null;
+        const pending=assignmentLateConcepts(assignment).filter(entry=>LECTURE_IDS.indexOf(entry.lectureId)>index);
+        if(!pending.length)return null;
+        const problems=new Map();
+        pending.forEach(entry=>entry.problems.forEach(problem=>problems.set(problem.id,problem)));
+        const list=[...problems.values()];
+        return{assignment,concepts:pending,problems:list,
+          points:list.reduce((sum,problem)=>sum+problem.points,0),
+          arrivals:[...new Set(pending.map(entry=>entry.lectureId))]};
+      }).filter(Boolean);
+    }
+    function lectureLateAssignmentsMarkup(lectureId){
+      const groups=lectureLateAssignments(lectureId),english=currentLanguage==="en";
+      if(!groups.length)return "";
+      const rows=groups.map(group=>{
+        const total=(group.assignment.missions||[]).reduce((sum,mission)=>sum+missionProblems(group.assignment.id,mission.scope).length,0);
+        const arrivals=group.arrivals.map(id=>`Lecture ${lectureNumber(id)}`);
+        const where=arrivals.length===1?arrivals[0]:`${arrivals.slice(0,-1).join(", ")} ${english?"and":"und"} ${arrivals[arrivals.length-1]}`;
+        const headline=english
+          ?`${group.problems.length} of the ${total} problems here, ${group.points} ${group.points===1?"point":"points"}, turn on ${group.concepts.length} ${group.concepts.length===1?"concept":"concepts"} the course teaches only in ${where}.`
+          :`${group.problems.length} der ${total} Probleme dort, ${group.points} ${group.points===1?"Punkt":"Punkte"}, hängen an ${group.concepts.length} ${group.concepts.length===1?"Konzept":"Konzepten"}, die der Kurs erst in ${where} lehrt.`;
+        const buttons=group.concepts.map(entry=>`<button class="button ghost small" data-open-concept="${entry.concept.id}">${esc(entry.concept.title)} · Lecture ${lectureNumber(entry.lectureId)}</button>`).join("");
+        const ids=group.problems.map(problem=>problem.id).join(" · ");
+        return `<article class="compact-row"><span class="compact-row-head"><span class="compact-row-title">${esc(group.assignment.label)} · ${esc(group.assignment.title)}</span><span class="badge">${group.problems.length} ${english?(group.problems.length===1?"problem":"problems"):(group.problems.length===1?"Problem":"Probleme")}</span></span><span class="compact-row-summary">${esc(headline)}</span><span class="compact-row-meta" data-no-i18n>${esc(ids)}</span><div class="accordion-actions" style="margin-top:.5rem">${buttons}</div></article>`;
+      }).join("");
+      return `<p class="small muted" style="margin:1rem 0 0">${english?`And why ${groups.length===1?"one of those counts is":"some of those counts are"} not moving: this lecture is the last one ${groups.length===1?"that assignment names":"those assignments name"} as ${groups.length===1?"its":"their"} preparation, so what is still closed there will not be opened by the path ahead of you either — it waits on material the course teaches later. The concept pages below are the shorter road; each one stands on its own, and the handout hands some of this material forward itself. Orientation for reading order only — never a gate, a deadline, or a claim about what you are ready for.`:`Und warum ${groups.length===1?"eine dieser Zahlen stehen bleibt":"einige dieser Zahlen stehen bleiben"}: Diese Lecture ist die letzte, die ${groups.length===1?"das Assignment":"diese Assignments"} als ${groups.length===1?"seine":"ihre"} Vorbereitung ${groups.length===1?"nennt":"nennen"} – was dort noch zu ist, öffnet also auch der Pfad vor dir nicht mehr, sondern wartet auf Stoff, den der Kurs später lehrt. Die Konzeptseiten unten sind der kürzere Weg; jede steht für sich, und das Handout reicht einen Teil davon selbst nach vorn. Nur Orientierung für die Lesereihenfolge – kein Gate, kein Termin und keine Aussage darüber, ob du so weit bist.`}</p><div class="collection-list" style="margin-top:.5rem">${rows}</div>`;
+    }
     function lectureProblemOutlookMarkup(lectureId){
       const outlook=lectureProblemOutlook(lectureId),english=currentLanguage==="en";
       const groups=outlook.opened.map(group=>{
@@ -6938,8 +6977,9 @@
       const openedBlock=groups?`<p class="eyebrow">${english?"Newly approachable after this lecture":"Neu angehbar nach dieser Lecture"}</p>${groups}`:`<div class="callout">${english?"This lecture opens no problem on its own. It deepens material that earlier lectures already covered, or that the course uses without a problem attached to it.":"Diese Lecture öffnet für sich kein Problem. Sie vertieft Stoff, den frühere Lectures schon abgedeckt haben oder den der Kurs ohne zugehöriges Problem nutzt."}</div>`;
       const totals=outlook.totals.map(total=>`<button class="button ghost small" data-open-assignment="${total.assignment.id}">${esc(total.assignment.label)} · ${total.done}/${total.all} ${english?"problems":"Probleme"}</button>`).join("");
       const totalsBlock=totals?`<p class="small muted" style="margin:1rem 0 0">${english?"Standing on covered material so far — the Assignment Coach for each one is one click away:":"Bisher vollständig auf abgedecktem Stoff – der Assignment Coach dazu ist einen Klick entfernt:"}</p><div class="accordion-actions" style="margin-top:.5rem">${totals}</div>`:"";
+      const lateBlock=lectureLateAssignmentsMarkup(lectureId);
       const missingBlock=outlook.missing.length?`<p class="small muted" style="margin:1rem 0 0">${outlook.waiting} ${english?(outlook.waiting===1?"further problem this lecture feeds hangs on a single remaining concept:":"further problems this lecture feeds hang on a single remaining concept each:"):(outlook.waiting===1?"weiteres Problem, das diese Lecture speist, hängt nur noch an einem einzigen Konzept:":"weitere Probleme, die diese Lecture speist, hängen nur noch an je einem einzigen Konzept:")}</p><div class="accordion-actions" style="margin-top:.5rem">${outlook.missing.map(concept=>`<button class="button ghost small" data-open-concept="${concept.id}">${esc(concept.title)}</button>`).join("")}</div><p class="small muted" style="margin:.5rem 0 0">${english?"Some of these arrive in a later lecture, others no lecture teaches at all and they exist only as a concept page. Either way you can read them right here and come back.":"Manches davon kommt in einer späteren Lecture, anderes behandelt keine Lecture und steht nur als Konzeptseite bereit. So oder so kannst du es direkt hier lesen und danach zurückkommen."}</p>`:"";
-      return `<section class="reading-section detail-section"><p class="eyebrow">${english?"From lecture to handout":"Von der Lecture zum Handout"}</p><h2>${english?"Which assignment problems this opens up":"Welche Assignment-Probleme das jetzt öffnet"}</h2><p class="muted">${english?"Derived from the concepts each problem actually turns on: it appears here once every one of them is covered by the shared foundations or by a lecture up to this one. This is orientation for picking what to try next — never a gate, a deadline, or a claim that you are ready. The handout stays the authority on the exact contract.":"Abgeleitet aus den Konzepten, an denen ein Problem tatsächlich hängt: Es erscheint hier, sobald alle davon durch die gemeinsamen Grundlagen oder eine Lecture bis hierhin abgedeckt sind. Das ist Orientierung für die Wahl des nächsten Schritts – kein Gate, kein Termin und keine Aussage darüber, ob du so weit bist. Verbindlich bleibt das Handout."}</p>${openedBlock}${totalsBlock}${missingBlock}</section>`;
+      return `<section class="reading-section detail-section"><p class="eyebrow">${english?"From lecture to handout":"Von der Lecture zum Handout"}</p><h2>${english?"Which assignment problems this opens up":"Welche Assignment-Probleme das jetzt öffnet"}</h2><p class="muted">${english?"Derived from the concepts each problem actually turns on: it appears here once every one of them is covered by the shared foundations or by a lecture up to this one. This is orientation for picking what to try next — never a gate, a deadline, or a claim that you are ready. The handout stays the authority on the exact contract.":"Abgeleitet aus den Konzepten, an denen ein Problem tatsächlich hängt: Es erscheint hier, sobald alle davon durch die gemeinsamen Grundlagen oder eine Lecture bis hierhin abgedeckt sind. Das ist Orientierung für die Wahl des nächsten Schritts – kein Gate, kein Termin und keine Aussage darüber, ob du so weit bist. Verbindlich bleibt das Handout."}</p>${openedBlock}${totalsBlock}${lateBlock}${missingBlock}</section>`;
     }
 
     function renderLectureDetail(el,id){

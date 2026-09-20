@@ -15237,3 +15237,283 @@ console.log(`ffn-backward OK: ${fbValues} values, all four gradients match A2's 
 
   console.log(`late concepts OK: ${lcChecks} checks -- the assignment page promised "no hidden prerequisites" and hid the ${lcTotalConcepts} concepts with the longest wait: assignmentSelfStudyConcepts asks "does any lecture teach this", so a concept taught ${lcMaxDistance} lectures too late passed it unnoticed. Of the ${base.assignments.length} assignments exactly ${lcRendered} renders the new section and ${lcSilent} stay silent, because A1 alone ends its own preparation before some of its concepts are taught -- ${lcTotalConcepts} of them, deciding ${lcTotalProblems} problems and ${lcTotalPoints} points. The selection is recomputed from LECTURE_GUIDES and the problem table in both directions, and the four fates a deciding concept can meet -- covered in time by a lecture, handed over by Module 00, taught too late, taught by nobody -- are proved disjoint and proved to cover every deciding concept of every assignment, so no silent fifth case is left; every distance, count, point total and problem id is read back out of the rendered markup in both languages rather than off the data; the shared problem that makes the total ${lcTotalProblems} instead of ${lcTotalProblems + 2} is proved to still be shared; ${lcWithLabs} concept offers ${lcWithLabs === 1 ? "labs" : "labs"} the reader can already have met and ${lcWithoutLabs} say instead that all of theirs sit past the same border, in both grammatical numbers; the Module 00 clause that keeps this surface agreeing with lectureProblemOutlook is currently unexercised for a measured reason -- all ${lcModuleZeroWithHome.length} foundations concepts that also have a lecture home are at home in Lecture 2, at or before the border of every assignment -- so it is held by the agreement check rather than by a branch; the deduplication of a problem listed under several topic blocks is unexercised for its own measured reason -- ${lcMultiListed.length} problem in the whole course is listed twice, A3 scaling_laws under three blocks, and A3 has no late concept -- and the day one lands in a late set the guard says so; no word-bearing segment of the German render survives into the English one except the badge and a concept title the English pack leaves unchanged, which is counted rather than matched against a word list that only knows the spellings someone thought of; and the call site renders it between the section it extends and the problems it warns about, with a binder that binds it`);
 }
+
+// lecture late assignments (v117) -----------------------------------------------------------
+// The lecture page prints a totals strip -- "A1 28/38" -- and that number then stands still from
+// Lecture 3 to Lecture 11 while five of those nine pages say nothing at all about why. The reason
+// is structural: lectureProblemOutlook only names a concept when a problem hangs on exactly one
+// remaining concept AND this lecture teaches another of that problem's deciding concepts, so the
+// three concepts A1 waits for are named at most incidentally. v116 answered this on the assignment
+// page; this block covers the lecture page, the surface the reader is actually standing on while
+// walking the path. The load-bearing claim is an invariant, proved here in both directions: past an
+// assignment's own preparation border, every problem still closed is closed by a concept the course
+// teaches later -- so the gap the totals strip shows is exactly the late set, never more and never
+// less. Counts, points, problem ids and arrival lectures are read back out of the rendered markup in
+// both languages rather than off the data; the appearance set is derived rather than typed; the
+// shrink as concepts arrive is checked; agreement with the v116 surface is checked; and the one
+// branch no current data reaches is measured, named, and then exercised on a synthetic course.
+{
+  const llFail = message => { throw new Error(`lecture late: ${message}`); };
+  let llChecks = 0;
+  const llEsc = source.slice(source.indexOf("const esc = value =>"), source.indexOf("\n", source.indexOf("const esc = value =>")));
+  const llNames = ["CONCEPTS", "LECTURE_GUIDES", "ASSIGNMENTS", "HANDOUT_PROBLEMS", "PROBLEM_CONCEPTS", "LABS", "LAB_CONCEPTS", "MODULES"];
+  const llFns = ["missionProblems", "problemDecidingConcepts", "conceptLabs", "assignmentLateConcepts",
+                 "assignmentSelfStudyConcepts", "lectureProblemOutlook", "lectureLateAssignments", "lectureLateAssignmentsMarkup"];
+
+  // sliceDeclaration reads an apostrophe in a comment as a string opener and then runs to the end of
+  // the file; that arrives as a SyntaxError about a duplicate declaration and says nothing about its
+  // cause. Naming it here costs one check and saves the next reader the hunt.
+  for (const name of ["lectureLateAssignments", "lectureLateAssignmentsMarkup"]) {
+    const slice = sliceDeclaration(source, name);
+    if (slice.length > 8000) llFail(`the slice of ${name} ran to ${slice.length} characters -- an apostrophe in one of its comments reads as a string opener to sliceDeclaration`);
+    llChecks++;
+  }
+
+  const llBuild = () => runInNewContext(
+    `let currentLanguage = "de";
+     ${llEsc}
+     const byId = (arr,id) => arr.find(x=>x.id===id);
+     const lectureNumber = id => Number(id.slice(1));
+     ${llNames.map(name => sliceDeclaration(source, name)).join("\n")
+        .replace("const CONCEPTS", "let CONCEPTS").replace("const ASSIGNMENTS", "let ASSIGNMENTS")
+        .replace("const LECTURE_GUIDES", "let LECTURE_GUIDES")}
+     let LECTURE_IDS = Object.keys(LECTURE_GUIDES);
+     ${llFns.map(name => sliceDeclaration(source, name)).join("\n")}
+     ({germanConcepts:CONCEPTS, assignments:ASSIGNMENTS, guides:LECTURE_GUIDES,
+       set:(concepts,assignments,guides,language)=>{
+         if(concepts)CONCEPTS=concepts; if(assignments)ASSIGNMENTS=assignments;
+         if(guides){LECTURE_GUIDES=guides;LECTURE_IDS=Object.keys(LECTURE_GUIDES);}
+         if(language)currentLanguage=language;},
+       groups:id=>lectureLateAssignments(id), markup:id=>lectureLateAssignmentsMarkup(id),
+       outlook:id=>lectureProblemOutlook(id), late:a=>assignmentLateConcepts(a)})`,
+    {});
+  const llApi = llBuild();
+  const llIds = Object.keys(base.lectureGuides);
+
+  // --- 0. the renderer renders ---------------------------------------------------------------
+  // A guard that cannot produce markup is the widest blind spot there is: every later check would
+  // pass vacuously on an empty string. So the first thing proved is that something comes out.
+  const llSample = llApi.markup("l03");
+  if (!llSample || llSample.length < 400) llFail(`the renderer produced ${llSample ? `${llSample.length} characters` : "nothing"} on l03 -- every check below would pass on an empty string`);
+  llChecks++;
+
+  // --- 1. the invariant, forwards ------------------------------------------------------------
+  // Past the border the totals gap is exactly the late set. This is the sentence the block prints,
+  // so it is proved on every assignment and every lecture at or past that assignment's border.
+  const llBorder = assignment => {
+    const indices = (assignment.sources || []).map(id => llIds.indexOf(id)).filter(value => value >= 0);
+    return indices.length ? Math.max(...indices) : -1;
+  };
+  let llPastBorderPairs = 0, llGapPairs = 0;
+  for (const assignment of llApi.assignments) {
+    const border = llBorder(assignment);
+    if (border < 0) continue;
+    for (let index = border; index < llIds.length; index++) {
+      const id = llIds[index];
+      const total = llApi.outlook(id).totals.find(entry => entry.assignment.id === assignment.id);
+      const gap = total ? total.all - total.done : 0;
+      const group = llApi.groups(id).find(entry => entry.assignment.id === assignment.id);
+      const blocked = group ? group.problems.length : 0;
+      if (gap !== blocked)
+        llFail(`${assignment.label} on ${id}: the totals strip is short ${gap} problems but the late set explains ${blocked} -- past its own border every closed problem must be a late one`);
+      llPastBorderPairs++;
+      if (gap) llGapPairs++;
+      llChecks++;
+    }
+  }
+  if (!llGapPairs) llFail("no assignment is ever short a problem past its own border, so the block can never render and this guard proves nothing");
+
+  // --- 2. the invariant, backwards -----------------------------------------------------------
+  // Before the border the block must stay silent: a problem still closed there waits on a lecture
+  // the assignment itself names as preparation, which is the ordinary path and not a hidden
+  // prerequisite. Without this direction the block could fire everywhere and still pass part 1.
+  let llBeforeBorder = 0;
+  for (const assignment of llApi.assignments) {
+    const border = llBorder(assignment);
+    for (let index = 0; index < border; index++) {
+      if (llApi.groups(llIds[index]).some(entry => entry.assignment.id === assignment.id))
+        llFail(`${assignment.label} is announced as late on ${llIds[index]}, before its own preparation border ${llIds[border]}`);
+      llBeforeBorder++;
+      llChecks++;
+    }
+  }
+  if (!llBeforeBorder) llFail("no assignment has a lecture before its border, so the silence direction is untested");
+
+  // --- 3. the appearance set is derived, and it is the one the comment claims ------------------
+  const llRendering = llIds.filter(id => llApi.markup(id) !== "");
+  const llExpected = llIds.filter(id => llApi.groups(id).length > 0);
+  if (JSON.stringify(llRendering) !== JSON.stringify(llExpected))
+    llFail(`the renderer speaks on ${llRendering.join(",")} but the derivation names ${llExpected.join(",")}`);
+  const llNamedAssignments = [...new Set(llIds.flatMap(id => llApi.groups(id).map(entry => entry.assignment.label)))];
+  if (llNamedAssignments.length !== 1 || llNamedAssignments[0] !== "A1")
+    llFail(`the block names ${llNamedAssignments.join(",") || "no assignment"}; A1 alone ends its preparation before some of its concepts are taught, so a second name means the data moved and the wording below needs rereading`);
+  if (llRendering.length < 2) llFail(`the block appears on ${llRendering.length} lecture page(s) -- too few to be the standing-still it describes`);
+  llChecks += 3;
+
+  // --- 4. the numbers come back out of the markup, in both languages --------------------------
+  // Reading them off the data would only prove the data agrees with itself. These are parsed out of
+  // the rendered string, which is what the reader actually sees.
+  const llStrip = html => html.replace(/<[^>]+>/gu, " ").replace(/\s+/gu, " ").trim();
+  // The point total is re-added from the handout table rather than read off the object being
+  // checked. Deriving the expectation from group.points would move both sides together and prove
+  // only that the data agrees with itself -- a mutation that scored every problem 1 point survived
+  // exactly that mistake.
+  const llHandout = readConstant("HANDOUT_PROBLEMS");
+  const llPointsOf = (assignment, problems) => problems.reduce((sum, problem) => {
+    const row = llHandout[`${assignment.id}:${problem.id}`];
+    if (!row) llFail(`${assignment.id}:${problem.id} is blocked but the handout table does not list it`);
+    return sum + row[0];
+  }, 0);
+  for (const language of ["de", "en"]) {
+    llApi.set(null, null, null, language);
+    for (const id of llRendering) {
+      const html = llApi.markup(id), text = llStrip(html);
+      for (const group of llApi.groups(id)) {
+        const total = (group.assignment.missions || []).reduce((sum, mission) => sum + mission.scope.split("·").map(part => part.trim()).filter(Boolean).length, 0);
+        const points = llPointsOf(group.assignment, group.problems);
+        // The arrival clause is built here too, and the lectures are required to be distinct: a list
+        // that named the same lecture twice would read as two separate waits.
+        const arrivals = [...new Set(group.concepts.map(entry => `Lecture ${Number(entry.lectureId.slice(1))}`))];
+        if (arrivals.length !== new Set(arrivals).size) llFail(`${id}: the arrival list repeats a lecture`);
+        const where = arrivals.length === 1 ? arrivals[0] : `${arrivals.slice(0, -1).join(", ")} ${language === "en" ? "and" : "und"} ${arrivals[arrivals.length - 1]}`;
+        const headline = language === "en"
+          ? `${group.problems.length} of the ${total} problems here, ${points} ${points === 1 ? "point" : "points"}, turn on ${group.concepts.length} ${group.concepts.length === 1 ? "concept" : "concepts"} the course teaches only in ${where}.`
+          : `${group.problems.length} der ${total} Probleme dort, ${points} ${points === 1 ? "Punkt" : "Punkte"}, hängen an ${group.concepts.length} ${group.concepts.length === 1 ? "Konzept" : "Konzepten"}, die der Kurs erst in ${where} lehrt.`;
+        if (!text.includes(headline))
+          llFail(`${id}/${language}: the rendered sentence does not carry the counts -- expected "${headline}"`);
+        // The badge repeats the count in its own words, so it gets its own read-back; a badge left
+        // showing the number of concepts instead of problems survived until this check existed.
+        const badge = html.match(/<span class="badge">([^<]*)<\/span>/u);
+        if (!badge) llFail(`${id}/${language}: the row carries no badge`);
+        const badgeWant = `${group.problems.length} ${language === "en" ? (group.problems.length === 1 ? "problem" : "problems") : (group.problems.length === 1 ? "Problem" : "Probleme")}`;
+        if (badge[1].trim() !== badgeWant) llFail(`${id}/${language}: the badge reads "${badge[1].trim()}" but ${badgeWant} are blocked`);
+        // Every blocked problem is named by id, and nothing beyond them is.
+        const meta = html.slice(html.indexOf('class="compact-row-meta" data-no-i18n>'));
+        const ids = llStrip(meta.slice(meta.indexOf(">") + 1, meta.indexOf("</span>"))).split("·").map(part => part.trim()).filter(Boolean);
+        const wanted = group.problems.map(problem => problem.id);
+        if (JSON.stringify(ids) !== JSON.stringify(wanted))
+          llFail(`${id}/${language}: the markup lists ${ids.join(",")} but ${wanted.join(",")} are blocked`);
+        // Each late concept is offered as a button that opens its page, with the lecture it arrives
+        // in. The arrival number is demanded inside that button rather than anywhere in the text:
+        // the headline already names the same lectures, so an occurrence check passed even when
+        // every button printed the border lecture instead. Ask for the place, not the occurrence.
+        for (const entry of group.concepts) {
+          const opening = `<button class="button ghost small" data-open-concept="${entry.concept.id}">`;
+          const at = html.indexOf(opening);
+          if (at < 0) llFail(`${id}/${language}: ${entry.concept.id} is counted but not offered as a page to read`);
+          const label = html.slice(at + opening.length, html.indexOf("</button>", at));
+          if (!label.endsWith(` · Lecture ${Number(entry.lectureId.slice(1))}`))
+            llFail(`${id}/${language}: the button for ${entry.concept.id} reads "${label}" instead of naming its arrival Lecture ${Number(entry.lectureId.slice(1))}`);
+          llChecks += 2;
+        }
+        llChecks += 4;
+      }
+    }
+  }
+  llApi.set(null, null, null, "de");
+
+  // --- 5. it shrinks as the concepts arrive ---------------------------------------------------
+  // A strip that repeated the assignment page's fixed total would be wrong the moment one concept
+  // lands. The count must fall at exactly the lecture that teaches one of them, and reach silence.
+  const llSeries = llRendering.map(id => ({ id, blocked: llApi.groups(id).reduce((sum, group) => sum + group.problems.length, 0) }));
+  for (let index = 1; index < llSeries.length; index++)
+    if (llSeries[index].blocked > llSeries[index - 1].blocked)
+      llFail(`the blocked count grows from ${llSeries[index - 1].blocked} on ${llSeries[index - 1].id} to ${llSeries[index].blocked} on ${llSeries[index].id}`);
+  if (llSeries[llSeries.length - 1].blocked === llSeries[0].blocked)
+    llFail(`the count never moves (${llSeries[0].blocked} throughout), so the shrink this block promises is untested`);
+  const llLastId = llRendering[llRendering.length - 1];
+  const llAfter = llIds[llIds.indexOf(llLastId) + 1];
+  if (llAfter && llApi.markup(llAfter) !== "")
+    llFail(`${llAfter} still renders the block although every late concept has arrived by then`);
+  llChecks += llSeries.length + 1;
+
+  // --- 6. it agrees with the assignment page it mirrors ---------------------------------------
+  // The two surfaces answer the same question on the same course. If they drift, one of them lies,
+  // and the reader has no way to tell which. Reusing assignmentLateConcepts is what prevents it;
+  // this proves the reuse is real rather than a second derivation that happens to match today.
+  for (const id of llRendering)
+    for (const group of llApi.groups(id)) {
+      const onAssignmentPage = llApi.late(group.assignment).map(entry => entry.concept.id);
+      for (const entry of group.concepts)
+        if (!onAssignmentPage.includes(entry.concept.id))
+          llFail(`${id}: ${entry.concept.id} is called late here but the assignment page does not list it`);
+      llChecks++;
+    }
+  const llBorderId = llIds[llBorder(llApi.assignments.find(assignment => assignment.label === "A1"))];
+  const llAtBorder = llApi.groups(llBorderId)[0];
+  const llWhole = llApi.late(llAtBorder.assignment);
+  if (llAtBorder.concepts.length !== llWhole.length)
+    llFail(`on the border lecture ${llBorderId} the strip names ${llAtBorder.concepts.length} of the assignment page's ${llWhole.length} late concepts -- at the border none of them has arrived yet, so both surfaces must name the same set`);
+  llChecks++;
+
+  // --- 7. the call site, and the binder behind the buttons ------------------------------------
+  const llOutlookMarkup = sliceDeclaration(source, "lectureProblemOutlookMarkup");
+  if (!llOutlookMarkup.includes("const lateBlock=lectureLateAssignmentsMarkup(lectureId);"))
+    llFail("the outlook no longer builds the late block");
+  if (!llOutlookMarkup.includes("${openedBlock}${totalsBlock}${lateBlock}${missingBlock}</section>"))
+    llFail("the late block must be rendered directly after the totals strip it explains");
+  // A rendered button with no binder is a dead end. data-open-concept is the app's existing hook;
+  // this proves it is still wired rather than assuming it.
+  if (!source.includes("data-open-concept"))
+    llFail("data-open-concept has no binder, so every concept button in this block is dead");
+  const llBinder = source.slice(source.indexOf("data-open-concept]"), source.indexOf("data-open-concept]") + 400);
+  if (!/openConcept|showConcept|concept/u.test(llBinder))
+    llFail("the data-open-concept binder does not open a concept");
+  llChecks += 4;
+
+  // --- 8. the German render does not survive into the English one -----------------------------
+  // Counted rather than matched against a word list, which would only know the spellings someone
+  // thought of. Concept titles are the documented exception: the English pack translates them at
+  // the DOM, exactly as on the assignment page this mirrors.
+  llApi.set(null, null, null, "de");
+  const llGerman = llStrip(llApi.markup("l03"));
+  llApi.set(null, null, null, "en");
+  const llEnglish = llStrip(llApi.markup("l03"));
+  llApi.set(null, null, null, "de");
+  if (llGerman === llEnglish) llFail("the English render is identical to the German one");
+  const llGermanOnly = ["Probleme", "Punkte", "hängen an", "Konzepten", "der Kurs erst in", "Und warum", "kein Termin", "kürzere Weg"];
+  for (const phrase of llGermanOnly) {
+    if (!llGerman.includes(phrase)) llFail(`the German render lost "${phrase}", so the English check below tests nothing`);
+    if (llEnglish.includes(phrase)) llFail(`"${phrase}" survives into the English render`);
+    llChecks += 2;
+  }
+
+  // --- 9. the branch no current course reaches ------------------------------------------------
+  // The lead-in agrees in number with how many assignments are late at once. Today exactly one ever
+  // is -- A1 is the only assignment whose preparation ends before some of its concepts are taught,
+  // which part 3 proves -- so the plural is unreachable on this data. That is a measured reason, not
+  // an excuse to drop it: an unexercised branch is a branch nobody has read. It is exercised here on
+  // a synthetic course where a second assignment is pushed past its border.
+  const llSingular = llStrip(llApi.markup("l03"));
+  if (!llSingular.includes("eine dieser Zahlen stehen bleibt")) llFail("the singular lead-in is not the one rendered on l03");
+  const llTwo = JSON.parse(JSON.stringify(llApi.assignments));
+  const llSecond = llTwo.find(assignment => assignment.label === "A2");
+  // A2's own concepts stay untouched; only its declared preparation is cut back to Lecture 2, which
+  // is what makes its remaining problems late rather than upcoming.
+  llSecond.sources = llSecond.sources.filter(id => !/^l\d+$/u.test(id)).concat(["l02"]);
+  llApi.set(null, llTwo, null, "de");
+  const llPluralGroups = llApi.groups("l03");
+  if (llPluralGroups.length < 2) llFail(`the synthetic course was meant to make two assignments late at once but produced ${llPluralGroups.length}`);
+  const llPlural = llStrip(llApi.markup("l03"));
+  if (!llPlural.includes("einige dieser Zahlen stehen bleiben") || !llPlural.includes("diese Assignments") || !llPlural.includes("ihre Vorbereitung nennen"))
+    llFail("with two late assignments the German lead-in still reads as a singular");
+  llApi.set(null, llTwo, null, "en");
+  const llPluralEn = llStrip(llApi.markup("l03"));
+  if (!llPluralEn.includes("some of those counts are not moving") || !llPluralEn.includes("those assignments name") || !llPluralEn.includes("their preparation"))
+    llFail("with two late assignments the English lead-in still reads as a singular");
+  llApi.set(null, llApi.assignments, null, "de");
+  llChecks += 4;
+
+  // --- 10. the figures this block's own comment states ----------------------------------------
+  const llComment = source.slice(source.indexOf("// The totals strip above prints"), source.indexOf("function lectureLateAssignments("));
+  const llFirst = llApi.groups(llRendering[0])[0];
+  if (!llComment.includes(`"A1 ${llApi.outlook(llRendering[0]).totals.find(entry => entry.assignment.id === llFirst.assignment.id).done}/38"`))
+    llFail("the source comment no longer states the totals figure it explains");
+  if (!llComment.includes(`${llRendering.length} lectures`)) llFail(`the source comment no longer states that the strip stands still for ${llRendering.length} lectures`);
+  const llSilent = llRendering.filter(id => llApi.outlook(id).missing.length === 0);
+  if (!llComment.includes(`${llSilent.length} of those ${llRendering.length} pages say nothing`))
+    llFail(`the source comment no longer states that ${llSilent.length} of the ${llRendering.length} pages name nothing at all`);
+  llChecks += 3;
+
+  console.log(`lecture late OK: ${llChecks} checks -- the totals strip printed "A1 ${llApi.outlook("l03").totals.find(entry => entry.assignment.id === "a1").done}/38" and then stood still across ${llRendering.length} lecture pages (${llRendering[0]}..${llRendering[llRendering.length - 1]}), ${llSilent.length} of which named nothing at all about it, because lectureProblemOutlook only names a concept when a problem hangs on exactly one and the page teaches another of its deciding concepts. The load-bearing claim is now an invariant proved in both directions over ${llPastBorderPairs} assignment-lecture pairs past a border and ${llBeforeBorder} before one: past its own preparation border every problem an assignment still has closed is closed by a concept the course teaches later -- so the gap is the late set exactly, and before the border the block stays silent because there the wait is the ordinary path. ${llNamedAssignments.join(",")} is the only assignment this can happen to and the appearance set is derived rather than typed; counts, points, problem ids and arrival lectures are read back out of the rendered markup in both languages; the count falls from ${llSeries[0].blocked} to ${llSeries[llSeries.length - 1].blocked} as the concepts land and the block falls silent the lecture after the last one arrives; the concepts named agree with the assignment page this mirrors, and at the border lecture the two name the same set; the call site renders it between the totals it explains and the problems it warns about, with a binder behind every concept button; and the plural lead-in, which no current course reaches because only one assignment is ever late at once, is exercised on a synthetic course rather than left unread`);
+}
