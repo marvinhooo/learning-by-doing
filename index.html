@@ -5251,12 +5251,12 @@
         transferQuestion:"Du hast naive_ddp implementiert, benchmarkst den Schritt wie verlangt und misst, dass 32,2372 % des Schritts auf die Gradientenkommunikation entfallen. Ein Kommilitone sagt, mehr sei da nicht zu holen, weil die Bytes ja fest sind. Warum ist das falsch, und welche einzelne Zahl entscheidet, ob eine kleinere Bucketgröße bei dir noch etwas bringt?"
       },
       {
-        id:"scaling-transfer",title:"μP, WSD & Scaling Fit Gate",module:"scaling",time:"12 min",desc:"Prüfe Offset-Fit, Lecture-11-μP-Rollen und die Finalitätsgrenze eines WSD-Checkpoints.",
-        mental:"Fit, Parametrisierung und Schedule beantworten verschiedene Fragen. Ein Offset gehört vor den Loss-Logarithmus, μP skaliert nach Matrixrolle, und Warmup-Stable-Decay (WSD) wird erst durch einen definierten Decay abgeschlossen.",
+        id:"scaling-transfer",title:"μP, WSD & Scaling Fit Gate",module:"scaling",time:"12 min",desc:"Fitte log(L − E) statt log L und sieh, warum ein falscher Offset in-sample unsichtbar bleibt und die Vorhersage trotzdem verfehlt – dazu die μP-Rollen aus Lecture 11 und die Finalitätsgrenze eines WSD-Checkpoints.",
+        mental:"Fit, Parametrisierung und Schedule beantworten verschiedene Fragen. Ein Offset gehört vor den Loss-Logarithmus: Gefittet wird log(L_opt − E), und weil E und die Steigung γ gekoppelt sind, erklärt fast jedes E die Messreihe mit einem passenden γ. Was die Offsets auseinanderhält, ist deshalb nicht der Rest über den gemessenen Tiers, sondern die Extrapolation. μP skaliert nach Matrixrolle, und Warmup-Stable-Decay (WSD) wird erst durch einen definierten Decay abgeschlossen.",
         formula:"N_opt=A_NCᵃ  ·  D_opt=A_DCᵇ  ·  L_opt=E+A_LC^(−γ)  ·  r=4: Hidden std×1/2, Readout std×1/4",
         symbols:[["E","Loss-Offset vor dem Logarithmus von L−E."],["a,b","Compute-Exponenten für Modell und Daten."],["r","Breitenverhältnis M/M₀."],["WSD","Warmup, Stable und Decay."]],
-        observe:"Leite für r=4 alle Initialisierungs- und Adam-Faktoren für Embedding, Hidden und Readout ab. Entscheide danach, welche Checkpoints als final vergleichbar sind.",
-        misconception:"μP ist kein einzelner globaler Lernratenfaktor, und ein Stable-Checkpoint ist vor seinem definierten Decay kein abgeschlossener WSD-Endpunkt.",
+        observe:"Beginne bei der tiefen Leiter, wahrem Offset und ohne Rauschen: der Rest ist null, nicht bloß klein, weil L − E entlang der Frontier exakt ein Potenzgesetz in C ist. Stelle den Offset dann auf E = 0 – den naiven Fit auf log L – und vergleiche die beiden Zahlen, die daneben stehen: das größte Residuum und der Fehler beim Ziel, beide in σ. Schalte danach Rauschen zu und wechsle auf den geschätzten Offset; die Spannen über acht Ziehungen zeigen, wie viel schlechter E bestimmt ist als die Vorhersage, die aus ihm folgt. Vergleiche zuletzt die spärliche Leiter mit der tiefen: dieselbe Reichweite, drei Punkte statt fünf, ein makelloser Rest – und der schlechteste Treffer. Leite erst danach für r=4 die Initialisierungs- und Adam-Faktoren ab und entscheide, welche Checkpoints als final vergleichbar sind.",
+        misconception:"Ein guter In-Sample-Fit ist kein Beleg für eine gute Extrapolation, und bei drei Punkten und drei Parametern ist er überhaupt kein Test: Die Kurve läuft dann durch jeden Punkt, auch durch das Rauschen. Außerdem ist μP kein einzelner globaler Lernratenfaktor, und ein Stable-Checkpoint ist vor seinem definierten Decay kein abgeschlossener WSD-Endpunkt.",
         transferQuestion:"Warum kann ein falsch gewähltes E die extrapolierte Loss-Steigung verändern?"
       },
       {
@@ -7238,6 +7238,15 @@
 
     function labMarkup(id){
       if(id==="moe-routing"){const facts=moeKeyFacts();return `<div class="lab-layout"><div class="panel lab-controls"><h2>Ein fester Mini-Batch · T=${MOE_T} Token, E=${MOE_E} Experts</h2><div class="callout"><strong>Jede Router-Zeile ist eine Permutation von [${fixedNum(0.4,2)}, ${fixedNum(0.3,2)}, ${fixedNum(0.15,2)}, ${fixedNum(0.15,2)}]</strong><p>${esc(localizedUi(`Deshalb summiert jede Zeile auf 1, und weil alle vier Werte verschieden sind, hängt keine Zuteilung an einer Tie-Break-Regel. Was sich zwischen den Routings ändert, ist allein, welcher Expert oben steht.`))}</p></div><p class="lab-note">Stelle die vier Regler um und lies rechts ab, was sie kosten: wie viele Token die Capacity abweist, wie weit der Balance-Loss über α steht und welches Gerät zum Straggler wird.</p><label class="field">Routing <select class="select" id="moeRouting">${MOE_ROUTINGS.map((entry,index)=>`<option value="${entry.key}" ${index===0?"selected":""}>${esc(localizedUi(entry.label))}</option>`).join("")}</select></label><label class="field">Experts je Token <select class="select" id="moeK">${MOE_KS.map((entry,index)=>`<option value="${entry.key}" ${index===0?"selected":""}>${esc(localizedUi(entry.label))}</option>`).join("")}</select></label><label class="field">Capacity Factor c <select class="select" id="moeFactor">${MOE_FACTORS.map((entry,index)=>`<option value="${entry.key}" ${index===0?"selected":""}>${fixedNum(entry.value,1)}</option>`).join("")}</select></label><label class="field">Expert-zu-Gerät-Zuordnung <select class="select" id="moePlacement">${MOE_PLACEMENTS.map((entry,index)=>`<option value="${entry.key}" ${index===0?"selected":""}>${esc(localizedUi(entry.label))}</option>`).join("")}</select></label><fieldset class="question" style="margin-top:1rem"><legend><strong>Objektiver Transfer-Kurzcheck</strong></legend><p class="small muted">Fester Fall: T=${MOE_T}, k=2, E=${MOE_E}, c=${fixedNum(1,1)}. Leite zuerst ohne Regler her.</p><label class="field">1. Capacity pro Expert <select class="select" id="moeCheckCapacity"><option value="">Noch nicht gewählt</option><option value="correct">${esc(localizedUi(`${facts.capacity} Assignments`))}</option><option value="half">${esc(localizedUi(`${facts.capacity/2} Assignments`))}</option><option value="double">${esc(localizedUi(`${facts.capacity*2} Assignments`))}</option></select></label><label class="field">${esc(localizedUi(`2. Overflow, wenn Expert 0 ${facts.hot} Assignments zieht`))} <select class="select" id="moeCheckOverflow"><option value="">Noch nicht gewählt</option><option value="correct">${esc(localizedUi(`${facts.overflow} Assignments`))}</option><option value="none">kein Overflow</option><option value="all">${esc(localizedUi(`${facts.hot} Assignments`))}</option></select></label><label class="field">3. L_balance bei ausgeglichenem Routing <select class="select" id="moeCheckAux"><option value="">Noch nicht gewählt</option><option value="correct">${esc(localizedUi(`${fixedNum(facts.aux,2)}·α, also nicht null`))}</option><option value="zero">${fixedNum(0,2)}</option><option value="scaled">${esc(localizedUi(`${fixedNum(MOE_E*facts.aux,2)}·α`))}</option></select></label><button class="button" id="moeCheck" type="button">Kurzcheck prüfen</button><div id="moeCheckResult" role="status" aria-live="polite"></div></fieldset><details class="answer-disclosure" data-transient-key="moe-routing-derivation" style="margin-top:1rem"><summary>Geführte Herleitung öffnen, wenn du feststeckst</summary><ol class="steps"><li><strong>Assignments:</strong> ${esc(localizedUi(`Jedes der ${MOE_T} Token wählt k Experts, also verteilt der Router T·k = ${MOE_T*2} Assignments — nicht ${MOE_T}.`))}</li><li><strong>Capacity:</strong> ${esc(localizedUi(`ceil(c·T·k/E) teilt diese Assignments gleichmäßig auf die ${MOE_E} Experts auf: bei c=${fixedNum(1,1)} sind das ${facts.capacity} Plätze je Expert. Die Capacity ist ein Puffer pro Expert, keine Grenze für den ganzen Batch.`))}</li><li><strong>Overflow:</strong> ${esc(localizedUi(`Ein Expert mit ${facts.hot} Assignments nimmt die ersten ${facts.capacity} in Tokenreihenfolge an und weist ${facts.overflow} ab. Wen es trifft, entscheidet die Position im Batch.`))}</li><li><strong>Aux-Loss:</strong> ${esc(localizedUi(`L = αEΣ_e f_e·P_e. Bei ausgeglichenem Routing ist f_e = P_e = 1/E, die Summe also E·(1/E²) = 1/E und L = α. Null ist unerreichbar, α ist das Minimum.`))}</li></ol></details></div><div class="lab-stage" role="region" aria-label="Routing, Capacity und Geräteauslastung" id="moeStage"></div></div>`;}
+      // scaling-transfer behaelt sein Fragenformular -- dieselben Feld-Ids, also bleibt
+      // checkObjectiveLab unveraendert zustaendig -- und bekommt daneben die Buehne, die
+      // seine eigene desc seit jeher verspricht ("Pruefe Offset-Fit").
+      if(id==="scaling-transfer"){
+        const objective=LAB_OBJECTIVES[id],copy=objective[currentLanguage]||objective.de;
+        const fields=copy.questions.map((question,index)=>{const split=(index+1)%question.options.length,options=[...question.options.slice(split),...question.options.slice(0,split)];return `<label class="field">${esc(question.prompt)} <select class="select" id="objective-${index}"><option value="">${currentLanguage==="en"?"Not selected yet":"Noch nicht gewählt"}</option>${options.map(([value,label])=>`<option value="${esc(value)}">${esc(label)}</option>`).join("")}</select></label>`}).join("");
+        const select=(elementId,list,label)=>`<label class="field">${label} <select class="select" id="${elementId}">${list.map((entry,index)=>`<option value="${entry.key}" ${index===0?"selected":""}>${esc(localizedUi(entry.label))}</option>`).join("")}</select></label>`;
+        return `<div class="lab-layout"><div class="panel lab-controls"><h2>Ein Fitbudget von 12 B200-Stunden, ein Ziel bei 48</h2><div class="callout"><strong>Gefittet wird log(L − E), nicht log L</strong><p>${esc(localizedUi(`Das Loss-Modell ist dasselbe, das run-plan benutzt: L(N,D) = E + A/N^α + B/D^β nach Hoffmann et al. Entlang der Frontier ist L − E ein reines Potenzgesetz in C, also gilt L_opt(C) = E + A_L·C^(−γ). Der Offset E steht vor dem Logarithmus — und niemand verrät ihn dir.`))}</p></div><p class="lab-note">Stelle die drei Regler um und lies rechts ab, was sie kosten: wie groß der Rest über den gemessenen Tiers bleibt, und wie weit die Vorhersage beim Vierfachen des Messbudgets danebenliegt.</p>${select("stLadder",ST_LADDERS,"Leiter · wofür das Budget ausgegeben wird")}${select("stOffset",ST_OFFSETS,"Offset E")}${select("stNoise",ST_NOISES,"Seed-Streuung je Lauf")}<fieldset class="question" style="margin-top:1rem"><legend><strong>Objektiver Transfer-Kurzcheck</strong></legend><p class="small muted">${esc(copy.title)}</p>${fields}<button class="button primary" id="objectiveCheck" type="button">${currentLanguage==="en"?"Check answers":"Antworten prüfen"}</button><div id="objectiveResult" role="status" aria-live="polite"></div></fieldset></div><div class="lab-stage" role="region" aria-label="Offset-Fit, Rest und Extrapolation" id="stStage"></div></div>`;
+      }
       if(LAB_OBJECTIVES[id])return objectiveLabMarkup(id);
       if(id==="transformer-ledger") return transformerLedgerMarkup();
       if(id==="rlvr-system-transfer") return rlvrSystemMarkup();
@@ -7368,6 +7377,7 @@
       if(id==="inference-budget"){["infL","infB","infT","infD","infHq","infHkv","infTied","infKvBytes","infWeightBits","infBW"].forEach(x=>document.getElementById(x).oninput=updateInferenceBudget);updateInferenceBudget()}
       if(id==="policy-loss-tracer"){["pltMask","pltSign","pltReduce"].forEach(x=>document.getElementById(x).oninput=updatePolicyLossTracer);document.getElementById("policyLossCheck").onclick=checkPolicyLossTracer;updatePolicyLossTracer()}
       if(id==="moe-routing"){["moeRouting","moeK","moeFactor","moePlacement"].forEach(x=>document.getElementById(x).oninput=updateMoeRouting);document.getElementById("moeCheck").onclick=checkMoeRouting;updateMoeRouting()}
+      if(id==="scaling-transfer"){["stLadder","stOffset","stNoise"].forEach(x=>document.getElementById(x).oninput=updateScalingTransfer);updateScalingTransfer()}
       if(id==="grpo"){document.querySelectorAll(".grpoReward,.grpoLength,#grpoStd,#grpoStdMode,#grpoAggregation").forEach(x=>x.oninput=updateGrpo);document.getElementById("grpoCheck").onclick=checkGrpoTransfer;updateGrpo()}
       restorePassedLab(id);
     }
@@ -15392,6 +15402,198 @@ p99 went from 12.4ms to 8.1ms but RSS is back to ~78MB, so it is a real tradeoff
       if(values.some(value=>value!=="correct")){result.innerHTML=`<div class="callout warning" style="margin-top:.7rem"><strong>${tr("Noch nicht.")}</strong><br>${tr("Rechne in dieser Reihenfolge: erst T·k Assignments, dann capacity = ceil(c·T·k/E), dann was ein Expert über dieser Grenze abgeben muss. Der Balance-Loss ist zuletzt αEΣf_eP_e — setze f_e = P_e = 1/E ein, bevor du auf null tippst.")}</div>`;return}
       user.labChecks["moe-routing"]=true;saveUser(true);result.innerHTML=moeSuccessMarkup()
     }
+
+
+    // ---- scaling-transfer: der Offset-Fit -------------------------------------------
+    // Bis v118 war dieses Lab das letzte reine Fragenformular (LR_NO_STAGE), und die
+    // Zusicherung daneben lautete, es gebe hier "nothing it could compute". Die eigene
+    // desc des Labs sagt etwas anderes: "Pruefe Offset-Fit". Gefittet wird laut seiner
+    // transferAnswer log(L_opt - E), nicht log L_opt -- und keine Flaeche der App hat je
+    // eine Loss-Kurve gefittet. `scaling-fit` fittet N_opt gegen C, `run-plan` wertet das
+    // Loss-Modell an einem vorhergesagten N aus; den Offset selbst schaetzte nichts.
+    // A3s groesstes Problem (scaling_laws, 50 Punkte) verlangt genau das: "predict the
+    // validation loss that this model will obtain".
+    //
+    // Das Loss-Modell ist nicht zweitgeschrieben, sondern das von `run-plan`: RP_LOSS_E,
+    // RP_LOSS_A, RP_ALPHA, RP_LOSS_B, RP_BETA (Hoffmann et al.). Entlang der Frontier ist
+    // (L - E) ein reines Potenzgesetz in C, also ist der Fit bei korrektem E exakt -- das
+    // ist keine Annahme, sondern folgt aus rpFrontierLoss und wird unten gemessen.
+    const ST_EFLOP = 1e18;
+    // Die Leitern geben dasselbe Messbudget verschieden aus. Alle bleiben unter A3s Kappe
+    // von 12 B200-Stunden (RP_FIT_FLOPS); was sie unterscheidet, ist die Reichweite vom
+    // obersten gemessenen Tier bis zum Ziel -- und bei `sparse` die Zahl der Punkte.
+    const ST_LADDERS = [
+      {key:"deep",label:"tief · 5 Tiers bis 16 EFLOP, so weit oben wie das Budget erlaubt",tiers:[1,2,4,8,16]},
+      {key:"mid",label:"mittig · 5 Tiers bis 8 EFLOP",tiers:[0.5,1,2,4,8]},
+      {key:"wide",label:"breit · 5 kleine Tiers bis 4 EFLOP",tiers:[0.25,0.5,1,2,4]},
+      {key:"sparse",label:"spärlich · 3 Tiers bis 16 EFLOP, dieselbe Reichweite mit weniger Punkten",tiers:[4,8,16]}
+    ];
+    // Vier Umgangsweisen mit dem Offset. `free` schaetzt ihn aus denselben Daten, die
+    // gefittet werden; `zero` ist der naive Potenzgesetz-Fit auf log L direkt.
+    const ST_OFFSETS = [
+      {key:"zero",value:0,label:"E = 0 · log L direkt gefittet, ohne Offset"},
+      {key:"true",value:null,label:"E = der wahre Offset des Modells"},
+      {key:"high",value:2.1,label:"E = 2,1 · zu hoch geraten"},
+      {key:"over",value:3,label:"E = 3,0 · über dem kleinsten gemessenen Loss mancher Leitern"},
+      {key:"free",value:null,label:"E aus den Daten geschätzt · Scan über den Rest-RMSE"}
+    ];
+    const ST_NOISES = [
+      {key:"0",value:0,label:"kein Rauschen · jeder Lauf trifft die Frontier exakt"},
+      {key:"0.002",value:0.002,label:"σ = 0,002 Loss · sehr ruhige Läufe"},
+      {key:"0.005",value:0.005,label:"σ = 0,005 Loss · realistische Seed-Streuung"},
+      {key:"0.01",value:0.01,label:"σ = 0,01 Loss · unruhige Läufe"}
+    ];
+    // Eine feste Ziehung, keine Simulation: derselbe Zustand rendert immer dieselbe
+    // Messreihe. Die Zahlen sind Standardnormal-Ziehungen, auf vier Stellen festgehalten.
+    const ST_DRAWS = [0.8415,-1.2617,0.3132,1.0715,-0.7231,0.4567,-0.2938,1.4102];
+    function stRead(values){return id=>values?values[id]:document.getElementById(id).value}
+    function stPick(list,key,fallback){return list.find(entry=>entry.key===key)||list.find(entry=>entry.key===fallback)}
+    // Ein Rest von -4e-6 druckt auf vier Stellen "-0,0000": ein Minuszeichen vor einer Null,
+    // das einen Vorzeichenwechsel anzeigt, den es nicht gibt. Unterhalb der halben letzten
+    // angezeigten Stelle ist die Zahl auf dieser Anzeige exakt null, und so wird sie gedruckt.
+    function stNumber(value,digits){return fixedNum(Math.abs(value)<0.5*Math.pow(10,-digits)?0:value,digits)}
+    // Die Frontier-Verluste stammen aus rpFrontierLoss; hier wird nur in EFLOP gerechnet.
+    function stFrontier(eflop){return rpFrontierLoss(eflop*ST_EFLOP)}
+    // Linearer Fit von log(L - E) gegen log C. Gibt null zurueck, wenn E so hoch liegt,
+    // dass ein Messpunkt keinen positiven Restabstand mehr hat -- dann ist der Logarithmus
+    // nicht definiert, und das ist eine Aussage ueber E, keine Panne.
+    function stFit(points,offset){
+      const usable=points.filter(point=>point.loss-offset>1e-9);
+      if(usable.length<2||usable.length<points.length)return null;
+      const count=usable.length;
+      const xs=usable.map(point=>Math.log(point.compute)),ys=usable.map(point=>Math.log(point.loss-offset));
+      const xMean=xs.reduce((sum,value)=>sum+value,0)/count,yMean=ys.reduce((sum,value)=>sum+value,0)/count;
+      let cov=0,varX=0;
+      for(let index=0;index<count;index++){cov+=(xs[index]-xMean)*(ys[index]-yMean);varX+=Math.pow(xs[index]-xMean,2)}
+      if(!(varX>0))return null;
+      const slope=cov/varX,gamma=-slope,coefficient=Math.exp(yMean-slope*xMean);
+      const fitted=points.map(point=>offset+coefficient*Math.pow(point.compute,-gamma));
+      let squared=0,worst=0;
+      points.forEach((point,index)=>{const residual=fitted[index]-point.loss;squared+=residual*residual;worst=Math.max(worst,Math.abs(residual))});
+      return {offset:offset,gamma:gamma,coefficient:coefficient,fitted:fitted,
+        rmse:Math.sqrt(squared/points.length),worst:worst};
+    }
+    // Der freie Offset: derselbe Fit fuer viele E, und genommen wird der mit dem kleinsten
+    // Rest. Bei rauschfreien Daten findet dieser Scan den wahren Offset -- das ist die
+    // Methode, die funktioniert. Unter Rauschen wird die Kurve um ihr Minimum flach, und
+    // genau das macht E schlecht bestimmt; beides misst das Lab, statt es zu behaupten.
+    const ST_SCAN_STEPS = 2000;
+    function stFreeFit(points){
+      // Die Obergrenze ist der kleinste gemessene Loss: darueber laesst stFit ohnehin keinen
+      // Offset zu, weil dann ein Restabstand nicht mehr positiv ist. Ein zusaetzlicher
+      // Sicherheitsabstand entschiede nichts und taeuschte eine Wahl vor, die es nicht gibt.
+      const ceiling=Math.min.apply(null,points.map(point=>point.loss));
+      let best=null;
+      for(let step=0;step<=ST_SCAN_STEPS;step++){
+        const offset=ceiling*step/ST_SCAN_STEPS,fit=stFit(points,offset);
+        if(fit&&(!best||fit.rmse<best.rmse))best=fit;
+      }
+      return best;
+    }
+    // Eine einzelne Ziehung zeigt einen Zufall, keine Streuung: mit dieser Ziehungsliste
+    // landet der freie Scan auf den fuenfpunktigen Leitern zufaellig nah am wahren Offset,
+    // und eine Prosa, die "E wandert weit" behauptet, behauptete etwas, das der Leser nicht
+    // sieht. Deshalb rechnet das Lab dieselbe Schaetzung auf allen Rotationen derselben
+    // Liste und zeigt die Spannen. Was dabei sichtbar wird, ist die eigentliche Aussage:
+    // E ist weit schlechter bestimmt als die Vorhersage, die aus ihm folgt.
+    function stEnsemble(tiers,sigma){
+      const offsets=[],predictions=[],targetEflop=RP_TARGET_FLOPS/ST_EFLOP;
+      for(let shift=0;shift<ST_DRAWS.length;shift++){
+        const points=tiers.map((compute,index)=>({compute:compute,
+          loss:stFrontier(compute)+sigma*ST_DRAWS[(index+shift)%ST_DRAWS.length]}));
+        const fit=stFreeFit(points);
+        if(!fit)continue;
+        offsets.push(fit.offset);
+        predictions.push(fit.offset+fit.coefficient*Math.pow(targetEflop,-fit.gamma));
+      }
+      if(!offsets.length)return null;
+      const span=list=>Math.max.apply(null,list)-Math.min.apply(null,list);
+      return {draws:offsets.length,offsetLow:Math.min.apply(null,offsets),offsetHigh:Math.max.apply(null,offsets),
+        offsetSpan:span(offsets),predictedLow:Math.min.apply(null,predictions),
+        predictedHigh:Math.max.apply(null,predictions),predictedSpan:span(predictions)};
+    }
+    function stReport(values){
+      const read=stRead(values);
+      const ladder=stPick(ST_LADDERS,read("stLadder"),"deep");
+      const offsetEntry=stPick(ST_OFFSETS,read("stOffset"),"free");
+      const noiseEntry=stPick(ST_NOISES,read("stNoise"),"0");
+      const sigma=noiseEntry.value;
+      const points=ladder.tiers.map((compute,index)=>{
+        const clean=stFrontier(compute);
+        return {compute:compute,clean:clean,draw:ST_DRAWS[index],loss:clean+sigma*ST_DRAWS[index]};
+      });
+      const targetEflop=RP_TARGET_FLOPS/ST_EFLOP;
+      const truth=stFrontier(targetEflop);
+      const fit=offsetEntry.key==="free"?stFreeFit(points)
+        :stFit(points,offsetEntry.key==="true"?RP_LOSS_E:offsetEntry.value);
+      const spent=ladder.tiers.reduce((sum,value)=>sum+value,0);
+      const top=Math.max.apply(null,ladder.tiers);
+      const report={ladder:ladder,offsetEntry:offsetEntry,noiseEntry:noiseEntry,sigma:sigma,points:points,
+        spent:spent,cap:RP_FIT_FLOPS/ST_EFLOP,top:top,reach:targetEflop/top,
+        targetEflop:targetEflop,truth:truth,fit:fit};
+      if(fit){
+        report.predicted=fit.offset+fit.coefficient*Math.pow(targetEflop,-fit.gamma);
+        report.error=report.predicted-truth;
+        // Der Vergleich, der das Lab traegt: wie gross ist der Extrapolationsfehler,
+        // gemessen in derselben Einheit, in der das Rauschen die Messpunkte bewegt?
+        report.errorInSigma=sigma>0?Math.abs(report.error)/sigma:null;
+        report.residualInSigma=sigma>0?fit.worst/sigma:null;
+      }
+      // Nur dort, wo E ueberhaupt geschaetzt wird und Rauschen da ist, gibt es eine Streuung
+      // zu zeigen; sonst waere die Zeile eine Wiederholung des Reglers.
+      if(offsetEntry.key==="free"&&sigma>0)report.ensemble=stEnsemble(ladder.tiers,sigma);
+      return report;
+    }
+    function stStageMarkup(values){
+      const tr=value=>esc(localizedUi(value));
+      const report=stReport(values);
+      const eflop=value=>fixedNum(value,value<1?2:1);
+      const series=report.points.map((point,index)=>{
+        const fitted=report.fit?report.fit.fitted[index]:null;
+        const residual=fitted===null?null:fitted-point.loss;
+        return `<tr><th scope="row">${eflop(point.compute)}</th><td><span data-st-clean="${index}">${fixedNum(point.clean,4)}</span></td><td><strong data-st-measured="${index}">${fixedNum(point.loss,4)}</strong></td><td>${fitted===null?"—":fixedNum(fitted,4)}</td><td>${residual===null?"—":`<span data-st-residual="${index}">${stNumber(residual,4)}</span>`}</td></tr>`;
+      }).join("");
+      const measurement=`<h3>${tr("Die Messreihe, die das Budget kauft")}</h3><table class="matrix-table"><caption class="sr-only">${tr("Eine Zeile je Compute-Tier: Frontier-Loss, gemessener Loss, Fitwert und Residuum.")}</caption><thead><tr><th scope="col">C ${tr("in EFLOP")}</th><th scope="col">${tr("Frontier")}</th><th scope="col">${tr("gemessen")}</th><th scope="col">${tr("Fit")}</th><th scope="col">${tr("Residuum")}</th></tr></thead><tbody>${series}</tbody></table><div class="calculation-ledger"><div class="calculation-row"><span>${tr("ausgegeben")} · Σ C</span><strong><span data-st-spent="1">${eflop(report.spent)}</span> EFLOP ${tr("von")} ${eflop(report.cap)}</strong></div><div class="calculation-row"><span>${tr("oberstes gemessenes Tier")}</span><strong>${eflop(report.top)} EFLOP</strong></div><div class="calculation-row"><span>${tr("Reichweite bis zum Ziel · C_Ziel / C_oben")}</span><strong data-st-reach="1">${fixedNum(report.reach,1)}×</strong></div></div>`;
+      if(!report.fit)return `<h2>${tr("Vom Messbudget zur vorhergesagten Loss")}</h2>${measurement}<div class="callout warning"><strong>${tr("Kein Fit möglich")}</strong><br>${tr("Dieses E liegt über einem gemessenen Loss. Dann ist L − E negativ, und der Logarithmus existiert nicht. Das ist keine Panne, sondern die Schranke, die jeden Offset-Fit begrenzt: E muss unter jedem gemessenen Loss liegen.")}</div>`;
+      const fitRows=`<h3>${tr("Der Fit im Lograum")}</h3><div class="calculation-ledger"><div class="calculation-row"><span>${tr("verwendeter Offset")} E</span><strong data-st-offset="1">${fixedNum(report.fit.offset,4)}</strong></div><div class="calculation-row"><span>${tr("Steigung")} γ ${tr("aus")} log(L − E) = log A − γ·log C</span><strong data-st-gamma="1">${fixedNum(report.fit.gamma,6)}</strong></div><div class="calculation-row"><span>A</span><strong>${fixedNum(report.fit.coefficient,4)}</strong></div><div class="calculation-row"><span>${tr("Rest-RMSE über die gemessenen Tiers")}</span><strong data-st-rmse="1">${stNumber(report.fit.rmse,6)}</strong></div><div class="calculation-row"><span>${tr("größtes Residuum")}</span><strong>${stNumber(report.fit.worst,6)}</strong></div>${report.sigma>0?`<div class="calculation-row"><span>${tr("größtes Residuum, in σ der Messung")}</span><strong data-st-residsigma="1">${fixedNum(report.residualInSigma,1)}·σ</strong></div>`:""}</div>`;
+      const extrapolation=`<h3>${tr("Die Extrapolation auf 48 B200-Stunden")}</h3><div class="calculation-ledger"><div class="calculation-row"><span>${tr("vorhergesagte Loss")} = E + A·C^(−γ)</span><strong data-st-predicted="1">${fixedNum(report.predicted,4)}</strong></div><div class="calculation-row"><span>${tr("wahre Frontier-Loss")}</span><strong data-st-truth="1">${fixedNum(report.truth,4)}</strong></div><div class="calculation-row"><span>${tr("Fehler")}</span><strong data-st-error="1">${stNumber(report.error,4)}</strong></div>${report.sigma>0?`<div class="calculation-row"><span>${tr("Fehler, in σ der Messung")}</span><strong data-st-errsigma="1">${fixedNum(report.errorInSigma,1)}·σ</strong></div>`:""}</div>`;
+      // Die Spanne ueber die Rotationen, dort wo es eine gibt: acht Messreihen, die sich nur
+      // in der Ziehung unterscheiden, und was der Scan aus jeder macht.
+      const spread=report.ensemble?`<h3>${tr("Dieselbe Leiter, acht Ziehungen")}</h3><div class="calculation-ledger"><div class="calculation-row"><span>${tr("geschätztes E, von … bis")}</span><strong><span data-st-elow="1">${fixedNum(report.ensemble.offsetLow,3)}</span> … <span data-st-ehigh="1">${fixedNum(report.ensemble.offsetHigh,3)}</span></strong></div><div class="calculation-row"><span>${tr("Spanne von E")}</span><strong data-st-espan="1">${fixedNum(report.ensemble.offsetSpan,3)}</strong></div><div class="calculation-row"><span>${tr("vorhergesagte Loss, von … bis")}</span><strong><span data-st-plow="1">${fixedNum(report.ensemble.predictedLow,3)}</span> … <span data-st-phigh="1">${fixedNum(report.ensemble.predictedHigh,3)}</span></strong></div><div class="calculation-row"><span>${tr("Spanne der Vorhersage")}</span><strong data-st-pspan="1">${fixedNum(report.ensemble.predictedSpan,3)}</strong></div><div class="calculation-row"><span>${tr("wie viel schlechter E bestimmt ist als die Vorhersage")}</span><strong data-st-ratio="1">${fixedNum(report.ensemble.offsetSpan/report.ensemble.predictedSpan,1)}×</strong></div></div>`:"";
+      return `<h2>${tr("Vom Messbudget zur vorhergesagten Loss")}</h2>${measurement}${fitRows}${extrapolation}${spread}${stVerdictMarkup(report)}`;
+    }
+    // Die Prosa bleibt statisch. Ein interpolierter Satz braeuchte je Zustand einen eigenen
+    // englischen Eintrag, und in einem doppelt gequoteten Uebersetzungsaufruf wird ein
+    // Platzhalter ohnehin nicht ersetzt -- nur Backticks interpolieren, sonst stuende der
+    // Ausdruck woertlich auf dem Schirm. Alle Zahlen stehen deshalb in den Ledgerzeilen
+    // darueber, auf die die Prosa zeigt.
+    function stVerdictMarkup(report){
+      const tr=value=>esc(localizedUi(value));
+      const key=report.offsetEntry.key,exact=report.sigma===0,thin=report.points.length<=3;
+      let title,body;
+      if(key==="zero"){
+        title="Der Rest sieht aus wie Rauschen, die Vorhersage nicht";
+        body="Ohne Offset wird log L direkt gefittet, und das unterstellt, die Loss ginge bei unendlichem Compute gegen null. Sie geht gegen E. Über die gemessenen Tiers fällt das kaum auf: die Residuen oben liegen in derselben Größenordnung wie die Streuung zwischen zwei Seeds, ein Residuenplot sähe unauffällig aus. Die Steigung γ ist trotzdem viel zu flach, und beim Ziel steht der Fehler ein bis zwei Größenordnungen über dem Rauschen. Genau das meint die transferAnswer dieses Labs: gefittet wird log(L − E), nicht log L.";
+      }else if(key==="high"||key==="over"){
+        title="Ein zu hoher Offset kippt die Steigung in die andere Richtung";
+        body="E zu hoch zu raten, verkleinert alle Restabstände L − E, und zwar die kleinen am stärksten. Im Lograum zieht das die Punkte auseinander und macht γ zu steil. Der Fit bleibt in-sample gut und überschätzt beim Ziel. E und γ sind also nicht zwei unabhängige Größen, die man nacheinander bestimmt, sondern ein gekoppeltes Paar: Für fast jedes E findet sich ein γ, das die Messreihe erklärt.";
+      }else if(key==="free"&&thin){
+        title="Drei Punkte, drei Parameter — der Fit ist exakt und beweist nichts";
+        body="E, A und γ sind drei Freiheitsgrade. Bei drei Messpunkten legt der Scan sie so, dass die Kurve durch alle drei läuft: der Rest-RMSE oben ist praktisch null. Ein perfekter Fit ist hier kein Gütezeichen, sondern die Abwesenheit einer Prüfung — die Kurve hat das Rauschen mitgefittet. Schalte das Rauschen aus, und derselbe exakte Fit trifft plötzlich, weil die drei Punkte dann wirklich auf der Kurve liegen. Das ist der Unterschied zwischen einem Fit, der nichts widerlegen kann, und einem, der es könnte.";
+      }else if(key==="free"&&exact){
+        title="Rauschfrei findet der Scan den Offset — das ist die Methode";
+        body="Der Scan probiert viele E und nimmt das mit dem kleinsten Rest. Auf rauschfreien Daten führt das exakt auf den wahren Offset zurück, und die Vorhersage trifft. Der Grund steht im Modell: entlang der Frontier ist L − E ein reines Potenzgesetz in C, also ist der Fit beim richtigen E nicht bloß gut, sondern exakt. Jeder andere Offset lässt einen Rest stehen. Damit ist E im Prinzip messbar — die Frage ist nur, wie scharf.";
+      }else if(key==="free"){
+        title="E ist schlecht bestimmt, die Vorhersage trotzdem brauchbar";
+        body="Diese eine Messreihe sagt darüber wenig: Der Scan landet hier nah am wahren Offset, aber das ist die Ziehung, nicht die Methode. Die Zeilen darüber zeigen deshalb dieselbe Leiter mit acht Ziehungen. Die Spanne von E ist um ein Vielfaches größer als die der Vorhersage, die aus ihm folgt — und genau das ist die Aussage: Unter Rauschen wird die RMSE-Kurve um ihr Minimum flach, E ist also kaum bestimmt, aber dieselbe Kopplung, die es unbestimmt macht, schützt die Vorhersage. Ein zu kleines E wird von einem flacheren γ aufgefangen, und beide Fehler heben sich dort auf, wo die Daten liegen. Für A3 heißt das: berichte für E ein Intervall statt einer Zahl, und bewerte deinen Fit an der Vorhersage, nicht am geschätzten Offset.";
+      }else{
+        title=exact?"Mit dem wahren Offset ist der Fit exakt":"Mit dem wahren Offset bleibt nur das Rauschen";
+        body=exact?"Der Rest-RMSE oben ist null bis auf Rundung, nicht bloß klein. Entlang der Frontier ist L − E exakt ein Potenzgesetz in C; setzt man das richtige E ein, ist die Gerade im Lograum keine Näherung mehr. Diese Zeile ist der Maßstab, an dem sich die anderen Offsets messen lassen.":"Der einzige verbleibende Rest ist die Messstreuung selbst — der Fit hat nichts hinzugefügt. Der Fehler beim Ziel liegt weit unter dem, was ein falscher Offset kostet. Kennt man E, ist die Extrapolation ein gelöstes Problem; das Problem ist, dass man E nicht kennt.";
+      }
+      const budget="A3 deckelt das Fitbudget auf 12 B200-Stunden und lässt den Lauf, den der Fit entscheiden soll, auf 48 laufen. Das Ziel ist also das Vierfache des gesamten Messbudgets: extrapoliert wird immer, die Frage ist nur, von wo aus. Die Leiter oben gibt dasselbe Budget verschieden aus — viele kleine Läufe verlängern die Reichweite, wenige große verkürzen sie und lassen dafür weniger Punkte übrig, an denen der Fit scheitern könnte.";
+      return `<div class="shape-change"><strong>${tr(title)}</strong><span>${tr(body)}</span></div><div class="callout accent"><strong>${tr("Was A3 damit verlangt")}</strong><br>${tr(budget)}</div>`;
+    }
+    function updateScalingTransfer(){document.getElementById("stStage").innerHTML=stStageMarkup()}
 
     function checkGrpoTransfer(){const values=[document.getElementById("grpoCheckMean").value,document.getElementById("grpoCheckStd").value,document.getElementById("grpoCheckAdv").value,document.getElementById("grpoCheckWeight").value],result=document.getElementById("grpoCheckResult"),tr=value=>esc(localizedUi(value));if(values.some(value=>!value)){toast("Beantworte alle vier GRPO-Kurzcheck-Felder.");return}if(values.join(",")!=="0.50,0.577,+0.866,+0.866"){result.innerHTML=`<div class="callout warning" style="margin-top:.7rem"><strong>${tr("Noch nicht.")}</strong><br>${tr("Zentriere zuerst um μ=0.5. Für Sample-Std teilst du die Summe der vier quadrierten Abweichungen durch G−1=3. Beim Sequenzmittel wird der Advantage auf die Tokens verteilt, aber über die ganze Antwort wieder zu A_i aufsummiert.")}</div>`;return}user.labChecks.grpo=true;saveUser(true);result.innerHTML=grpoSuccessMarkup()}
 

@@ -9874,11 +9874,16 @@ console.log(`english render OK: ${englishStates} states across ${englishLabs} la
   // decides `a5:grpo_train_step_off_policy` (2.5 points), and A5 §6.4 prescribes numbers --
   // 256 against 8, 32 steps, cliprange 0.2 against 3e-4, the clip fraction to log -- that no
   // screen of the app computed.
-  // scaling-transfer is an objective short check: its surface is a question form, not a
-  // computed stage. policy-loss-tracer left this list in v112 when it got one.
-  // moe-routing left this list in v113 when it got a computed stage; scaling-transfer stays,
-  // its surface is a question form and nothing it could compute.
-  const LR_NO_STAGE = ["scaling-transfer"];
+  // policy-loss-tracer left this list in v112 when it got a computed stage, moe-routing in
+  // v113. scaling-transfer left it in v118, and the assurance that used to stand here --
+  // "its surface is a question form and nothing it could compute" -- was the wrong half of
+  // the pair: the lab's own desc says "Pruefe Offset-Fit", and fitting log(L - E) against
+  // log C is arithmetic. No surface of the app had ever fitted a loss curve; scaling-fit
+  // fits N_opt against C and run-plan evaluates the loss model at an already-predicted N.
+  // The list is empty now, so every lab in the app is swept. Both directions are enforced
+  // below: a lab missing from the sweep must be named here, and a lab named here that has
+  // grown a stage is rejected -- which is what forced this edit.
+  const LR_NO_STAGE = [];
   // One lab's branch of initLab, cut by balancing braces from `if(id==="<lab>")`.
   const lrBranch = labId => {
     const marker = source.indexOf(`if(id==="${labId}"){`);
@@ -15516,4 +15521,576 @@ console.log(`ffn-backward OK: ${fbValues} values, all four gradients match A2's 
   llChecks += 3;
 
   console.log(`lecture late OK: ${llChecks} checks -- the totals strip printed "A1 ${llApi.outlook("l03").totals.find(entry => entry.assignment.id === "a1").done}/38" and then stood still across ${llRendering.length} lecture pages (${llRendering[0]}..${llRendering[llRendering.length - 1]}), ${llSilent.length} of which named nothing at all about it, because lectureProblemOutlook only names a concept when a problem hangs on exactly one and the page teaches another of its deciding concepts. The load-bearing claim is now an invariant proved in both directions over ${llPastBorderPairs} assignment-lecture pairs past a border and ${llBeforeBorder} before one: past its own preparation border every problem an assignment still has closed is closed by a concept the course teaches later -- so the gap is the late set exactly, and before the border the block stays silent because there the wait is the ordinary path. ${llNamedAssignments.join(",")} is the only assignment this can happen to and the appearance set is derived rather than typed; counts, points, problem ids and arrival lectures are read back out of the rendered markup in both languages; the count falls from ${llSeries[0].blocked} to ${llSeries[llSeries.length - 1].blocked} as the concepts land and the block falls silent the lecture after the last one arrives; the concepts named agree with the assignment page this mirrors, and at the border lecture the two name the same set; the call site renders it between the totals it explains and the problems it warns about, with a binder behind every concept button; and the plural lead-in, which no current course reaches because only one assignment is ever late at once, is exercised on a synthetic course rather than left unread`);
+}
+
+// ---- scaling-transfer: the offset fit ------------------------------------------------------
+// Until v118 this was the last lab on LR_NO_STAGE, excused by an assurance that said there was
+// "nothing it could compute". The lab's own desc says "Pruefe Offset-Fit" and its transferAnswer
+// states the mechanism -- what gets fitted is log(L_opt - E), not log L_opt, and a wrong E moves
+// gamma. No surface of the app had ever fitted a loss curve: scaling-fit fits N_opt against C,
+// run-plan evaluates the loss model at an already-predicted N. A3's largest problem
+// (scaling_laws, 50 points) asks for exactly this -- "predict the validation loss that this
+// model will obtain" -- so the gap sat under the course's most heavily weighted deliverable.
+// This block recomputes the frontier by a different route than the app (numerical minimisation
+// instead of the closed-form N_opt), re-derives every fit from the definition, and then requires
+// the rendered markup to print those same numbers.
+{
+  const stNames = ["ST_EFLOP", "ST_LADDERS", "ST_OFFSETS", "ST_NOISES", "ST_DRAWS", "stRead", "stPick",
+    "stNumber", "stFrontier", "stFit", "ST_SCAN_STEPS", "stFreeFit", "stEnsemble", "stReport", "stStageMarkup", "stVerdictMarkup",
+    "RP_LOSS_E", "RP_LOSS_A", "RP_ALPHA", "RP_LOSS_B", "RP_BETA", "rpLoss", "RP_N_COEFF", "RP_N_EXPONENT",
+    "rpOptimalN", "rpFrontierLoss", "RP_FIT_SECONDS", "RP_TARGET_SECONDS", "RP_THROUGHPUT", "RP_FIT_FLOPS", "RP_TARGET_FLOPS"];
+  // numberPrelude pins the locale to en-US. This block renders both languages, so it uses the
+  // app's own rule instead -- which means the read-backs below check the decimal separator too:
+  // a German render that printed "31.0" would be parsed as thirty-one thousand and fail here.
+  const stPrelude = `let stLang = "de";\n${numberPrelude.replace('const localeCode = () => "en-US";', 'const localeCode = () => stLang === "en" ? "en-US" : "de-DE";')}const esc = value => String(value ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));\nconst localizedUi = value => stLang === "en" ? (englishUi[value] ?? value) : value;\nconst englishUi = ${JSON.stringify(pack.ui)};\n`;
+  const stApi = runInNewContext(`${stPrelude}${stNames.map(name => sliceDeclaration(source, name)).join("\n")}; ({${stNames.join(",")},setLang:value=>{stLang=value}})`, {});
+  let stChecks = 0;
+  const stFail = message => { throw new Error(`scaling-transfer: ${message}`); };
+  const stAt = (ladder, offset, noise) => stApi.stReport({ stLadder: ladder, stOffset: offset, stNoise: noise });
+  const stRender = (ladder, offset, noise, lang = "de") => {
+    stApi.setLang(lang);
+    const html = stApi.stStageMarkup({ stLadder: ladder, stOffset: offset, stNoise: noise });
+    stApi.setLang("de");
+    return html;
+  };
+  // Read a number back out of the markup by its anchor, undoing the locale separator.
+  const stCell = (html, selector, lang = "de") => {
+    const match = new RegExp(`data-st-${selector}[^>]*>([^<]*)<`, "u").exec(html);
+    if (!match) stFail(`the markup prints no data-st-${selector}`);
+    const digits = match[1].replace(/[^0-9,.−-]/gu, "").replace(/−/gu, "-");
+    // German groups with "." and decimalises with ","; English the other way round. Parsing by
+    // the language the markup was rendered in is what makes a swapped separator fail here.
+    const text = lang === "en" ? digits.replace(/,/gu, "") : digits.replace(/\./gu, "").replace(/,/gu, ".");
+    const value = Number(text);
+    if (!Number.isFinite(value)) stFail(`data-st-${selector} does not read back as a number (${JSON.stringify(match[1])})`);
+    return value;
+  };
+
+  // --- an independent frontier ---------------------------------------------------------------
+  // The app gets L_opt(C) from the closed form N_opt = [alpha*A/(beta*B*6^beta)]^(1/(alpha+beta)).
+  // Here the same number is found by minimising L(N, C/(6N)) over N directly, so a wrong
+  // exponent in the closed form cannot agree with itself.
+  const stLossOf = (params, tokens) => stApi.RP_LOSS_E + stApi.RP_LOSS_A / Math.pow(params, stApi.RP_ALPHA)
+    + stApi.RP_LOSS_B / Math.pow(tokens, stApi.RP_BETA);
+  const stFrontierBySearch = compute => {
+    let low = Math.log(1e3), high = Math.log(1e14);
+    const at = logN => { const n = Math.exp(logN); return stLossOf(n, compute / (6 * n)); };
+    const phi = (Math.sqrt(5) - 1) / 2;
+    for (let step = 0; step < 400; step++) {
+      const a = high - phi * (high - low), b = low + phi * (high - low);
+      if (at(a) < at(b)) high = b; else low = a;
+    }
+    return at((low + high) / 2);
+  };
+  for (const eflop of [0.25, 0.5, 1, 2, 4, 8, 16, 172.8]) {
+    const mine = stFrontierBySearch(eflop * stApi.ST_EFLOP), theirs = stApi.stFrontier(eflop);
+    if (Math.abs(mine - theirs) > 1e-9) stFail(`frontier at ${eflop} EFLOP: search says ${mine}, the app says ${theirs}`);
+    stChecks++;
+  }
+  // (L - E) along the frontier has to be a pure power law in C -- that is the whole premise of
+  // the lab, and it is checked rather than assumed: the log-log slope between any two computes
+  // is the same number.
+  const stSlopeBetween = (c1, c2) =>
+    (Math.log(stFrontierBySearch(c2 * stApi.ST_EFLOP) - stApi.RP_LOSS_E) - Math.log(stFrontierBySearch(c1 * stApi.ST_EFLOP) - stApi.RP_LOSS_E))
+    / (Math.log(c2) - Math.log(c1));
+  const stReference = stSlopeBetween(1, 2);
+  for (const [c1, c2] of [[0.25, 0.5], [2, 4], [8, 16], [16, 172.8], [0.25, 172.8]]) {
+    if (Math.abs(stSlopeBetween(c1, c2) - stReference) > 1e-9)
+      stFail(`(L - E) is not a pure power law between ${c1} and ${c2} EFLOP -- the premise of the lab fails`);
+    stChecks++;
+  }
+  // The exponent the app's gamma must reproduce, derived here rather than read back.
+  const stTrueGamma = -stReference;
+
+  // --- the ladders spend a budget A3 actually caps --------------------------------------------
+  const stCap = stApi.RP_FIT_FLOPS / stApi.ST_EFLOP, stTargetEflop = stApi.RP_TARGET_FLOPS / stApi.ST_EFLOP;
+  if (Math.abs(stCap - 43.2) > 1e-9) stFail(`A3 caps fitting at 12 B200 hours; the app makes that ${stCap} EFLOP`);
+  if (Math.abs(stTargetEflop - 172.8) > 1e-9) stFail(`A3's run is 48 B200 hours; the app makes that ${stTargetEflop} EFLOP`);
+  if (Math.abs(stTargetEflop / stCap - 4) > 1e-12) stFail("the target has to be four times the whole fitting budget");
+  stChecks += 3;
+  const stLadderKeys = stApi.ST_LADDERS.map(entry => entry.key);
+  if (stLadderKeys.length !== 4) stFail(`expected 4 ladders, found ${stLadderKeys.length}`);
+  for (const ladder of stApi.ST_LADDERS) {
+    const spent = ladder.tiers.reduce((sum, value) => sum + value, 0);
+    if (spent > stCap) stFail(`ladder ${ladder.key} spends ${spent} EFLOP and breaks A3's cap of ${stCap}`);
+    const report = stAt(ladder.key, "true", "0");
+    if (Math.abs(report.spent - spent) !== 0) stFail(`ladder ${ladder.key}: the report's spend disagrees with the tier list`);
+    if (Math.abs(report.reach - stTargetEflop / Math.max(...ladder.tiers)) > 1e-12)
+      stFail(`ladder ${ladder.key}: reach is not target over top tier`);
+    // both figures read back out of the rendered markup, not just off the report
+    const html = stRender(ladder.key, "true", "0");
+    if (Math.abs(stCell(html, 'spent="1"') - spent) > 5e-2) stFail(`ladder ${ladder.key}: the markup prints a different spend`);
+    if (Math.abs(stCell(html, 'reach="1"') - report.reach) > 5e-2) stFail(`ladder ${ladder.key}: the markup prints a different reach`);
+    stChecks += 4;
+  }
+
+  // --- the true offset is the only one that fits exactly, in both directions -------------------
+  // Along the frontier (L - E) is exactly a power law, so at the right E the log-log line is not
+  // an approximation. That makes "residual zero" a sharp property and not a tolerance: it holds
+  // for the true offset on every ladder, and for no other offered offset on any of them.
+  let stExact = 0, stInexact = 0;
+  for (const ladder of stLadderKeys) {
+    const right = stAt(ladder, "true", "0");
+    if (!right.fit) stFail(`ladder ${ladder}: the true offset has to admit a fit`);
+    if (right.fit.rmse > 1e-12) stFail(`ladder ${ladder}: the true offset leaves a residual of ${right.fit.rmse}`);
+    if (Math.abs(right.fit.gamma - stTrueGamma) > 1e-9)
+      stFail(`ladder ${ladder}: gamma is ${right.fit.gamma}, the frontier's own exponent is ${stTrueGamma}`);
+    if (Math.abs(right.error) > 1e-9) stFail(`ladder ${ladder}: the true offset has to predict the target exactly`);
+    stExact++;
+    for (const offset of stApi.ST_OFFSETS.filter(entry => entry.key !== "true" && entry.key !== "free")) {
+      const wrong = stAt(ladder, offset.key, "0");
+      if (!wrong.fit) continue;
+      if (!(wrong.fit.rmse > 1e-6)) stFail(`ladder ${ladder}, offset ${offset.key}: a wrong offset has to leave a visible residual`);
+      if (Math.abs(wrong.fit.gamma - stTrueGamma) < 1e-6) stFail(`ladder ${ladder}, offset ${offset.key}: a wrong offset must not reproduce the true gamma`);
+      stInexact++;
+    }
+    stChecks += 4;
+  }
+  if (stExact !== 4) stFail(`the exact case has to be exercised on all 4 ladders, was ${stExact}`);
+  if (stInexact < 4) stFail(`too few wrong-offset comparisons (${stInexact})`);
+
+  // --- the two summary statistics, recomputed rather than compared to themselves ---------------
+  // A first mutation run let "rmse" drop its square root and "worst" drop its absolute value, and
+  // both escaped: every other check compares the markup against the same report, so a statistic
+  // that is wrong in both places agrees with itself. These are rebuilt here from the points and
+  // the fit's own gamma and coefficient. Negative residuals have to be exercised for the absolute
+  // value to be load-bearing at all, so that count is taken rather than hoped for.
+  let stSignedStates = 0, stStatStates = 0;
+  for (const ladder of stLadderKeys) {
+    for (const offset of stApi.ST_OFFSETS) {
+      for (const noise of stApi.ST_NOISES) {
+        const report = stAt(ladder, offset.key, noise.key);
+        if (!report.fit) continue;
+        const residuals = report.points.map((point, index) => {
+          const fitted = report.fit.offset + report.fit.coefficient * Math.pow(point.compute, -report.fit.gamma);
+          if (Math.abs(fitted - report.fit.fitted[index]) > 1e-12)
+            stFail(`${ladder}/${offset.key}/${noise.key}: the stored fitted value is not E + A*C^-gamma at tier ${index}`);
+          return fitted - point.loss;
+        });
+        const rmse = Math.sqrt(residuals.reduce((sum, value) => sum + value * value, 0) / residuals.length);
+        const worst = Math.max(...residuals.map(Math.abs));
+        if (Math.abs(report.fit.rmse - rmse) > 1e-12)
+          stFail(`${ladder}/${offset.key}/${noise.key}: rmse is ${report.fit.rmse}, the root mean square of the residuals is ${rmse}`);
+        if (Math.abs(report.fit.worst - worst) > 1e-12)
+          stFail(`${ladder}/${offset.key}/${noise.key}: the largest residual is ${report.fit.worst}, the largest absolute residual is ${worst}`);
+        // rmse can never exceed the largest absolute residual, and squaring it would break that
+        // whenever the residuals are above one -- so the relation is held as well as the value
+        if (report.fit.rmse > report.fit.worst + 1e-12)
+          stFail(`${ladder}/${offset.key}/${noise.key}: an rmse above the largest single residual is impossible`);
+        const signed = residuals.reduce((a, b) => Math.abs(b) > Math.abs(a) ? b : a, 0);
+        if (signed < 0) stSignedStates++;
+        stStatStates++; stChecks += 4;
+      }
+    }
+  }
+  if (!(stSignedStates > 0))
+    stFail("no state has a negative largest residual, so dropping the absolute value in 'worst' would be untestable");
+  if (stStatStates < 60) stFail(`too few states carried a fit (${stStatStates})`);
+
+  // --- two bounds that no reachable state can exercise, counted rather than left silent --------
+  // Two mutations survived the first run because the data hide the property, not because the
+  // guard is thin, and both reasons are measured here so they cannot rot into real gaps.
+  // (1) stFit admits a point only when L - E is above 1e-9. Across every fitted state the
+  //     smallest positive gap is orders of magnitude larger, so the exact epsilon is unobservable.
+  let stSmallestGap = Infinity;
+  for (const ladder of stLadderKeys) for (const offset of stApi.ST_OFFSETS) for (const noise of stApi.ST_NOISES) {
+    const report = stAt(ladder, offset.key, noise.key);
+    if (!report.fit) continue;
+    for (const point of report.points) {
+      const gap = point.loss - report.fit.offset;
+      if (gap > 0) stSmallestGap = Math.min(stSmallestGap, gap);
+    }
+  }
+  if (!(stSmallestGap > 1e-6))
+    stFail(`the smallest reachable L - E is ${stSmallestGap}; the 1e-9 feasibility epsilon has become observable and now needs its own test`);
+  // (2) the free scan stops 0.01 below the smallest measured loss. Every offset above that
+  //     smallest loss is refused by stFit anyway, so neither the margin nor the choice of
+  //     min() over max() can change which offset the scan returns. Held by counting the
+  //     feasible offsets above the minimum: there are none, on any ladder or noise level.
+  let stFeasibleAboveMinimum = 0;
+  for (const ladder of stApi.ST_LADDERS) for (const noise of stApi.ST_NOISES) {
+    const report = stAt(ladder.key, "true", noise.key);
+    const smallest = Math.min(...report.points.map(point => point.loss));
+    const highest = Math.max(...report.points.map(point => point.loss));
+    for (let step = 0; step <= 200; step++) {
+      const offset = smallest + (highest - smallest) * step / 200;
+      if (stApi.stFit(report.points, offset)) stFeasibleAboveMinimum++;
+    }
+  }
+  if (stFeasibleAboveMinimum !== 0)
+    stFail(`${stFeasibleAboveMinimum} offsets at or above the smallest measured loss still fit -- the scan's ceiling has become observable and needs its own test`);
+  stChecks += 2;
+
+  // --- the coupling: E and gamma are one pair, not two numbers --------------------------------
+  // The span of gamma across the offered offsets is what makes the lab's transferAnswer true.
+  // Measured here rather than asserted, and required to be wide while the residuals stay small.
+  const stGammas = [], stResiduals = [];
+  for (const offset of stApi.ST_OFFSETS) {
+    const report = stAt("deep", offset.key, "0");
+    if (!report.fit) continue;
+    stGammas.push(report.fit.gamma); stResiduals.push(report.fit.rmse);
+  }
+  const stGammaSpan = Math.max(...stGammas) / Math.min(...stGammas);
+  const stWorstResidual = Math.max(...stResiduals);
+  if (stGammaSpan < 2) stFail(`gamma only spans a factor of ${stGammaSpan} across the offsets -- the coupling the lab teaches would be invisible`);
+  if (stWorstResidual > 0.02) stFail(`a wrong offset leaves a residual of ${stWorstResidual}; it would be obvious in-sample and the lab would teach nothing`);
+  stChecks += 2;
+
+  // --- the trap, in the one unit that decides it ----------------------------------------------
+  // The naive fit (E = 0, log L directly) is the mistake A3 invites. Its residuals have to sit
+  // inside the seed noise while its extrapolation sits far outside it -- both numbers read back
+  // out of the markup, because that is where the reader meets them.
+  let stTrapStates = 0;
+  for (const ladder of stLadderKeys) {
+    for (const noise of stApi.ST_NOISES.filter(entry => entry.value > 0)) {
+      const report = stAt(ladder, "zero", noise.key);
+      if (!report.fit) stFail(`ladder ${ladder}: the zero offset always admits a fit`);
+      const html = stRender(ladder, "zero", noise.key);
+      const printedError = stCell(html, 'errsigma="1"'), printedResidual = stCell(html, 'residsigma="1"');
+      if (Math.abs(printedError - report.errorInSigma) > 0.05) stFail(`ladder ${ladder}/${noise.key}: the markup's error in sigma disagrees with the report`);
+      if (Math.abs(printedResidual - report.residualInSigma) > 0.05) stFail(`ladder ${ladder}/${noise.key}: the markup's residual in sigma disagrees with the report`);
+      // the claim the verdict prose makes: the residual looks like noise, the error does not
+      if (report.errorInSigma <= report.residualInSigma)
+        stFail(`ladder ${ladder}/${noise.key}: the zero offset's extrapolation error (${report.errorInSigma} sigma) is not larger than its residual (${report.residualInSigma} sigma) -- the lab's headline would be false`);
+      if (report.error >= 0) stFail(`ladder ${ladder}/${noise.key}: fitting log L directly has to underestimate the target loss`);
+      stTrapStates++; stChecks += 4;
+    }
+  }
+  if (stTrapStates !== 12) stFail(`the trap has to be exercised in all 12 noisy states, was ${stTrapStates}`);
+  // At the realistic seed spread the gap is not marginal but an order of magnitude.
+  const stTrapDeep = stAt("deep", "zero", "0.005");
+  if (!(stTrapDeep.errorInSigma / stTrapDeep.residualInSigma > 5))
+    stFail(`at sigma = 0.005 the zero offset's error is only ${stTrapDeep.errorInSigma / stTrapDeep.residualInSigma} times its residual`);
+  stChecks++;
+
+  // --- reach: the same budget, spent higher up, buys a better extrapolation --------------------
+  // Both directions of the ladder's own claim. Only the three five-point ladders are compared,
+  // so point count is held fixed and reach is the only thing moving.
+  const stFive = stApi.ST_LADDERS.filter(entry => entry.tiers.length === 5)
+    .map(entry => ({ key: entry.key, report: stAt(entry.key, "zero", "0") }))
+    .sort((a, b) => a.report.reach - b.report.reach);
+  if (stFive.length !== 3) stFail(`expected 3 five-point ladders, found ${stFive.length}`);
+  for (let index = 1; index < stFive.length; index++) {
+    if (!(stFive[index].report.reach > stFive[index - 1].report.reach)) stFail("the five-point ladders have to differ in reach");
+    if (!(Math.abs(stFive[index].report.error) > Math.abs(stFive[index - 1].report.error)))
+      stFail(`ladder ${stFive[index].key} reaches further than ${stFive[index - 1].key} but does not extrapolate worse`);
+    stChecks += 2;
+  }
+
+  // --- the free scan: the method works, and where it stops working ----------------------------
+  // Noise-free, scanning E for the smallest residual returns the true offset on every ladder.
+  // That is the half the lab must not fake: the method is sound, and its failure under noise is
+  // a statement about identifiability, not about the method.
+  for (const ladder of stLadderKeys) {
+    const found = stAt(ladder, "free", "0");
+    if (!found.fit) stFail(`ladder ${ladder}: the free scan has to find some offset`);
+    const step = (Math.min(...found.points.map(point => point.loss)) - 0.01) / stApi.ST_SCAN_STEPS;
+    if (Math.abs(found.fit.offset - stApi.RP_LOSS_E) > step)
+      stFail(`ladder ${ladder}: the noise-free scan lands on E = ${found.fit.offset}, further than one scan step from the true ${stApi.RP_LOSS_E}`);
+    if (Math.abs(found.error) > 1e-3) stFail(`ladder ${ladder}: the noise-free scan has to predict the target`);
+    stChecks += 2;
+  }
+  // The three five-point ladders keep the prediction well conditioned under noise even though the
+  // recovered offset wanders -- the asymmetry the verdict prose claims. Both halves measured.
+  // One draw shows a coincidence, not a spread: with this draw list the five-point ladders happen
+  // to recover E to within 0.03, so prose claiming "the offset wanders far" would claim something
+  // the reader cannot see. The lab therefore refits the same ladder on every rotation of the draw
+  // list and prints both spans. What is held here is the asymmetry those spans show -- E far less
+  // determined than the prediction drawn from it -- on every noisy state, in both directions.
+  let stSpreadStates = 0, stWorstRatio = Infinity, stLuckyDraws = 0;
+  for (const ladder of stLadderKeys) {
+    for (const noise of stApi.ST_NOISES.filter(item => item.value > 0)) {
+      const report = stAt(ladder, "free", noise.key);
+      if (!report.fit) stFail(`ladder ${ladder}: the free scan has to admit a fit under noise`);
+      const spread = report.ensemble;
+      if (!spread) stFail(`ladder ${ladder}/${noise.key}: a free fit under noise has to carry an ensemble`);
+      if (spread.draws !== stApi.ST_DRAWS.length)
+        stFail(`ladder ${ladder}/${noise.key}: ${spread.draws} of ${stApi.ST_DRAWS.length} rotations fitted -- a silent drop would narrow the span`);
+      if (!(spread.offsetLow <= report.fit.offset && report.fit.offset <= spread.offsetHigh))
+        stFail(`ladder ${ladder}/${noise.key}: the displayed offset lies outside the span the lab prints around it`);
+      if (!(spread.offsetSpan > spread.predictedSpan))
+        stFail(`ladder ${ladder}/${noise.key}: E is not less determined than its own prediction -- the lab's claim fails`);
+      stWorstRatio = Math.min(stWorstRatio, spread.offsetSpan / spread.predictedSpan);
+      // wider noise has to widen both spans, or the control is decoration
+      const quieter = stApi.ST_NOISES.filter(item => item.value > 0 && item.value < noise.value).pop();
+      if (quieter) {
+        const before = stAt(ladder, "free", quieter.key).ensemble;
+        if (!(spread.offsetSpan > before.offsetSpan) || !(spread.predictedSpan > before.predictedSpan))
+          stFail(`ladder ${ladder}: raising sigma from ${quieter.value} to ${noise.value} does not widen both spans`);
+        stChecks++;
+      }
+      // the spans are read back out of the markup, in both languages
+      for (const lang of ["de", "en"]) {
+        const html = stRender(ladder, "free", noise.key, lang);
+        for (const [selector, value] of [["espan", spread.offsetSpan], ["pspan", spread.predictedSpan],
+          ["elow", spread.offsetLow], ["ehigh", spread.offsetHigh], ["plow", spread.predictedLow], ["phigh", spread.predictedHigh]]) {
+          if (Math.abs(stCell(html, `${selector}="1"`, lang) - value) > 5e-4)
+            stFail(`ladder ${ladder}/${noise.key}/${lang}: the markup's ${selector} disagrees with the ensemble`);
+          stChecks++;
+        }
+      }
+      if (Math.abs(report.fit.offset - stApi.RP_LOSS_E) < 0.05) stLuckyDraws++;
+      stSpreadStates++; stChecks += 4;
+    }
+  }
+  if (stSpreadStates !== 12) stFail(`the ensemble has to be exercised in all 12 noisy free states, was ${stSpreadStates}`);
+  // The other direction, which a first mutation run walked straight through: without noise every
+  // rotation of the draw list is the same measurement series, so the spans would be zero and the
+  // ratio 0/0. The section must not appear there at all -- and no render, in any state, may carry
+  // a NaN into the markup.
+  let stNoSpread = 0;
+  for (const ladder of stLadderKeys) {
+    const quiet = stAt(ladder, "free", "0");
+    if (quiet.ensemble) stFail(`ladder ${ladder}: a noiseless free fit has no spread to show and must not carry an ensemble`);
+    for (const lang of ["de", "en"]) {
+      const html = stRender(ladder, "free", "0", lang);
+      if (/NaN/u.test(html)) stFail(`ladder ${ladder}/${lang}: the noiseless free render prints NaN`);
+      if (/data-st-espan/u.test(html)) stFail(`ladder ${ladder}/${lang}: the noiseless free render prints a span section`);
+    }
+    // and for every other offset there is nothing to spread either
+    for (const offset of ["zero", "true", "high"])
+      if (stAt(ladder, offset, "0.01").ensemble) stFail(`ladder ${ladder}/${offset}: only an estimated offset has a spread`);
+    stNoSpread++; stChecks += 6;
+  }
+  if (stNoSpread !== 4) stFail(`the empty-spread direction has to cover all 4 ladders, was ${stNoSpread}`);
+  if (!(stWorstRatio > 3)) stFail(`the weakest state only makes E ${stWorstRatio} times less determined than its prediction -- too weak to teach`);
+  // The reason the ensemble exists, recorded as a number rather than as a remark: on most states
+  // this particular draw lands close to the truth. The day a new draw list changes that, this
+  // count changes with it and the comment above stops being true silently.
+  if (stLuckyDraws < 6) stFail(`only ${stLuckyDraws} states land near the true offset on the displayed draw; the note about why the ensemble is needed no longer matches the data`);
+  // The prediction itself stays well conditioned on the five-point ladders -- the other half.
+  let stHeld = 0;
+  for (const entry of stFive) {
+    for (const noise of stApi.ST_NOISES.filter(item => item.value >= 0.005)) {
+      if (Math.abs(stAt(entry.key, "free", noise.key).error) < 10 * noise.value) stHeld++;
+      stChecks++;
+    }
+  }
+  if (stHeld !== 6) stFail(`the prediction has to stay well conditioned in all 6 noisy five-point states, was ${stHeld}`);
+  stChecks += 3;
+
+  // --- three points, three parameters: an exact fit that proves nothing ------------------------
+  // The sparse ladder has the same reach as the deep one, so the contrast isolates point count.
+  // Its free fit interpolates exactly -- residual at machine level -- while its extrapolation is
+  // the worst of any free state. A perfect in-sample fit is the absence of a test, and the guard
+  // holds both halves so neither can drift.
+  const stSparse = stAt("sparse", "free", "0.005"), stDeep = stAt("deep", "free", "0.005");
+  if (Math.abs(stSparse.reach - stDeep.reach) > 1e-12) stFail("sparse and deep have to share a reach, or the contrast measures reach instead of point count");
+  if (stSparse.points.length !== 3 || stDeep.points.length !== 5) stFail("the sparse/deep contrast needs 3 against 5 points");
+  if (!(stSparse.fit.rmse < 1e-5)) stFail(`three points and three free parameters have to interpolate exactly; residual was ${stSparse.fit.rmse}`);
+  if (!(Math.abs(stSparse.error) > 10 * Math.abs(stDeep.error)))
+    stFail(`the sparse fit's error (${stSparse.error}) is not far worse than the deep fit's (${stDeep.error}) despite the perfect residual`);
+  if (!(stSparse.errorInSigma > 10)) stFail(`the sparse overfit has to miss by more than 10 sigma, was ${stSparse.errorInSigma}`);
+  // and the same three points, without noise, land exactly -- so it really is the noise being fitted
+  const stSparseClean = stAt("sparse", "free", "0");
+  if (!(Math.abs(stSparseClean.error) < 1e-3)) stFail("without noise the same three points have to land, or the diagnosis 'it fitted the noise' is wrong");
+  stChecks += 6;
+
+  // --- E has to lie below every measured loss, and that bound is reachable ---------------------
+  // A branch a reader cannot reach is not a lesson. The offered offset above some ladders'
+  // smallest measured loss refuses a fit on exactly those ladders, at every noise level, and
+  // admits one on exactly the others -- both directions, counted.
+  let stRefused = 0, stAdmitted = 0;
+  for (const ladder of stLadderKeys) {
+    for (const noise of stApi.ST_NOISES) {
+      const report = stAt(ladder, "over", noise.key);
+      const smallest = Math.min(...report.points.map(point => point.loss));
+      const offered = stApi.ST_OFFSETS.find(entry => entry.key === "over").value;
+      if (smallest <= offered) {
+        if (report.fit) stFail(`ladder ${ladder}/${noise.key}: E = ${offered} sits at or above a measured loss of ${smallest} and still fitted`);
+        const html = stRender(ladder, "over", noise.key);
+        if (!html.includes("Kein Fit") && !html.includes("No fit")) stFail(`ladder ${ladder}/${noise.key}: the reader has to be told why there is no fit`);
+        stRefused++;
+      } else {
+        if (!report.fit) stFail(`ladder ${ladder}/${noise.key}: E = ${offered} is below every measured loss (${smallest}) and has to fit`);
+        stAdmitted++;
+      }
+      stChecks++;
+    }
+  }
+  if (stRefused !== 8 || stAdmitted !== 8)
+    stFail(`the bound has to be exercised both ways -- 8 refusals and 8 fits expected, got ${stRefused} and ${stAdmitted}`);
+  stChecks += 2;
+
+  // --- every printed number is the computed one, in both languages ----------------------------
+  // Reading the ledger back is the only check that covers the render path; a report that is right
+  // and a markup that prints something else would pass everything above.
+  let stReadBack = 0;
+  for (const ladder of stLadderKeys) {
+    for (const offset of ["zero", "true", "high", "free"]) {
+      for (const lang of ["de", "en"]) {
+        const report = stAt(ladder, offset, "0.005");
+        const html = stRender(ladder, offset, "0.005", lang);
+        for (const [attribute, value, tolerance] of [
+          ["offset", report.fit.offset, 5e-5],
+          ["gamma", report.fit.gamma, 5e-7],
+          ["rmse", report.fit.rmse, 5e-7],
+          ["predicted", report.predicted, 5e-5],
+          ["truth", report.truth, 5e-5],
+          ["error", report.error, 5e-5]
+        ]) {
+          const printedValue = stCell(html, `${attribute}="1"`, lang);
+          if (Math.abs(printedValue - value) > tolerance)
+            stFail(`${ladder}/${offset}/${lang}: the markup's ${attribute} is ${printedValue}, the report's is ${value}`);
+          stReadBack++;
+        }
+        // The measured column is what the reader is told the runs returned, and the frontier
+        // column what they would have returned without noise. A first mutation run printed the
+        // clean value in both and nothing noticed, because no check had ever read either cell.
+        report.points.forEach((point, index) => {
+          if (Math.abs(stCell(html, `measured="${index}"`, lang) - point.loss) > 5e-5)
+            stFail(`${ladder}/${offset}/${lang}: the measured cell at tier ${index} is not the measured loss`);
+          if (Math.abs(stCell(html, `clean="${index}"`, lang) - point.clean) > 5e-5)
+            stFail(`${ladder}/${offset}/${lang}: the frontier cell at tier ${index} is not the frontier loss`);
+          if (!(Math.abs(point.loss - point.clean) > 1e-9))
+            stFail(`${ladder}/${offset}/${lang}: tier ${index} is noiseless in a state read at sigma 0.005 -- the two columns would be indistinguishable`);
+          stReadBack += 2;
+        });
+        // the truth must not move with the reader's choices -- it is the same target either way
+        if (Math.abs(report.truth - stAt("wide", "zero", "0").truth) > 1e-12)
+          stFail(`${ladder}/${offset}: the true frontier loss at the target moved with a control`);
+        // every residual cell has to be the fitted value minus the measured one
+        report.points.forEach((point, index) => {
+          const printed = stCell(html, `residual="${index}"`, lang);
+          const expected = report.fit.fitted[index] - point.loss;
+          if (Math.abs(printed - expected) > 5e-5)
+            stFail(`${ladder}/${offset}/${lang}: residual ${index} prints ${printed}, the fit says ${expected}`);
+          stReadBack++;
+        });
+        stChecks += 2;
+      }
+    }
+  }
+  if (stReadBack < 300) stFail(`too few read-backs (${stReadBack})`);
+
+  // --- which verdict the reader is shown, and in which state ------------------------------------
+  // Every check above weighs what the lab computes. The prose beside those numbers is *selected*,
+  // and a first mutation run inverted the branch that fires on three points and re-pointed the
+  // trap paragraph at the wrong offset without a single failure. The selection is therefore
+  // derived here from the state, independently of the chain in the app, and required to match --
+  // which is also what exposed an offset above the smallest measured loss being handed the
+  // true-offset paragraph on the two ladders where it does fit.
+  const stHeadline = report => {
+    const key = report.offsetEntry.key, exact = report.sigma === 0, thin = report.points.length <= 3;
+    if (key === "zero") return "Der Rest sieht aus wie Rauschen, die Vorhersage nicht";
+    if (key === "high" || key === "over") return "Ein zu hoher Offset kippt die Steigung in die andere Richtung";
+    if (key === "free") return thin ? "Drei Punkte, drei Parameter — der Fit ist exakt und beweist nichts"
+      : exact ? "Rauschfrei findet der Scan den Offset — das ist die Methode"
+      : "E ist schlecht bestimmt, die Vorhersage trotzdem brauchbar";
+    return exact ? "Mit dem wahren Offset ist der Fit exakt" : "Mit dem wahren Offset bleibt nur das Rauschen";
+  };
+  const stSeen = new Map();
+  for (const ladder of stLadderKeys) {
+    for (const offset of stApi.ST_OFFSETS) {
+      for (const noise of stApi.ST_NOISES) {
+        const report = stAt(ladder, offset.key, noise.key);
+        const html = stRender(ladder, offset.key, noise.key);
+        if (!report.fit) {
+          // the refusal has its own surface and must not also carry a verdict
+          for (const title of new Set([...stSeen.keys()]))
+            if (html.includes(title)) stFail(`${ladder}/${offset.key}/${noise.key}: a refused fit still prints the verdict "${title}"`);
+          continue;
+        }
+        const expected = stHeadline(report);
+        if (!html.includes(expected))
+          stFail(`${ladder}/${offset.key}/${noise.key}: the stage does not carry the verdict this state earns ("${expected}")`);
+        // and no other verdict may appear beside it
+        for (const other of ["Der Rest sieht aus wie Rauschen, die Vorhersage nicht",
+          "Ein zu hoher Offset kippt die Steigung in die andere Richtung",
+          "Drei Punkte, drei Parameter — der Fit ist exakt und beweist nichts",
+          "Rauschfrei findet der Scan den Offset — das ist die Methode",
+          "E ist schlecht bestimmt, die Vorhersage trotzdem brauchbar",
+          "Mit dem wahren Offset ist der Fit exakt",
+          "Mit dem wahren Offset bleibt nur das Rauschen"])
+          if (other !== expected && html.includes(other))
+            stFail(`${ladder}/${offset.key}/${noise.key}: two verdicts at once ("${expected}" and "${other}")`);
+        stSeen.set(expected, (stSeen.get(expected) ?? 0) + 1);
+        stChecks += 2;
+      }
+    }
+  }
+  // every paragraph the lab can write has to be reachable, or it is prose nobody will read
+  if (stSeen.size !== 7) stFail(`${stSeen.size} of 7 verdicts are reachable: ${[...stSeen.keys()].join(" | ")}`);
+  for (const [title, count] of stSeen) if (!(count > 0)) stFail(`the verdict "${title}" is never shown`);
+  stChecks += 2;
+  // The English reader gets the matching paragraph, not the German one and not a different branch.
+  for (const [ladder, offset, noise] of [["deep", "zero", "0.005"], ["sparse", "free", "0.005"],
+    ["deep", "free", "0"], ["deep", "free", "0.005"], ["deep", "true", "0"], ["mid", "over", "0.005"]]) {
+    const german = stHeadline(stAt(ladder, offset, noise));
+    const english = pack.ui[german];
+    if (typeof english !== "string" || !english.trim()) stFail(`the verdict "${german}" has no English entry`);
+    const html = stRender(ladder, offset, noise, "en");
+    if (!html.includes(english)) stFail(`${ladder}/${offset}/${noise}: the English stage does not carry "${english}"`);
+    if (html.includes(german)) stFail(`${ladder}/${offset}/${noise}: the English stage still carries the German verdict`);
+    stChecks += 3;
+  }
+
+  // --- a ceiling that decides nothing, said with a number ---------------------------------------
+  // Two mutations of the free scan's upper bound survived the first run. The reason is not a thin
+  // guard: stFit refuses every offset at or above the smallest measured loss, so moving the bound
+  // only re-quantises the grid. Measured here -- the recovered offset moves by less than one scan
+  // step in every state -- so the day the bound starts to matter, this stops being true.
+  let stCeilingDrift = 0;
+  for (const ladder of stApi.ST_LADDERS) {
+    for (const noise of stApi.ST_NOISES) {
+      const report = stAt(ladder.key, "free", noise.key);
+      const highest = Math.max(...report.points.map(point => point.loss));
+      let best = null;
+      for (let step = 0; step <= stApi.ST_SCAN_STEPS; step++) {
+        const fit = stApi.stFit(report.points, highest * step / stApi.ST_SCAN_STEPS);
+        if (fit && (!best || fit.rmse < best.rmse)) best = fit;
+      }
+      const stepSize = Math.min(...report.points.map(point => point.loss)) / stApi.ST_SCAN_STEPS;
+      stCeilingDrift = Math.max(stCeilingDrift, Math.abs(best.offset - report.fit.offset) / stepSize);
+      stChecks++;
+    }
+  }
+  // (measured at <printed in the block's summary> of a step; the coarse-grid mutation of
+  // ST_SCAN_STEPS is caught, so resolution is tested and only the bound is not)
+  if (!(stCeilingDrift < 1))
+    stFail(`changing the scan's ceiling moves the recovered offset by ${stCeilingDrift} scan steps -- it now decides something and needs a test of its own`);
+  stChecks++;
+
+  // --- the panel, its controls and the call site ------------------------------------------------
+  const stPanel = source.slice(source.indexOf('if(id==="scaling-transfer"){\n        const objective=LAB_OBJECTIVES[id]'),
+    source.indexOf("      if(LAB_OBJECTIVES[id])return objectiveLabMarkup(id);"));
+  if (!stPanel) stFail("the panel branch is gone");
+  // The three selects get their id through a helper, so the literal attribute is not in the
+  // source -- the call is. That the rendered panel really carries them is the render sweep's
+  // job, which drives labMarkup itself and counts each of the three as moving its lab.
+  for (const needle of ['select("stLadder"', 'select("stOffset"', 'select("stNoise"', 'id="stStage"'])
+    if (!stPanel.includes(needle)) stFail(`the panel has to carry ${needle}`);
+  // ...and each select has to be handed the list it names, not another lab's.
+  for (const [control, list] of [["stLadder", "ST_LADDERS"], ["stOffset", "ST_OFFSETS"], ["stNoise", "ST_NOISES"]])
+    if (!stPanel.includes(`select("${control}",${list},`)) stFail(`the ${control} select is not built from ${list}`);
+  // The short check is the lab's older half and has to keep working: same field ids, same button,
+  // so checkObjectiveLab stays responsible and a reader's earlier pass still restores.
+  for (const needle of ['id="objective-', 'id="objectiveCheck"', 'id="objectiveResult"'])
+    if (!stPanel.includes(needle)) stFail(`the panel dropped ${needle} -- the objective short check would stop working`);
+  stChecks += 10;
+  // The stage formats through stNumber where a signed zero could appear, never fixedNum directly.
+  const stStageSource = sliceDeclaration(source, "stStageMarkup");
+  for (const field of ["data-st-residual", "data-st-rmse", "data-st-error"])
+    if (!new RegExp(`${field}="[\\s\\S]{0,40}?stNumber\\(`, "u").test(stStageSource))
+      stFail(`${field} has to print through stNumber, or a residue of -4e-6 shows the reader a minus sign in front of a zero`);
+  stChecks += 3;
+  // The call site: all three controls bound, and the stage drawn once on open.
+  const stInit = source.slice(source.indexOf('if(id==="scaling-transfer"){["stLadder"'), source.indexOf('if(id==="grpo"){document.querySelectorAll'));
+  if (!stInit) stFail("initLab does not wire this lab");
+  for (const control of ["stLadder", "stOffset", "stNoise"])
+    if (!stInit.includes(`"${control}"`)) stFail(`initLab does not bind ${control}`);
+  if (!/updateScalingTransfer\(\)\}/u.test(stInit)) stFail("initLab has to draw the stage once when the lab opens");
+  stChecks += 4;
+  // Each control has to move the render -- the coupling that catches both a dead control and one
+  // renderer reading another's value.
+  const stBase = stRender("deep", "true", "0");
+  for (const [control, other] of [["stLadder", "mid"], ["stOffset", "zero"], ["stNoise", "0.01"]]) {
+    const moved = control === "stLadder" ? stRender("mid", "true", "0")
+      : control === "stOffset" ? stRender("deep", "zero", "0") : stRender("deep", "true", "0.01");
+    if (moved === stBase) stFail(`${control} does not move the render (${other})`);
+    stChecks++;
+  }
+
+  const stSpanDeep = stAt("deep", "free", "0.005").ensemble;
+  console.log(`offset fit OK: ${stChecks} checks -- scaling-transfer was the last lab without a computed stage, excused by an assurance that there was "nothing it could compute" while its own desc promised "Pruefe Offset-Fit" and A3's 50-point problem asks for the predicted validation loss; the frontier is recomputed here by minimising L(N, C/(6N)) over N instead of the app's closed form (agreement better than 1e-9 at 8 compute tiers) and (L - E) is shown to be a pure power law in C across 5 spans rather than assumed, which is what makes gamma = ${stTrueGamma.toFixed(6)} the exponent the fit must return: at the true offset the residual is zero to machine precision on all 4 ladders and at no other offered offset on any of them, while gamma spans a factor of ${stGammaSpan.toFixed(2)} across the offsets and the worst wrong-offset residual stays at ${stWorstResidual.toFixed(4)} -- small enough that the misspecification is invisible in-sample; fitting log L directly underestimates the target in all ${stTrapStates} noisy states and its error exceeds its own residual in every one, by a factor of ${(stTrapDeep.errorInSigma / stTrapDeep.residualInSigma).toFixed(1)} at the realistic seed spread (${stTrapDeep.errorInSigma.toFixed(1)} sigma against ${stTrapDeep.residualInSigma.toFixed(1)} sigma), and spending the same budget higher up strictly reduces that error across the 3 five-point ladders; the noise-free scan recovers the true offset to within one scan step on every ladder, while under noise one draw settles nothing -- refitting the same ladder on all ${stApi.ST_DRAWS.length} rotations of the draw list leaves E spanning ${stSpanDeep.offsetSpan.toFixed(3)} against ${stSpanDeep.predictedSpan.toFixed(3)} for the prediction drawn from it at the realistic seed spread, an asymmetry of at least ${stWorstRatio.toFixed(1)}x in every noisy state, and the prediction stays inside 10 sigma in all 6 noisy five-point states; the 3-point ladder at the same reach interpolates exactly (residual ${stSparse.fit.rmse.toExponential(1)}) and misses by ${stSparse.errorInSigma.toFixed(1)} sigma -- ${(Math.abs(stSparse.error) / Math.abs(stDeep.error)).toFixed(0)} times the 5-point error, an exact fit that is the absence of a test; the bound E < min L is exercised ${stRefused} times as a refusal and ${stAdmitted} times as a fit, while the scan's own ceiling is shown to decide nothing -- moving it to the largest measured loss shifts the recovered offset by ${stCeilingDrift.toFixed(3)} of one scan step, so that bound is knowingly untested rather than silently so; and ${stReadBack} figures are read back out of the rendered markup in both languages rather than off the report`);
 }
