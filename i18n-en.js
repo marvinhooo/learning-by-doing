@@ -11955,6 +11955,7 @@ window.CS336_EN = Object.freeze({
     "Separater AdamW-Decay": "Separate AdamW decay",
     "Adaptiver Gradientenschritt": "Adaptive gradient step",
     "Neuer Parameter": "New parameter",
+    "θ_neu": "θ_new",
     "Warum die Hüte?": "Why the hats?",
     "m und v starten bei null und wären am Anfang systematisch zu klein. Die Bias Correction teilt durch 1−β₁ᵗ beziehungsweise 1−β₂ᵗ. Im ersten Step werden dadurch m̂₁=g und v̂₁=g²; spätere Steps enthalten die geglättete Gradientenhistorie.": "m and v start at zero and would initially be systematically too small. Bias Correction divides by 1−β₁ᵗ and 1−β₂ᵗ, respectively. In the first Step this gives m̂₁=g and v̂₁=g²; later Steps contain the smoothed gradient history.",
     "Der Optimizer besitzt damit pro Parameter zwei zusätzliche Zustände. Backpropagation berechnet nur g; AdamW speichert m und v über Steps und verändert erst anschließend θ.": "The Optimizer therefore owns two additional states per parameter. Backpropagation computes only g; AdamW stores m and v across Steps and only then changes θ.",

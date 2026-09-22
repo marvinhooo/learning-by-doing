@@ -5856,7 +5856,7 @@ if (rbApi.RB_VOCAB !== 32000) throw new Error("run-budget-ledger: the API models
 const rbExampleTokens = rbApi.RB_TOKEN_CHOICES.find(entry => entry.key === "t1");
 if (rbExampleTokens.tokens !== 1048576)
   throw new Error("run-budget-ledger: the example request trains on 1_048_576 tokens");
-for (const check of rbApi.rbConstraints(rbExample, rbExampleTokens.tokens, 30)) {
+for (const check of rbApi.rbConstraints(rbExample, rbExampleTokens.tokens, 30, "gegen")) {
   if (!check.ok) throw new Error(`run-budget-ledger: A3's own example request fails the rule ${check.key}, so the rule is wrong`);
   rbValues++;
 }
@@ -5864,7 +5864,7 @@ for (const check of rbApi.rbConstraints(rbExample, rbExampleTokens.tokens, 30)) 
 // --- each broken config has to break exactly one rule, or it teaches two things at once
 const rbBreaks = { mismatch: "hidden", kv: "kv" };
 for (const arch of rbApi.RB_ARCHS) {
-  const failed = rbApi.rbConstraints(arch, rbExampleTokens.tokens, 900).filter(check => !check.ok).map(check => check.key);
+  const failed = rbApi.rbConstraints(arch, rbExampleTokens.tokens, 900, "gegen").filter(check => !check.ok).map(check => check.key);
   const want = rbBreaks[arch.key] ? [rbBreaks[arch.key]] : [];
   if (JSON.stringify(failed) !== JSON.stringify(want))
     throw new Error(`run-budget-ledger: ${arch.key} must break exactly ${want.join(",") || "no rule"}, it breaks ${failed.join(",") || "none"}`);
@@ -5877,16 +5877,16 @@ if (rbRound.tokens % rbApi.RB_TOKENS_PER_STEP === 0)
 if (rbRound.tokens % rbApi.RB_TOKENS_PER_STEP !== 57600)
   throw new Error(`run-budget-ledger: 100000000 mod 65536 is 57600, found ${rbRound.tokens % rbApi.RB_TOKENS_PER_STEP}`);
 for (const choice of rbApi.RB_TOKEN_CHOICES) {
-  const failed = rbApi.rbConstraints(rbExample, choice.tokens, 900).filter(check => !check.ok).map(check => check.key);
+  const failed = rbApi.rbConstraints(rbExample, choice.tokens, 900, "gegen").filter(check => !check.ok).map(check => check.key);
   const want = choice.key === "round" ? ["tokens"] : [];
   if (JSON.stringify(failed) !== JSON.stringify(want))
     throw new Error(`run-budget-ledger: token choice ${choice.key} must break exactly ${want.join(",") || "no rule"}`);
   rbValues++;
 }
 // the reservation bound is a rule too, and it has to bite on both sides
-if (rbApi.rbConstraints(rbExample, rbExampleTokens.tokens, 0).find(check => check.key === "runtime").ok)
+if (rbApi.rbConstraints(rbExample, rbExampleTokens.tokens, 0, "gegen").find(check => check.key === "runtime").ok)
   throw new Error("run-budget-ledger: a reservation under 1 second must be rejected");
-if (rbApi.rbConstraints(rbExample, rbExampleTokens.tokens, rbApi.RB_MAX_RESERVE + 1).find(check => check.key === "runtime").ok)
+if (rbApi.rbConstraints(rbExample, rbExampleTokens.tokens, rbApi.RB_MAX_RESERVE + 1, "gegen").find(check => check.key === "runtime").ok)
   throw new Error("run-budget-ledger: a reservation over 12 hours must be rejected");
 
 // --- 12 n_layer d_model^2 is a derivation, not a convention ---------------------------
@@ -8525,6 +8525,93 @@ if (panelTranslator(" zzz-not-a-string-any-panel-prints") !== " zzz-not-a-string
 // reports every translated sentence as untranslated. An umlaut or an eszett is the
 // second, independent signal.
 const GERMAN_WORDS = /[äöüÄÖÜß]|(^|[^\p{L}])(der|das|den|dem|des|ein|eine|einen|einem|einer|und|oder|nicht|ist|sind|wird|werden|haben|warum|welche|welcher|welches|mit|von|aus|auf|nach|unter|zwischen|durch|ohne|schon|nur|auch|aber|dann|wenn|weil|dass|sich|kann|muss|soll|darf|jede|jeder|jedes|wie|wo|beim|zum|zur|im|vom|eines|dieser|diese|dieses|jetzt|immer|wieder|kein|keine|keinen)($|[^\p{L}])/iu;
+// ---- the same question asked of the app's own vocabulary instead of a word list -------------
+// GERMAN_WORDS only ever catches the spellings someone thought of. Its blind spot is a German
+// noun without an umlaut and without one of the listed function words: "C_Ziel / C_oben" stood
+// in every English render of a lab until v118 found it by hand, and nothing above could see it.
+// So the question is turned around and asked of the corpus: which words does the German side of
+// this app use that the English side never uses? That set is derived, not typed, and it grows
+// with the app instead of drifting behind it.
+//
+// Three exclusions, each structural rather than a list of exceptions:
+//  * values under an `en` key -- index.html carries bilingual entries ({de:..., en:...}), and the
+//    English half of one is not German vocabulary. Without this the detector reports the English
+//    pack's own prose ("reacts", "webpage") as a leak.
+//  * ui.__patterns -- those are regex sources that match German in order to translate it, so
+//    their German is the point; counting it as English attestation would delete "und", "die" and
+//    "der" from the vocabulary, which is the wrong direction.
+//  * hyphen halves -- "HBM-Byte" is one token whose halves are both attested English ("byte"),
+//    while a leak like "C_Ziel" survives the split. Splitting is what makes the unit legitimate
+//    without naming it.
+// And at the call site, a `word=` form is skipped: "lang=en" is a machine-readable field, the
+// same reason the exponential check above skips attributes. The spacing is what separates the
+// two cases, and it has to be exact: "theta_neu = 1.0" is a labelled value in prose, and an
+// earlier draft that allowed whitespace around the `=` swallowed it whole -- which is exactly
+// how the German subscript this pass repaired walked back in untouched under a mutation.
+// Collects the strings on one side of index.html's bilingual entries: `want === "de"` returns
+// everything outside an `en` value, `want === "en"` returns exactly the `en` values. The second
+// direction is not decoration -- those inline English translations are English attestations, and
+// leaving them out of the English side let a loanword the German prose also uses ("Confounder")
+// count as German-only.
+const bilingualStrings = (node, out, want, underEn = false) => {
+  if (typeof node === "string") { if (underEn === (want === "en")) out.push(node); return out; }
+  if (Array.isArray(node)) { for (const value of node) bilingualStrings(value, out, want, underEn); return out; }
+  if (node && typeof node === "object")
+    for (const [key, value] of Object.entries(node)) bilingualStrings(value, out, want, underEn || key === "en");
+  return out;
+};
+const vocabularyOf = list => {
+  const words = new Set();
+  for (const text of list)
+    for (const token of (text.match(/\p{L}[\p{L}ß-]*/gu) || []))
+      for (const half of token.split("-")) if (half.length > 2) words.add(half.toLowerCase());
+  return words;
+};
+const GERMAN_ONLY_WORDS = (() => {
+  const englishPack = { ...pack }, englishUi = { ...(pack.ui || {}) };
+  delete englishPack.ui;
+  delete englishUi.__patterns;
+  const german = vocabularyOf(bilingualStrings(base, [], "de"));
+  const english = vocabularyOf(bilingualStrings(englishPack, [], "de")
+    .concat(bilingualStrings(englishUi, [], "de"))
+    .concat(bilingualStrings(base, [], "en")));
+  const only = new Set([...german].filter(word => !english.has(word)));
+  // Why ui.__patterns is excluded above, held as a number instead of as a comment. Those 84
+  // regex sources are written in German on purpose -- they match German in order to translate
+  // it -- so counting them as English attestation would delete the commonest German words from
+  // the vocabulary and blind the detector where it matters most. Measured: they carry 258
+  // distinct words, of which this many survive as German-only. Remove the exclusion and the
+  // count collapses to zero, which is the only reason that edit is not silent.
+  const patternWords = vocabularyOf((pack.ui?.__patterns || []).map(entry => String(entry.source ?? entry)));
+  const patternGerman = [...patternWords].filter(word => only.has(word));
+  if (patternGerman.length < 150)
+    throw new Error(`german vocabulary: only ${patternGerman.length} of the words in ui.__patterns' German sources survive as German-only -- the __patterns exclusion has stopped working, and with it the detector's grip on "und", "mit" and "von"`);
+  // The commonest German has to be in the set, or the detector is a decoration. Fourteen of
+  // these fifteen are, including the four this pass turned on ("gegen", "neu", "ziel", "oben").
+  for (const word of ["und", "von", "der", "die", "das", "nicht", "wird", "durch", "oder", "ohne", "gegen", "neu", "ziel", "oben"])
+    if (!only.has(word)) throw new Error(`german vocabulary: "${word}" is not in the German-only set, so the commonest German has become invisible`);
+  // And the one casualty, named with its cause rather than left as a silent gap: "mit" is lost
+  // because the English pack names the MIT licence, and this comparison is case-insensitive.
+  // Held in both directions -- the word is absent AND the reason for its absence is still there,
+  // so the day the licence text goes away this exemption reports itself instead of lingering.
+  if (only.has("mit"))
+    throw new Error('german vocabulary: "mit" is in the German-only set after all, so the MIT-licence exemption is stale and should be deleted');
+  if (!bilingualStrings(englishPack, [], "de").some(text => /(^|[^\p{L}])MIT([^\p{L}]|$)/u.test(text)))
+    throw new Error('german vocabulary: nothing in the English pack names the MIT licence any more, so "mit" is now a blind spot with no reason behind it');
+  // A vocabulary that collapsed to a handful of words would pass every render silently. The
+  // floor is a measured property of this corpus, not a wish: it stood at 12,841 when written.
+  if (only.size < 8000)
+    throw new Error(`german vocabulary: only ${only.size} German-only words derived, so the detector has lost its corpus`);
+  return only;
+})();
+// Returns the German words a rendered English text still carries, in the order they appear.
+const germanResidueWords = text => {
+  const found = [];
+  for (const token of (text.replace(/\p{L}[\p{L}ß_-]*=/gu, " ").match(/\p{L}[\p{L}ß-]*/gu) || []))
+    for (const half of token.split("-"))
+      if (half.length > 2 && GERMAN_ONLY_WORDS.has(half.toLowerCase())) found.push(half);
+  return found;
+};
 const decodeEntities = value => value
   .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"')
   .replace(/&#39;/g, "'").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&");
@@ -9279,6 +9366,15 @@ console.log(`english render OK: ${englishStates} states across ${englishLabs} la
   if (!GERMAN_WORDS.source.startsWith("[\u00e4\u00f6\u00fc\u00c4\u00d6\u00dc\u00df]|"))
     throw new Error("assignment prerequisites: the shared German detector no longer starts with its umlaut class, so dropping that branch is no longer a safe edit");
   const AP_GERMAN_WORDS = new RegExp(GERMAN_WORDS.source.slice("[\u00e4\u00f6\u00fc\u00c4\u00d6\u00dc\u00df]|".length), GERMAN_WORDS.flags);
+  // The corpus-derived detector runs beside the word list here too. This surface is where an
+  // earlier draft of the vocabulary showed its own two mistakes -- it reported the English pack's
+  // prose ("reacts", "webpage") as German until bilingual `en:` values were excluded from the
+  // corpus, and it lost "und"/"die"/"der" entirely until ui.__patterns was excluded from the
+  // English side. Scanning here is what keeps both exclusions honest: drop either one and this
+  // page fails.
+  const apFailGerman = (assignmentId, words) => {
+    throw new Error(`assignment prerequisites: ${assignmentId}/en carries the German word(s) ${[...new Set(words)].slice(0, 4).join(", ")}`);
+  };
 
   // Retyped independently of index.html: card position, the concepts it may open, and the word the
   // card and the concept have to share. A wrong id passes a bare "does this concept exist?" test;
@@ -9433,6 +9529,8 @@ console.log(`english render OK: ${englishStates} states across ${englishLabs} la
         throw new Error(`assignment prerequisites: ${assignment.id}/${language} leaves an undefined value or an uninterpolated placeholder on the screen`);
       if (language === "en") {
         const residue = markup.replace(/<[^>]*>/gu, " ").split(/\s{2,}/u).map(part => part.trim()).filter(part => part && AP_GERMAN_WORDS.test(part));
+        const apStray = germanResidueWords(markup.replace(/<[^>]*>/gu, " "));
+        if (apStray.length) apFailGerman(assignment.id, apStray);
         if (residue.length) throw new Error(`assignment prerequisites: ${assignment.id}/en still shows German -- ${residue[0].slice(0, 90)}`);
       }
       apChecks += 3;
@@ -9698,6 +9796,8 @@ console.log(`english render OK: ${englishStates} states across ${englishLabs} la
           throw new Error(`concept experiments: ${concept.id}/${language} leaves an undefined value or an uninterpolated placeholder on the screen`);
         if (language === "en") {
           const residue = markup.replace(/<[^>]*>/gu, " ").split(/\s{2,}/u).map(part => part.trim()).filter(part => part && GERMAN_WORDS.test(part));
+          const strayGerman = germanResidueWords(markup.replace(/<[^>]*>/gu, " "));
+          if (strayGerman.length) throw new Error(`german vocabulary: an English render still carries ${strayGerman.slice(0, 4).join(", ")} -- ${markup.replace(/<[^>]*>/gu, " ").slice(0, 160).replace(/\s+/gu, " ")}`);
           if (residue.length) throw new Error(`concept experiments: ${concept.id}/en still shows German -- ${residue[0].slice(0, 80)}`);
         }
       }
@@ -9913,6 +10013,7 @@ console.log(`english render OK: ${englishStates} states across ${englishLabs} la
   // German render may never carry it at all.
   const lrDe = lrSandbox("de"), lrEn = lrSandbox("en");
   let lrLabs = 0, lrStates = 0, lrMoving = 0, lrControls = 0;
+  let lrGermanScanned = 0, lrGermanSeen = 0;
   const lrDead = new Set();
 
   // ---- the anchor half: a figure a claim rests on has to be on the screen ----------------
@@ -10006,7 +10107,15 @@ console.log(`english render OK: ${englishStates} states across ${englishLabs} la
       }
       const visible = out.en.replace(/<pre[^>]*data-no-i18n[\s\S]*?<\/pre>/gu, " ").replace(/<[^>]*>/gu, " ");
       const residue = visible.split(/\s{2,}/u).map(part => part.trim()).filter(part => part && GERMAN_WORDS.test(part));
+      const strayGerman = germanResidueWords(visible);
+      if (strayGerman.length) throw new Error(`lab render sweep: ${lab.id}/en carries the German word(s) ${[...new Set(strayGerman)].slice(0, 4).join(", ")} at ${state} -- ${visible.slice(0, 140).replace(/\s+/gu, " ")}`);
       if (residue.length) throw new Error(`lab render sweep: ${lab.id}/en still shows German at ${state} -- ${residue[0].slice(0, 90)}`);
+      // The other direction, and the reason the line above means anything: the same detector,
+      // on the same state's German render, has to SEE German. A vocabulary that quietly stopped
+      // matching would leave every English render clean and prove nothing. Counted rather than
+      // asserted per state, because a few states are pure arithmetic with no prose at all.
+      lrGermanScanned++;
+      if (germanResidueWords(out.de.replace(/<pre[^>]*data-no-i18n[\s\S]*?<\/pre>/gu, " ").replace(/<[^>]*>/gu, " ")).length) lrGermanSeen++;
     };
     const base = renderBoth();
     check(base, "defaults");
@@ -10128,7 +10237,13 @@ console.log(`english render OK: ${englishStates} states across ${englishLabs} la
   if (lrLabs < 45) throw new Error(`lab render sweep: only ${lrLabs} labs swept, which is below what the stub is supposed to reach`);
   // The sweep has to be seeing real output, not an empty stage it calls clean.
   if (lrStates < 500 || lrControls < 100) throw new Error(`lab render sweep: only ${lrStates} renders over ${lrControls} controls, too few for the sweep to mean anything`);
-  console.log(`lab render sweep OK: ${lrStates} renders across ${lrLabs} of ${base.labs.length} labs in both languages, driven through the page's own labMarkup and initLab against a stubbed DOM -- every state balanced, free of "undefined" and of uninterpolated placeholders, no German left in the English render, and ${lrMoving} of ${lrControls} controls demonstrably move their lab (${LR_NO_STAGE.length} labs have no computed stage and are excused by name)`);
+  // The control has to be overwhelming, not merely non-zero: almost every German render carries
+  // German prose, so a detector worth trusting fires on nearly all of them. Measured, it fires on
+  // all 686 of them; the floor is set at 90 % so that a lab whose stage is pure arithmetic may be
+  // added without a false alarm, and a real collapse of the vocabulary still trips it.
+  if (lrGermanSeen < lrGermanScanned * 0.9)
+    throw new Error(`lab render sweep: the German-only vocabulary sees German in only ${lrGermanSeen} of ${lrGermanScanned} German renders, so its silence on the English ones proves nothing`);
+  console.log(`lab render sweep OK: ${lrStates} renders across ${lrLabs} of ${base.labs.length} labs in both languages, driven through the page's own labMarkup and initLab against a stubbed DOM -- every state balanced, free of "undefined" and of uninterpolated placeholders, no German left in the English render, and ${lrMoving} of ${lrControls} controls demonstrably move their lab (${LR_NO_STAGE.length} labs have no computed stage and are excused by name). The German check is no longer a word list: ${GERMAN_ONLY_WORDS.size} words the German side of this app uses and the English side never does, derived from the packs rather than typed, which is what caught "gegen" in run-budget-ledger and the subscript of theta_neu in optimizer -- and the same detector is shown to see German in ${lrGermanSeen} of ${lrGermanScanned} German renders, so its silence on the English ones is evidence`);
 }
 
 // ---- sft packing: the loader A5 §4.2.1 asks for, against the recipe the page describes ----
@@ -13341,6 +13456,8 @@ ${sliceDeclaration(source, "piiCountTrap")}
       }
       if (language === "en") {
         const residue = markup.replace(/<[^>]*>/gu, " ").split(/\s{2,}/u).map(part => part.trim()).filter(part => part && GERMAN_WORDS.test(part));
+        const strayGerman = germanResidueWords(markup.replace(/<[^>]*>/gu, " "));
+        if (strayGerman.length) throw new Error(`german vocabulary: an English render still carries ${strayGerman.slice(0, 4).join(", ")} -- ${markup.replace(/<[^>]*>/gu, " ").slice(0, 160).replace(/\s+/gu, " ")}`);
         if (residue.length) throw new Error(`formula route: ${formula.id}/en still shows German -- ${residue[0].slice(0, 90)}`);
       }
       frChecks += 5;
@@ -14772,6 +14889,8 @@ console.log(`ffn-backward OK: ${fbValues} values, all four gradients match A2's 
       }
       if (language === "en") {
         const residue = markup.replace(/<[^>]*>/gu, " ").split(/\s{2,}/u).map(part => part.trim()).filter(part => part && GERMAN_WORDS.test(part));
+        const strayGerman = germanResidueWords(markup.replace(/<[^>]*>/gu, " "));
+        if (strayGerman.length) throw new Error(`german vocabulary: an English render still carries ${strayGerman.slice(0, 4).join(", ")} -- ${markup.replace(/<[^>]*>/gu, " ").slice(0, 160).replace(/\s+/gu, " ")}`);
         if (residue.length) arFail(`${formula.id}/en still shows German -- ${residue[0].slice(0, 90)}`);
       }
       arChecks += 6;
