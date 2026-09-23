@@ -181,3 +181,56 @@
   in derselben Formel) ist wirkungslos, weil der letzte gewinnt - die Mutation meldet „entkommen",
   obwohl sie nie stattfand. Eine entkommene Mutation zuerst daraufhin pruefen, ob sie ueberhaupt
   etwas veraendert hat.
+
+## Die Kartenflaeche und die Komma-Kollision (v121)
+
+- **Halb konvertiert ist schlimmer als gar nicht.** Auf Deutsch ist das Komma Dezimal- *und*
+  Listentrenner. Wer die Dezimalen umstellt und die Listentrenner stehen laesst, erzeugt eine
+  Zeichenfolge, die niemand parsen kann: `[1,0,368]` fuer `[1; 0,368]`, `[1,0,5]` fuer `[1; 0,5]`.
+  Das ist schaedlicher als die unveraenderte englische Schreibweise, weil es aussieht wie eine
+  Liste mit mehr Elementen. **Die Klammern muessen sich mit den Skalaren bewegen**, sonst
+  widerspricht der Satz sich selbst. Entscheidung fuer dieses Repo: Komma dezimal, **Semikolon
+  als Listentrenner**. Siehe [[cs336-german-decimal-sweep]].
+- **Ein Punkt-Sweep ist blind fuer die Kollision, die er selbst erzeugt hat.** Der wiederhergestellte
+  Defekt `[1,0,368]` traegt gar keinen Punkt. Ein Guard gegen Dezimalpunkte faengt ihn nie; der
+  Kollisionstest ist ein eigener Test und war im ersten Entwurf nicht da.
+- **Die Kollision ist eine Eigenschaft des Strings, nicht des Klammerinhalts.** Ein Komma-Lauf ist
+  nur dann ein Fehler, wenn derselbe String das Komma **auch** als Dezimaltrenner benutzt.
+  `einsum-notation`s Tensor-Shapes `[2,3,4]` sind so geschrieben, wie PyTorch sie druckt, und die
+  Karte schreibt nirgends eine Dezimale - dort gibt es nichts zu verwechseln.
+- **Wo Struktur nicht entscheiden kann, entscheidet der englische Zwilling.** `3.536`, `1.368`,
+  `1.048` sehen exakt wie deutsche Tausendergruppen aus; kein Muster trennt sie von Dezimalen.
+  Englisch ist in dieser Frage eindeutig (Gruppe = Komma, Dezimale = Punkt). Jede deutsche
+  Gruppierung gegen ihren Zwilling **bestaetigen** statt annehmen. Das fand Kompressions-
+  verhaeltnisse, die als Tausendergruppen geschrieben waren. Voraussetzung pruefen: hier hatten
+  alle 452 Stellen einen eigenen englischen Wert, keine einzige Rueckfallebene.
+- **Eine Invarianz-Ausnahme („beide Sprachen schreiben es gleich, also ist es ein Bezeichner")
+  verschluckt genau den Leckfall**, denn ein Leck *ist* die unveraendert uebernommene englische
+  Schreibweise. Die Ausnahme braucht einen zweiten, unabhaengigen Marker - hier die
+  **Anfuehrungszeichen**, in denen die Prosa das Literal zitiert.
+- **Die Reihenfolge der Klassen im Klassifizierer ist tragend.** Die dotted-quad-Regel
+  (`\d{1,3}(\.\d{1,3}){3}`) trifft auch `1.073.741.824` und nahm 21 der groessten Zahlen der App
+  aus der Zwillingspruefung heraus. Sichtbar wurde das **nur**, weil jede Klasse gezaehlt wird:
+  gemeldet waren 23 dotted quads, existiert haben 2. Siehe [[cs336-mutation-test-blind-spots]].
+- **Eine Klausel kann auf einer Flaeche tragend und auf der naechsten redundant sein.** Die
+  fuehrende-Null-Klausel ist auf den Bedienfeldern tragend (v120) und auf den Karten redundant,
+  weil es dort einen englischen Zwilling gibt. Das ist ein gemessener Grund fuer eine inerte
+  Mutation, kein Versagen - und die Grenze gehoert in den Guard geschrieben.
+- **Ein locale-blind festgeschriebenes Textfragment zertifiziert den Defekt.** `requireTextFragments`
+  hielt fuer `linear-map` und `residual` **ein** Fragment fuer beide Sprachen fest, waehrend die
+  Nachbarzeilen (`parameter-init`, `mfu`) laengst nach Locale unterscheiden. Genau diese zwei
+  Karten hatten ihre englische Notation behalten. Siehe [[cs336-guard-verification-lessons]].
+- **Englisch ist in Listen ebenfalls mehrdeutig, und `content numerals` verdeckt das.** Der Guard
+  laesst jedes Trennzeichen zwischen zwei Ziffern fallen; `b=[0.5,1,−2]` kollabiert zur
+  Phantomzahl `051`. Solange beide Sprachen dieselbe Zeichenfolge tragen, stimmen sie ueberein und
+  der Guard schweigt. **Ein Leerzeichen hinter dem englischen Listentrenner** beseitigt die
+  Mehrdeutigkeit und macht den Guard wieder aussagekraeftig.
+- **Ein Notations-Sweep fragt, wie eine Zahl geschrieben ist, nie ob sie stimmt.**
+  `compression-ratio`s Transferantwort lehrt `Wachstum = 2/r` und nannte fuer den passenden
+  Tokenizer die Zahl der **gekreuzten** Zelle. Gefunden beim Nachrechnen der Identitaet, die der
+  Satz selbst erklaert - nicht vom Sweep. Wo eine Antwort den Leser zu einer Zahl schickt, gehoert
+  die **Paarung** geprueft: folgt die Zahl ihrem eigenen Bezug. Siehe [[cs336-metric-is-a-suspicion]].
+- **Eine Deklaration mit `const esc = value =>` schneidet man nicht mit dem generischen
+  Slicer** - der lief bis zum Dateiende (1,5 MB) und der Kontext starb an `</script>`. Die
+  Guard-Suite umgeht das mit einem Zeilen-Slice bis zum naechsten `\n`. Beim Aufbau einer
+  Render-Umgebung zuerst die Groesse jedes Slices pruefen.

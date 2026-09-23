@@ -1,6 +1,6 @@
 # Activity
 
-Iteration Counter: 1
+Iteration Counter: 2
 
 ## 2026-07-14 - Interaktiver CS336-Lernbegleiter (manueller Run)
 
@@ -957,3 +957,67 @@ Iteration Counter: 1
   Akkordeons** in DE und EN (82 Karten x beide Sprachen x jede Auslassung), geprueft auf Tag-Balance
   ueber neun Tags, Platzhalter, `<details>`-Gestalt und die Position des Rueckwegs vor den
   Aktionen - **0 Probleme**, mit dem Scanner vorher als sehend belegt.
+
+## v116-v120 - 2026-09-19 bis 2026-09-23 (geplante Deep Reviews, nachgetragen)
+
+Diese fuenf Laeufe haben ihren Bericht nur nach `tmp/` geschrieben. Hier der Stand in
+einer Zeile je Lauf; die Einzelheiten stehen in `tmp/deep-review-2026-09-<tag>-claude.md`.
+
+- **v116** (09-19): Die Assignment-Seite versprach „keine versteckten Voraussetzungen" und
+  verschwieg die 3 Konzepte mit der laengsten Wartezeit. Guard-Suite 69 -> 70.
+- **v117** (09-20): Der Totalenstreifen druckte „A1 28/38" und stand dann ueber neun
+  Lecture-Seiten still. Guard-Suite 70 -> 71.
+- **v118** (09-21): Der Offset-Fit, den kein Bildschirm rechnete - `scaling-transfer` war
+  das letzte Lab ohne berechnete Buehne. Guard-Suite 71 -> 72.
+- **v119** (09-22): Der Deutsch-Detektor kennt jetzt das Korpus statt einer getippten
+  Wortliste. Guard-Suite 72 grün.
+- **v120** (09-23): Das Bedienfeld - 23 Zahlen druckten dem deutschen Leser einen Punkt,
+  wo das Panel daneben ein Komma rechnet. Guard-Suite 72 -> 73, Cache v97.
+
+## v121 - 2026-09-23 - die Karte war halb uebersetzt, und das ist schlimmer als gar nicht
+
+- **Die Flaeche.** Die drei Lab-Sweeps (Dezimal v92, Exponential v110, Bedienfeld v120)
+  sehen alle auf ein Lab. Keiner hat je auf eine **Karte** gesehen: das gerechnete Beispiel
+  einer Formel, die `details` eines Konzepts, die Beispielzeile eines Begriffs, das mentale
+  Modell oder die Transferantwort eines Labs. Dort entscheidet **kein Helfer** ein
+  Trennzeichen. Gemessen: **2296 Kartenstrings mit Ziffern, 452 Zahlen mit Punkt.**
+- **Der Befund war die Kollision, nicht die Schreibweise.** Auf Deutsch ist das Komma
+  Dezimal- *und* Listentrenner. Eine frueher halb gelaufene Konvertierung hatte die
+  Dezimalen umgestellt und die Listentrenner nicht: `logsumexp` druckte
+  `exp(z−m)≈[1,0,368]` fuer den zweielementigen Vektor `[1; 0,368]` - auf der Karte, deren
+  Thema der Verlust von Genauigkeit ist. `temperature` `[1,0,5]` fuer `[1; 0,5]`, `softmax`
+  `[1,0,368,0,135]`, `causal-attention` `[0,018,0,982,0]`, dazu `cross-entropy`,
+  `gradient-clip`, `fasttext-filter`, `kl`. **`adamw`** schrieb, Weight Decay lasse θ „auf
+  9.999" stehen, wo 9,999 gemeint ist - Faktor tausend, neben drei korrekt deutschen Zahlen.
+- **Repariert:** 35 deutsche Strings ueber 27 Karten. Komma als Dezimaltrenner, Semikolon
+  als Listentrenner, Klammern mit den Skalaren bewegt. Jede Rechnung nachgerechnet.
+- **Die englische Seite trug dieselbe Kollision, ungesehen.** `content numerals` laesst
+  jedes Trennzeichen zwischen zwei Ziffern fallen, also kollabierten beide Sprachen
+  `b=[0.5,1,−2]` zur Phantomzahl `051` und stimmten ueberein. Deutsch allein zu reparieren
+  legte 26 Felder mit Laeufen wie `102040` und `025075` frei. **30 englische Listen** tragen
+  jetzt ein Leerzeichen hinter dem Trenner.
+- **Die Zusicherung war der Grund.** `requireTextFragments` schrieb fuer `linear-map` und
+  `residual` **ein** Fragment fuer beide Sprachen fest, waehrend `parameter-init` und `mfu`
+  zwei Zeilen darueber laengst nach Locale unterscheiden. Genau diese beiden Karten hatten
+  ihre englische Notation behalten.
+- **Der englische Zwilling ist der einzige Ausweg aus der Mehrdeutigkeit.** `3.536`, `1.368`
+  und `1.048` sehen exakt wie deutsche Tausendergruppen aus; strukturell ist das nicht
+  entscheidbar. Alle 452 Stellen haben einen eigenen englischen Wert am selben Pfad, und
+  Englisch ist eindeutig. **405 Gruppierungen, 405 gegen den Zwilling bestaetigt** statt
+  angenommen - das fand `compression-ratio`s `1.353×` und `1.658×`, Verhaeltnisse in
+  Gruppenschreibweise.
+- **Kein Notationsfehler, sondern eine falsche Zahl:** `compression-ratio`s Transferantwort
+  lehrt `Wachstum = 2/r` und nannte fuer den **passenden** Tokenizer bei `r = 1,3605` den
+  Wert `1,658×` - das ist die **gekreuzte** Zelle (`r = 1,2062`); die passende liest
+  `1,470×`. Wer die eben erklaerte Division nachrechnete, bekam eine dritte Antwort.
+- Guard-Suite **73 -> 75 Bloecke gruen**: `card numerals` und `compression growth`.
+  Cache-Bump auf **v98** (4 Stellen).
+- **Mutationstest:** 16 Mutationen, 15 tragend oder gefangen, **1 inert mit gemessenem
+  Grund**, 3 gruene Kontrollen. Drei Klauseln sind als Paar tragend bewiesen
+  (Kollisionstest, Zwillingsbestaetigung, Zitatklausel). Die fuehrende-Null-Klausel aus
+  v120 ist auf dieser Flaeche **redundant**, weil der Zwilling `0.731` ohnehin zurueckweist
+  - sie bleibt tragend dort, wo es keinen Zwilling gibt, und die Grenze steht im Guard.
+- **Kein Browsertest** - in geplanten Laeufen gesperrt. Ersatz: **164 Renders** aller 82
+  Formelkarten als vollstaendiges Akkordeon in beiden Sprachen, 0 Probleme, der Scanner
+  vorher mit zwei injizierten Defekten als sehend belegt.
+- Der Iteration Counter wurde erhoeht, da der Run ueber einen Scheduled Task startete.
