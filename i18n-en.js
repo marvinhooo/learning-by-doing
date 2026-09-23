@@ -334,7 +334,7 @@ window.CS336_EN = Object.freeze({
       "mental": "Imagine every column of a weight matrix as its own mixing recipe. The recipe gives every input feature a dial value, multiplies each feature by its dial, and adds all contributions into exactly one new output feature. Many columns mean many different recipes applied to the same input at once.",
       "details": [
         "For A with Shape [m, k] and B with Shape [k, n], C=A·B has Shape [m, n]. An entry C[i,j] is the sum over l of A[i,l]·B[l,j]. Matrix multiplication therefore differs from the Hadamard product, which multiplies two equally shaped tensors element by element and does not contract an axis.",
-        "A concrete Linear Layer exposes these weighted sums: for x=[2,−1], W=[[1,0,2],[3,−1,1]], and b=[0.5,1,−2], the result is y=xW+b=[−0.5,2,1]. For example, y_1=2·1+(−1)·3+0.5=−0.5. Two input features become three new mixtures. In a real model, individual numerical axes usually do not have simple human-assigned meanings; useful distributed features emerge through training.",
+        "A concrete Linear Layer exposes these weighted sums: for x=[2, −1], W=[[1, 0, 2], [3, −1, 1]], and b=[0.5, 1, −2], the result is y=xW+b=[−0.5, 2, 1]. For example, y_1=2·1+(−1)·3+0.5=−0.5. Two input features become three new mixtures. In a real model, individual numerical axes usually do not have simple human-assigned meanings; useful distributed features emerge through training.",
         "Leading Batch axes are not contracted: X [B,T,D_in] multiplied by W [D_in,D_out] gives Y [B,T,D_out]. The same calculation runs independently at every [b,t], so a Linear Layer mixes features but not tokens. PyTorch stores weight in nn.Linear(D_in,D_out) as [D_out,D_in] and computes x @ weight.T + bias; the row-vector convention used here instead names W as [D_in,D_out]. Both describe the same operation.",
         "The standard multiplication [m, k] by [k, n] requires approximately 2mkn Floating-Point Operations, because a multiplication and an addition are both counted. In Attention, Q [B, H, T, d_h] and transposed K produce scores [B, H, T, T], so this part grows quadratically with T. Doubling T therefore quadruples the number of pairwise Query-Key comparisons."
       ],
@@ -344,12 +344,12 @@ window.CS336_EN = Object.freeze({
         "Counting only output elements as compute: each of the m·n results needs k multiplications and roughly k additions, which creates the factor 2k."
       ],
       "checks": [
-        "For x=[2,−1], W=[[1,0,2],[3,−1,1]], and b=[0.5,1,−2], calculate y. What is mixed, and what explicitly is not?",
+        "For x=[2, −1], W=[[1, 0, 2], [3, −1, 1]], and b=[0.5, 1, −2], calculate y. What is mixed, and what explicitly is not?",
         "Why does QKᵀ have Shape [T, T] for T Query positions and T Key positions per batch and Head?",
         "Approximately how many Floating-Point Operations does A [m, k] multiplied by B [k, n] require under the usual multiply-add convention?"
       ],
       "answers": [
-        "y=[−0.5,2,1]. Each of the three columns of W mixes the two input features with different weights and adds its Bias. For a tensor X [B,T,2], this calculation runs separately at every [b,t]; the Layer mixes the feature axis, but neither different Batch examples nor different Token positions.",
+        "y=[−0.5, 2, 1]. Each of the three columns of W mixes the two input features with different weights and adds its Bias. For a tensor X [B,T,2], this calculation runs separately at every [b,t]; the Layer mixes the feature axis, but neither different Batch examples nor different Token positions.",
         "Each of the T Queries is compared with each of the T Keys while the shared feature axis d_h is summed over. The Query axis and the Key axis remain as the two outer axes, producing T·T scores.",
         "It requires approximately 2mkn Floating-Point Operations. For each of the m·n output entries, k products and approximately the same number of additions are computed."
       ]
@@ -2571,7 +2571,7 @@ window.CS336_EN = Object.freeze({
       ],
       "intuition": "Every column of W is a mixing recipe adjusted during training; the same recipes are applied independently to all tokens.",
       "pitfall": "With a Bias, y=xW+b is mathematically an affine mapping even though PyTorch calls the component a Linear Layer. PyTorch stores nn.Linear.weight as [D_out,D_in] and computes x @ weight.T. In LLMs, Projection usually does not mean an orthogonal geometric projection and may even increase dimension.",
-      "example": "Set x=[2,−1], W=[[1,0,2],[3,−1,1]], and b=[0.5,1,−2]. Then y₁=0.5+2·1+(−1)·3=−0.5, y₂=1+2·0+(−1)·(−1)=2, and y₃=−2+2·2+(−1)·1=1. Therefore y=[−0.5,2,1].",
+      "example": "Set x=[2, −1], W=[[1, 0, 2], [3, −1, 1]], and b=[0.5, 1, −2]. Then y₁=0.5+2·1+(−1)·3=−0.5, y₂=1+2·0+(−1)·(−1)=2, and y₃=−2+2·2+(−1)·1=1. Therefore y=[−0.5, 2, 1].",
       "check": "How is the first output feature produced in the example, and which axes would the Layer not mix for X [B,T,2]?",
       "answer": "The first output feature is y₁=2·1+(−1)·3+0.5=−0.5. For X [B,T,2], the same calculation runs separately at every [b,t]: only the final feature axis is mapped from 2 to 3; different Batch examples and Token positions are not mixed."
     },
@@ -2663,7 +2663,7 @@ window.CS336_EN = Object.freeze({
       ],
       "intuition": "Differences directly control ratios: pᵢ/pⱼ=exp(zᵢ−zⱼ). A score lead of one makes a category e≈2.72 times as likely as the other; a shared offset changes nothing.",
       "pitfall": "The wrong axis still produces numbers between zero and one, but answers a different question. In Attention, every Query must distribute weight over its allowed Keys; masked scores become −∞ before Softmax.",
-      "example": "For z=[2,1,0], m=2. Then exp(z−m)=[exp(0),exp(−1),exp(−2)]≈[1,0.368,0.135]. Their sum is 1.503. Division gives p≈[1/1.503,0.368/1.503,0.135/1.503]=[0.665,0.245,0.090]; the weights sum to 1.000.",
+      "example": "For z=[2, 1, 0], m=2. Then exp(z−m)=[exp(0), exp(−1), exp(−2)]≈[1, 0.368, 0.135]. Their sum is 1.503. Division gives p≈[1/1.503, 0.368/1.503, 0.135/1.503]=[0.665, 0.245, 0.090]; the weights sum to 1.000.",
       "check": "Which axis do you normalize for model Logits [B,T,V] and Attention scores [B,H,T_q,T_k], and why does subtracting m not change the result?",
       "answer": "For LM Logits [B,T,V], normalize across V; for Attention scores [B,H,T_q,T_k], normalize across T_k so every Query gets weights over its Keys. Subtracting m multiplies numerator and denominator by the same exp(−m), which cancels and leaves the distribution unchanged."
     },
@@ -2713,7 +2713,7 @@ window.CS336_EN = Object.freeze({
       ],
       "intuition": "Without stabilization, exp(1000) would have to be represented and would overflow. After subtracting the maximum, the largest exponent is zero and every exponential value is at most one.",
       "pitfall": "The naive form log(sum(exp(z))) can produce infinity even though the mathematical result is finite. The maximum must be computed separately for each row that is actually normalized.",
-      "example": "For z=[1000,999], m=1000. The relative values are [0,−1], so exp(z−m)≈[1,0.368]. Their sum is 1.368 and log(1.368)≈0.313. Thus LSE(z)=1000+0.313=1,000.313 without ever computing exp(1000).",
+      "example": "For z=[1000, 999], m=1000. The relative values are [0, −1], so exp(z−m)≈[1, 0.368]. Their sum is 1.368 and log(1.368)≈0.313. Thus LSE(z)=1000+0.313=1,000.313 without ever computing exp(1000).",
       "check": "Which exponential arguments arise after stabilization, and why can they not overflow?",
       "answer": "After stabilization, the exponents are zⱼ−m and are all less than or equal to zero; at least one is exactly zero. Their exponential values thus lie in (0,1], avoiding overflow."
     },
@@ -2818,7 +2818,7 @@ window.CS336_EN = Object.freeze({
       ],
       "intuition": "One window of length m+1 contains both tensors: the first m values are the input and the final m values are the target. NumPy's np.memmap maps a raw file into virtual memory and loads only the pages actually touched by a slice.",
       "pitfall": "Using n−m+1 as the exclusive upper bound permits s=n−m and creates a short target. A wrong dtype (data type) interprets the same file bytes as different IDs, while an immediate full copy removes the memory-map advantage.",
-      "example": "Let x=[10,11,12,13,14,15,16,17,18,19], so n=10, and let m=4. The exclusive random bound is n−m=6, so s_b may range from 0 through 5. For B=1 and s₁=5, X₁=x[5:9]=[15,16,17,18] and Y₁=x[6:10]=[16,17,18,19]. Both have length 4 and Y₁[:-1]=[16,17,18]=X₁[1:].",
+      "example": "Let x=[10, 11, 12, 13, 14, 15, 16, 17, 18, 19], so n=10, and let m=4. The exclusive random bound is n−m=6, so s_b may range from 0 through 5. For B=1 and s₁=5, X₁=x[5:9]=[15, 16, 17, 18] and Y₁=x[6:10]=[16, 17, 18, 19]. Both have length 4 and Y₁[:-1]=[16, 17, 18]=X₁[1:].",
       "check": "Why is n−m the exclusive random upper bound, which slice invariant must hold, and what must be checked when opening a token memory map?",
       "answer": "The input needs indices s through s+m−1 and the target needs s+1 through s+m. Thus s+m≤n−1, or s<n−m, making n−m the exclusive upper bound. X and Y both have shape [B,m], and every batch example b satisfies Y_b[:-1]=X_b[1:]. Before writing, require V−1≤np.iinfo(dtype).max; when opening a memory map, verify file format, exact dtype, byte order, expected length, and 0≤token ID<V without copying the entire array."
     },
@@ -2872,7 +2872,7 @@ window.CS336_EN = Object.freeze({
       ],
       "intuition": "−log p is near zero when the target receives probability close to one and grows sharply when the target probability approaches zero. Confidently wrong predictions are therefore penalized especially strongly.",
       "pitfall": "Inputs and targets must be shifted by one position for Next-Token training. Padding must disappear from both sum and denominator; averaging over sequences would otherwise weight different lengths incorrectly.",
-      "example": "Take M=2 valid positions. At position 1, let z₁=[0,0] and y₁ be the second category; Softmax assigns it 0.5. At position 2, let z₂=[log 3,0]≈[1.099,0] and again select the second category; it receives 1/(3+1)=0.25. Thus L=−(log 0.5+log 0.25)/2=−(−0.693−1.386)/2=1.040.",
+      "example": "Take M=2 valid positions. At position 1, let z₁=[0, 0] and y₁ be the second category; Softmax assigns it 0.5. At position 2, let z₂=[log 3, 0]≈[1.099, 0] and again select the second category; it receives 1/(3+1)=0.25. Thus L=−(log 0.5+log 0.25)/2=−(−0.693−1.386)/2=1.040.",
       "check": "What Loss results from a uniform distribution over V Tokens, and how do the gradient and the Gradient-Descent Update differ for target and non-target Logits?",
       "answer": "A uniform distribution gives every Token probability 1/V, so the Loss is −log(1/V)=log(V). The Logit gradient is p−onehot(y): p_y−1 is negative for the target, so Gradient Descent raises that Logit, while positive p_j values make non-target Logits fall relative to it."
     },
@@ -2941,7 +2941,7 @@ window.CS336_EN = Object.freeze({
       ],
       "intuition": "The ID is only an address. The same Token starts from the same table row, but position and context change its state in every later Transformer Block.",
       "pitfall": "A lookup is not a weighted average, and ID 101 is not automatically more similar to 102 than to 900. The LM Head uses the same matrix only with Weight Tying; otherwise it has separate learned weights.",
-      "example": "Let E[0]=[0.1,0.2], E[1]=[1.0,−1.0], and E[2]=[2.0,0.5]. For token_ids=[[2,0,2]], the lookup selects exactly those rows: X=[[[2.0,0.5],[0.1,0.2],[2.0,0.5]]]. Thus [B,T]=[1,3] becomes [B,T,D]=[1,3,2].",
+      "example": "Let E[0]=[0.1, 0.2], E[1]=[1.0, −1.0], and E[2]=[2.0, 0.5]. For token_ids=[[2, 0, 2]], the lookup selects exactly those rows: X=[[[2.0, 0.5], [0.1, 0.2], [2.0, 0.5]]]. Thus [B,T]=[1, 3] becomes [B,T,D]=[1, 3, 2].",
       "check": "Which axis is added by the lookup, and why can two occurrences of the same Token ID differ after several Transformer Blocks?",
       "answer": "The lookup replaces each scalar ID with the selected D-dimensional table row, so [B,T] becomes [B,T,D]. Equal IDs start from the same row, but receive different position signals and exchange information with different contexts through Attention; their later contextual states can therefore differ."
     },
@@ -3100,7 +3100,7 @@ window.CS336_EN = Object.freeze({
       ],
       "intuition": "RMSNorm mainly changes the vector's length rather than its direction; g can then amplify or damp individual coordinates. In a Pre-Norm Block, only the Side Branch is normalized while the Residual Path remains direct.",
       "pitfall": "Do not average over Batch B or Tokens T and do not subtract the mean. With low precision, squaring and averaging are often done in FP32; ε belongs under the square root in this definition.",
-      "example": "For x=[3,4], D=2, g=[1,1], and negligible ε: square → [9,16], average → 12.5, square root → 3.536. Division gives [3/3.536,4/3.536]≈[0.849,1.131]; Gain [1,1] leaves those values unchanged.",
+      "example": "For x=[3, 4], D=2, g=[1, 1], and negligible ε: square → [9, 16], average → 12.5, square root → 3.536. Division gives [3/3.536, 4/3.536]≈[0.849, 1.131]; Gain [1, 1] leaves those values unchanged.",
       "check": "Which axis is reduced for X [B,T,D], what Shape does g have, and why does RMSNorm not change Sequence length?",
       "answer": "For X [B,T,D], the quadratic mean runs only over D; g has Shape [D] and is broadcast over B and T. Sequence length stays unchanged because RMSNorm scales every Token separately and neither combines nor creates positions."
     },
@@ -3146,7 +3146,7 @@ window.CS336_EN = Object.freeze({
       ],
       "intuition": "W₃x creates candidate features while SiLU(W₁x) creates a smooth input-dependent Gate for the same Token. The product of two x-dependent branches is already nonlinear; SiLU is not the only source of nonlinearity but additionally shapes, suppresses, and amplifies the Gate branch.",
       "pitfall": "Only a pure composition of Linear Layers without an activation and without a multiplicative Gate collapses into one Linear Map. SwiGLU has three large weight matrices, mixes no Token positions, and applies SiLU to exactly one Up branch before the elementwise product.",
-      "example": "Suppose W₁x=[1,−1] and W₃x=[4,2]. Then SiLU(W₁x)≈[0.731,−0.269], and their element-wise product is [2.924,−0.538]. If W₂ maps this vector to one output with weights [0.5,−1], the result is 0.5·2.924+(−1)·(−0.538)≈2.0.",
+      "example": "Suppose W₁x=[1, −1] and W₃x=[4, 2]. Then SiLU(W₁x)≈[0.731, −0.269], and their element-wise product is [2.924, −0.538]. If W₂ maps this vector to one output with weights [0.5, −1], the result is 0.5·2.924+(−1)·(−0.538)≈2.0.",
       "check": "What roles do the elementwise product and SiLU play, which axis is not mixed, and why must W₂ map back to D?",
       "answer": "The elementwise product of two x-dependent branches already creates a multiplicative nonlinearity; SiLU additionally shapes the Gate smoothly and can suppress or amplify features. T is not mixed. W₂ must map F back to D so the Output has the same [B,T,D] Shape as the Residual Stream."
     },
@@ -3196,7 +3196,7 @@ window.CS336_EN = Object.freeze({
       ],
       "intuition": "A rotation changes a feature pair's direction but not its length. When Attention compares differently rotated pairs, their positional distance affects the comparison.",
       "pitfall": "A1 requires adjacent zero-based pairs [0,1],[2,3],…. Half-Split pairing is a different convention and breaks the tests. The angle is i divided by Θ^((2k−2)/d), not multiplied by it; the tables are Buffers, not Parameters.",
-      "example": "Set d=4, Θ=100, and i=2. For k=1, θ=2 and the pair [1,0] becomes [cos(2),sin(2)]≈[−0.416,0.909]. For k=2, θ=0.2; the same starting pair would become [cos(0.2),sin(0.2)]≈[0.980,0.199]. Both pairs keep length 1.",
+      "example": "Set d=4, Θ=100, and i=2. For k=1, θ=2 and the pair [1, 0] becomes [cos(2), sin(2)]≈[−0.416, 0.909]. For k=2, θ=0.2; the same starting pair would become [cos(0.2), sin(0.2)]≈[0.980, 0.199]. Both pairs keep length 1.",
       "check": "Which angle formula and Pairing convention does A1 test, where does RoPE sit in the Attention flow, and why does the shared table belong in register_buffer(..., persistent=False)?",
       "answer": "A1 uses θ_i,k=i/Θ^((2k−2)/d) and adjacent one-based pairs (2k−1,2k), or zero-based [0,1],[2,3],…. R(θ) computes x′₀=x₀cosθ−x₁sinθ and x′₁=x₀sinθ+x₁cosθ. RoPE acts after Q/K and before QKᵀ; V remains unchanged. The fixed shared table is a non-persistent Buffer rather than a Parameter."
     },
@@ -3258,7 +3258,7 @@ window.CS336_EN = Object.freeze({
       ],
       "intuition": "Q and K decide where to read; V decides what is read. Every Head learns its own feature views, so the same Token states can be encoded differently for comparison and transferable content.",
       "pitfall": "Softmax runs over T_k for each fixed Query. Masks act on Scores before Softmax; Q, K, and V are Batch activations, while only their producing Linear Layers are learned.",
-      "example": "For one Head with dₖ=1, let q=1 and let the two Keys be k₁=0 and k₂=ln(3)≈1.099; ln(3) is exactly the value whose exponential is 3. The scores are [0,1.099]. Their exponential values are [1,3], and division by their sum 4 gives Softmax weights [0.25,0.75]. With v₁=[2,0] and v₂=[0,4], the Output is 0.25v₁+0.75v₂=[0.5,3].",
+      "example": "For one Head with dₖ=1, let q=1 and let the two Keys be k₁=0 and k₂=ln(3)≈1.099; ln(3) is exactly the value whose exponential is 3. The scores are [0, 1.099]. Their exponential values are [1, 3], and division by their sum 4 gives Softmax weights [0.25, 0.75]. With v₁=[2, 0] and v₂=[0, 4], the Output is 0.25v₁+0.75v₂=[0.5, 3].",
       "check": "What roles do Q/K play versus V, what Score Shape is produced, which axis does Softmax normalize, and why divide by √dₖ?",
       "answer": "Q and K create Compatibility Scores that determine where to read, while V supplies the content to mix. [B,H,T_q,d_k] and [B,H,T_k,d_k] produce [B,H,T_q,T_k], normalized over T_k. Dividing by √d_k keeps typical score scale stable as Head width grows."
     },
@@ -3321,7 +3321,7 @@ window.CS336_EN = Object.freeze({
       ],
       "intuition": "Row i may only see columns up to and including i. The mask leaves allowed scores unchanged but makes every future score impossible before probabilities are formed.",
       "pitfall": "Multiplying by zero after Softmax is incorrect because the remaining weights no longer sum to one. Apply the mask to scores before Softmax.",
-      "example": "Take Query position i=1, dₖ=1, q₁=2, and Keys k₀=1, k₁=3, k₂=4. The unmasked scores are [2·1,2·3,2·4]=[2,6,8]. Since j=2>i, M₁=[0,0,−∞] and S₁=[2,6,−∞]. Softmax gives approximately [0.018,0.982,0]; the future position receives exactly no weight.",
+      "example": "Take Query position i=1, dₖ=1, q₁=2, and Keys k₀=1, k₁=3, k₂=4. The unmasked scores are [2·1, 2·3, 2·4]=[2, 6, 8]. Since j=2>i, M₁=[0, 0, −∞] and S₁=[2, 6, −∞]. Softmax gives approximately [0.018, 0.982, 0]; the future position receives exactly no weight.",
       "check": "Which triangle contains −∞?",
       "answer": "The strictly upper triangle contains −∞, meaning all entries where the column index j is greater than the row index i. These entries represent future key positions that a query must not see yet."
     },
@@ -3351,7 +3351,7 @@ window.CS336_EN = Object.freeze({
       ],
       "intuition": "The Sub-Layer need not recreate the whole state; it learns a correction Δx. Since ∂x′/∂x contains an Identity term, a short gradient path exists even through many Blocks.",
       "pitfall": "A Pre-Norm Block adds the original x, not Norm(x). Its two updates are sequential: the MLP receives the state that Attention has already updated.",
-      "example": "Set x=[1,−2] and F(Norm(x))=[0.1,0.5]. Add coordinate by coordinate: x′=[1+0.1,−2+0.5]=[1.1,−1.5]. A decoder Block performs first an Attention correction and then an MLP correction.",
+      "example": "Set x=[1, −2] and F(Norm(x))=[0.1, 0.5]. Add coordinate by coordinate: x′=[1+0.1, −2+0.5]=[1.1, −1.5]. A decoder Block performs first an Attention correction and then an MLP correction.",
       "check": "Where is the direct gradient path, why must both addends share a Shape, and which state does the second Residual update see?",
       "answer": "The direct path is the unchanged addend x, whose derivative contains the Identity regardless of F. Elementwise addition requires equal Shapes. In a serial Transformer Block, the second Residual base is already x plus the Attention correction."
     },
@@ -3493,7 +3493,7 @@ window.CS336_EN = Object.freeze({
       ],
       "intuition": "T<1 amplifies differences, T>1 smooths them.",
       "pitfall": "Do not use T=0 numerically; handle greedy separately.",
-      "example": "Two Tokens have z=[2,1] and T=2. First z/T=[2/2,1/2]=[1,0.5]. Then p₁=e¹/(e¹+e⁰·⁵)≈2.718/(2.718+1.649)=0.622 and p₂=1.649/(2.718+1.649)=0.378. The probabilities sum to 1; the original 2-versus-1 choice has been smoothed.",
+      "example": "Two Tokens have z=[2, 1] and T=2. First z/T=[2/2, 1/2]=[1, 0.5]. Then p₁=e¹/(e¹+e⁰·⁵)≈2.718/(2.718+1.649)=0.622 and p₂=1.649/(2.718+1.649)=0.378. The probabilities sum to 1; the original 2-versus-1 choice has been smoothed.",
       "check": "Which direction increases diversity?",
       "answer": "A higher temperature T>1 smooths the distribution and typically increases sampling diversity. A lower positive temperature sharpens it and concentrates more mass on the largest logits."
     },
@@ -3619,7 +3619,7 @@ window.CS336_EN = Object.freeze({
       ],
       "intuition": "Clipping shortens an overly long gradient arrow without rotating it: all components preserve their relative ratios. If the norm is already below c, the factor is one and the gradients remain unchanged.",
       "pitfall": "Component-wise clamp changes direction and is a different operation. With mixed precision, unscale first; in distributed training, compute the norm over the semantically correct group. Clipping after optimizer.step() is too late.",
-      "example": "If ||g||₂=10 and c=1, the shared factor is about 0.1: gradient parts [6,8] become [0.6,0.8], whose norm is one. If ||g||₂=0.4, nothing changes.",
+      "example": "If ||g||₂=10 and c=1, the shared factor is about 0.1: gradient parts [6, 8] become [0.6, 0.8], whose norm is one. If ||g||₂=0.4, nothing changes.",
       "check": "Why does the angle remain the same?",
       "answer": "Global clipping multiplies every gradient entry by the same positive scalar. Their ratios, and therefore the direction of the total vector, remain unchanged; only its length changes. Below c the factor is one, and above c it is approximately c/||g||₂."
     },
@@ -3864,7 +3864,7 @@ window.CS336_EN = Object.freeze({
       ],
       "intuition": "When a larger maximum appears, previous contributions must be converted to the new scale before old and new sums can be combined.",
       "pitfall": "The weighted Value accumulator must be rescaled by the same factor e^(m−m′); otherwise the maximum and denominator are correct but the Attention Output is not.",
-      "example": "Suppose the processed scores are [1,2]. Then m=2 and ℓ=e^(1−2)+e^(2−2)=e⁻¹+1≈1.368. The new Block is [3], so m_b=3 and m′=3. Thus ℓ′=e^(2−3)·1.368+e^(3−3)≈0.368·1.368+1≈1.503. This is the same stable sum obtained from [1,2,3] at once.",
+      "example": "Suppose the processed scores are [1, 2]. Then m=2 and ℓ=e^(1−2)+e^(2−2)=e⁻¹+1≈1.368. The new Block is [3], so m_b=3 and m′=3. Thus ℓ′=e^(2−3)·1.368+e^(3−3)≈0.368·1.368+1≈1.503. This is the same stable sum obtained from [1, 2, 3] at once.",
       "check": "Which two statistics suffice for normalization?",
       "answer": "Per query row, the previous maximum m and the correspondingly scaled exponential sum ℓ suffice. With these two quantities, new blocks can be included stably and correct normalization determined at the end; an output accumulator is additionally maintained for weighted values."
     },
@@ -4121,7 +4121,7 @@ window.CS336_EN = Object.freeze({
       "vars": [["L_bal","Additional scalar load-balancing Loss"],["i","Index of one Expert"],["f_i","Fraction of Tokens hard-routed to Expert i"],["P_i","Mean soft Router probability for Expert i"],["E","Total number of Experts"],["α_bal","Weight of this auxiliary Loss relative to the Language-Model Loss"],["Σ_i","Add the contribution from every Expert"]],
       "intuition": "When the same Expert receives both many hard assignments and consistently high Router probability, its product f_iP_i and therefore the auxiliary Loss increase.",
       "pitfall": "The displayed equation is the Top-1 variant; do not confuse it with Router z-loss or a guarantee of perfect uniformity.",
-      "example": "Two Experts have f=[0.75,0.25] and P=[0.60,0.40], with α_bal=0.01. The sum is 0.75·0.60+0.25·0.40=0.55. Thus L_bal=0.01·2·0.55=0.011. Uniform f=P=[0.5,0.5] would give 0.010.",
+      "example": "Two Experts have f=[0.75, 0.25] and P=[0.60, 0.40], with α_bal=0.01. The sum is 0.75·0.60+0.25·0.40=0.55. Thus L_bal=0.01·2·0.55=0.011. Uniform f=P=[0.5, 0.5] would give 0.010.",
       "check": "What trade-off does an excessively large α_bal create?",
       "answer": "An excessively large α_bal can make the Router optimize primarily for even utilization although uneven specialization might improve the Language-Model loss. The coefficient trades systems utilization against routing quality and the primary objective."
     },
@@ -4294,7 +4294,7 @@ window.CS336_EN = Object.freeze({
       "vars": [["C","Training compute"],["N_opt","interior Loss minimum of a compute tier"],["a","slope or Scaling exponent"],["b","intercept in the chosen units"]],
       "intuition": "A multiplicative relationship N_opt∝Cᵃ becomes linear after taking logarithms.",
       "pitfall": "Fitting boundary minima or incomplete runs as true optima; the line may look precise while remaining systematically wrong.",
-      "example": "C=[1,4,16] and N_opt=[10,20,40] million ⇒ a=0.5, b=log(10), so N_opt=10√C million.",
+      "example": "C=[1, 4, 16] and N_opt=[10, 20, 40] million ⇒ a=0.5, b=log(10), so N_opt=10√C million.",
       "check": "Why should one tier be removed from the fit and then predicted?",
       "answer": "Leave-one-tier-out tests genuine interpolation or extrapolation: the fit does not see the removed minimum and must predict it from the remaining tiers. A small training error on the same fit points only demonstrates adaptation; it detects neither sensitive exponents nor systematic errors at new compute budgets."
     },
@@ -4417,7 +4417,7 @@ window.CS336_EN = Object.freeze({
       ],
       "intuition": "The average is fast and mostly order-insensitive; the classifier learns which hashed local patterns distinguish the labels.",
       "pitfall": "Hash collisions force unrelated features to share parameters, and the output score inherits both the bias and the label definition of the training data.",
-      "example": "Set L=2 and B=3. For g₁ let hash(g₁)=3, so 3 mod 3=0; for g₂ let hash(g₂)=5, so 5 mod 3=2. With E[0]=[2,0] and E[2]=[0,2], h(x)=([2,0]+[0,2])/2=[1,1]. Set U=[[1,0],[0,2]] and b=[0,0]. Then Uh+b=[1,2] and softmax([1,2])≈[0.269,0.731]. Result: class 2 receives the higher probability, 73.1 percent.",
+      "example": "Set L=2 and B=3. For g₁ let hash(g₁)=3, so 3 mod 3=0; for g₂ let hash(g₂)=5, so 5 mod 3=2. With E[0]=[2, 0] and E[2]=[0, 2], h(x)=([2, 0]+[0, 2])/2=[1, 1]. Set U=[[1, 0], [0, 2]] and b=[0, 0]. Then Uh+b=[1, 2] and softmax([1, 2])≈[0.269, 0.731]. Result: class 2 receives the higher probability, 73.1 percent.",
       "check": "Why does memory remain bounded despite the enormous number of possible n-grams?",
       "answer": "The Hashing Trick maps every possible n-gram into one of a fixed number B of buckets, so the embedding table has only B rows. New n-grams reuse these rows rather than extending the vocabulary, at the cost of deliberate collisions and shared parameters."
     },
@@ -4676,7 +4676,7 @@ window.CS336_EN = Object.freeze({
       ],
       "intuition": "The Prompt describes the task, but the Mask decides which target positions the model should imitate. The minus sign turns high target probability into low Loss.",
       "pitfall": "The Mask and shifted targets must refer to the same positions. In response-only SFT, Prompt, Template, and Padding Tokens belong in neither the sum nor the denominator.",
-      "example": "Toy sequence with Mask [0,0,1,1]: only two response Tokens count. The model assigns them probabilities 0.5 and 0.25. (1) Negative Logs: −log0.5≈0.693 and −log0.25≈1.386. (2) Sum: 2.079. (3) Divide by two response Tokens: L_SFT≈1.040. The two masked Prompt positions contribute exactly zero.",
+      "example": "Toy sequence with Mask [0, 0, 1, 1]: only two response Tokens count. The model assigns them probabilities 0.5 and 0.25. (1) Negative Logs: −log0.5≈0.693 and −log0.25≈1.386. (2) Sum: 2.079. (3) Divide by two response Tokens: L_SFT≈1.040. The two masked Prompt positions contribute exactly zero.",
       "check": "When might one intentionally train on prompt tokens?",
       "answer": "Prompt tokens can be intentionally trained when the goal is not just response imitation, but to model the full conversation format or an entire text sequence. It must then be clearly documented that user and template content are also part of the learning objective."
     },
@@ -4719,7 +4719,7 @@ window.CS336_EN = Object.freeze({
       ],
       "intuition": "A difference costs especially much when p often produces an outcome that q considers unlikely. Weighting by p also explains the direction.",
       "pitfall": "KL is not symmetric: D_KL(p||q) generally differs from D_KL(q||p). If p(x)>0 but q(x)=0, the contribution is infinite.",
-      "example": "Two outcomes: p=(0.75,0.25) and q=(0.5,0.5). (1) First contribution: 0.75·log(0.75/0.5)=0.75·log1.5≈0.304. (2) Second: 0.25·log(0.25/0.5)=0.25·log0.5≈−0.173. (3) Sum: D_KL≈0.131 Nats.",
+      "example": "Two outcomes: p=(0.75, 0.25) and q=(0.5, 0.5). (1) First contribution: 0.75·log(0.75/0.5)=0.75·log1.5≈0.304. (2) Second: 0.25·log(0.25/0.5)=0.25·log0.5≈−0.173. (3) Sum: D_KL≈0.131 Nats.",
       "check": "Why can KL become infinite?",
       "answer": "KL(p||q) becomes infinite if there is an event with p(x)>0 but q(x)=0. Then the sum contains the positively weighted term log(p(x)/0)=+∞."
     },
@@ -4788,7 +4788,7 @@ window.CS336_EN = Object.freeze({
       ],
       "intuition": "The model creates its own training responses. When the Policy changes, the response distribution being averaged changes as well.",
       "pitfall": "The mean of one small Rollout Batch is only an estimate. A frozen response dataset is not automatically a sample from the new Policy after updates.",
-      "example": "Four Rollouts receive binary Verifier Rewards [1,0,1,1]. (1) Sum: 3. (2) Divide by four Rollouts: 3/4=0.75. The estimated Expected Reward for this toy Batch is therefore 0.75, or a 75% success rate.",
+      "example": "Four Rollouts receive binary Verifier Rewards [1, 0, 1, 1]. (1) Sum: 3. (2) Divide by four Rollouts: 3/4=0.75. The estimated Expected Reward for this toy Batch is therefore 0.75, or a 75% success rate.",
       "check": "Over which two random sources is averaging done?",
       "answer": "Averaging is first over prompts x from the prompt distribution ρ and then over answers y sampled from the policy πθ(.|x). The random token decisions of an answer are contained in the random variable y."
     },
@@ -4853,8 +4853,8 @@ window.CS336_EN = Object.freeze({
       ],
       "intuition": "The mean sets the local zero point. Standard deviation sets the scale: the same Reward gap counts more in a tightly clustered group than in a widely spread group.",
       "pitfall": "The convention is part of the algorithm. A5 implementation requires PyTorch's default torch.std with Bessel correction and denominator G−1; the lecture derivation also shows the population form with denominator G. Identical Rewards give every response a zero numerator and no relative signal.",
-      "example": "A5 case with Rewards [1,0,0,1] and G=4: (1) Mean μ=0.5. (2) Sum of squared gaps: 4·0.5²=1. (3) Sample variance with G−1 is 1/3, so sample std≈0.577. (4) Reward one gives A=(1−0.5)/0.577≈+0.866; Reward zero gives A≈−0.866. Population std 0.5 would instead give ±1.",
-      "check": "What happens with [1,1,1]?",
+      "example": "A5 case with Rewards [1, 0, 0, 1] and G=4: (1) Mean μ=0.5. (2) Sum of squared gaps: 4·0.5²=1. (3) Sample variance with G−1 is 1/3, so sample std≈0.577. (4) Reward one gives A=(1−0.5)/0.577≈+0.866; Reward zero gives A≈−0.866. Population std 0.5 would instead give ±1.",
+      "check": "What happens with [1, 1, 1]?",
       "answer": "For rewards [1,1,1], the group mean is one and each centered advantage is zero, so there is no relative learning signal. The standard deviation is also zero and must be safeguarded by ε or a defined special case during normalization."
     },
     "grpo-variants": {
@@ -6587,7 +6587,7 @@ window.CS336_EN = Object.freeze({
       "observe": "Start in the designs mode with Lecture 1's own string and read only the byte row: 1.0000. Cycle through all four strings and watch that this row never moves. Then compare it line by line with the character tokenizer — on two of the four strings the two are indistinguishable. Next switch to the budget mode and read only the column \"cost of the wrong choice\" for both held-out texts: the two numbers are not the same. Finally move the merges from 128 to 256 and to 512 and check which number still changes.",
       "misconception": "The first error is to treat a compression ratio as a property of the tokenizer. It belongs to the pair of tokenizer and text: the same byte tokenizer yields exactly 1.00 on every text, the same character tokenizer yields 1.00 on English and 3.00 on Chinese. The second is to treat a fixed token budget as a fixed amount of text — which is precisely what separates two runs whose losses are then placed side by side. The third is to treat the requested vocabulary size as the learned one: a merge only comes into being if its pair occurs at least twice, and a small corpus is finished before that.",
       "transferQuestion": "You have trained both A1 tokenizers and serialised both datasets. After the same token budget, the OpenWebText run shows a markedly lower per-token loss than the TinyStories run, and your uint16 file is larger than the raw text it came from. Which of the two observations points to a bug and which does not — and with which number do you decide that?",
-      "transferAnswer": "Neither is a bug — but only one of them is a valid statement, and the same number decides both. The uint16 file is 2 · num_tokens bytes and the raw text is num_bytes, so it grows exactly when the compression ratio falls below 2 bytes per token. In the lab that is the row \"ratio to the raw text size\": at r = 2.0198 it reads 0.990× and at r = 1.4783 it reads 1.353×; on the web text, where even the matching tokenizer only reaches r = 1.3605, it is 1.658×. A tokenised file larger than its raw text is pure arithmetic and no indication of anything — anyone who treats it as a bug is searching in the wrong place. The second observation is the reverse: no run is broken, the comparison is. A fixed token budget is not a fixed amount of text. At 327.68 M tokens the matching tokenizer sees 0.616 GiB of text and the crossed one 0.451 GiB, that is 26.81 % less — and a per-token loss then counts in different units. The run with the worse compression ratio splits the same content into more tokens, each individually easier to predict; its lower per-token loss can therefore come entirely from that and not from the better model. Both are decided by a single number, the compression ratio of each run measured on held-out text from its own corpus: it stands against the constant 2 for the file size, and as the conversion factor between the two runs for the loss. Without it the file size is unexplainable and the loss comparison unsupported."
+      "transferAnswer": "Neither is a bug — but only one of them is a valid statement, and the same number decides both. The uint16 file is 2 · num_tokens bytes and the raw text is num_bytes, so it grows exactly when the compression ratio falls below 2 bytes per token. In the lab that is the row \"ratio to the raw text size\": at r = 2.0198 it reads 0.990× and at r = 1.4783 it reads 1.353×; on the web text, where even the matching tokenizer only reaches r = 1.3605, it is 1.470×. A tokenised file larger than its raw text is pure arithmetic and no indication of anything — anyone who treats it as a bug is searching in the wrong place. The second observation is the reverse: no run is broken, the comparison is. A fixed token budget is not a fixed amount of text. At 327.68 M tokens the matching tokenizer sees 0.616 GiB of text and the crossed one 0.451 GiB, that is 26.81 % less — and a per-token loss then counts in different units. The run with the worse compression ratio splits the same content into more tokens, each individually easier to predict; its lower per-token loss can therefore come entirely from that and not from the better model. Both are decided by a single number, the compression ratio of each run measured on held-out text from its own corpus: it stands against the constant 2 for the file size, and as the conversion factor between the two runs for the loss. Without it the file size is unexplainable and the loss comparison unsupported."
     },
     "ffn-backward": {
       "title": "The backward pass: seven equations, the factor 2, and 6ND",

@@ -611,8 +611,14 @@ for (const [locale, concept] of [["de", baseConcepts["parameter-initialization"]
 requireTextFragments("de.formulas.parameter-init.example", baseFormulas["parameter-init"].example, ["2/(d_in+d_out)=2/(2+6)=2/8=0,25", "√0,25=0,5", "−3·0,5=−1,5", "+3·0,5=+1,5"]);
 requireTextFragments("en.formulas.parameter-init.example", englishFormulas["parameter-init"].example, ["2/(d_in+d_out)=2/(2+6)=2/8=0.25", "√0.25=0.5", "−3·0.5=−1.5", "+3·0.5=+1.5"]);
 for (const [locale, formulas] of [["de", baseFormulas], ["en", englishFormulas]]) {
-  requireTextFragments(`${locale}.formulas.linear-map.example`, formulas["linear-map"].example, ["y₁=0.5+2·1+(−1)·3=−0.5", "y₂=1+2·0+(−1)·(−1)=2", "y₃=−2+2·2+(−1)·1=1"]);
-  requireTextFragments(`${locale}.formulas.residual.example`, formulas.residual.example, ["x′=[1+0.1,−2+0.5]=[1.1,−1.5]"]);
+  // Locale-aware like parameter-init and mfu above: pinning one spelling for both locales is
+  // what kept these two cards in English notation -- the assurance certified the defect.
+  requireTextFragments(`${locale}.formulas.linear-map.example`, formulas["linear-map"].example, locale === "de"
+    ? ["y₁=0,5+2·1+(−1)·3=−0,5", "y₂=1+2·0+(−1)·(−1)=2", "y₃=−2+2·2+(−1)·1=1"]
+    : ["y₁=0.5+2·1+(−1)·3=−0.5", "y₂=1+2·0+(−1)·(−1)=2", "y₃=−2+2·2+(−1)·1=1"]);
+  requireTextFragments(`${locale}.formulas.residual.example`, formulas.residual.example, locale === "de"
+    ? ["x′=[1+0,1; −2+0,5]=[1,1; −1,5]"]
+    : ["x′=[1+0.1, −2+0.5]=[1.1, −1.5]"]);
   requireTextFragments(`${locale}.formulas.mfu.example`, formulas.mfu.example, locale === "de" ? ["MFU=400/1000=0,4=40%"] : ["MFU=400/1000=0.4=40%"]);
 }
 requireTextFragments("de.formulas.rope.expr", baseFormulas.rope.expr, [
@@ -16291,4 +16297,220 @@ console.log(`ffn-backward OK: ${fbValues} values, all four gradients match A2's 
 
   const stSpanDeep = stAt("deep", "free", "0.005").ensemble;
   console.log(`offset fit OK: ${stChecks} checks -- scaling-transfer was the last lab without a computed stage, excused by an assurance that there was "nothing it could compute" while its own desc promised "Pruefe Offset-Fit" and A3's 50-point problem asks for the predicted validation loss; the frontier is recomputed here by minimising L(N, C/(6N)) over N instead of the app's closed form (agreement better than 1e-9 at 8 compute tiers) and (L - E) is shown to be a pure power law in C across 5 spans rather than assumed, which is what makes gamma = ${stTrueGamma.toFixed(6)} the exponent the fit must return: at the true offset the residual is zero to machine precision on all 4 ladders and at no other offered offset on any of them, while gamma spans a factor of ${stGammaSpan.toFixed(2)} across the offsets and the worst wrong-offset residual stays at ${stWorstResidual.toFixed(4)} -- small enough that the misspecification is invisible in-sample; fitting log L directly underestimates the target in all ${stTrapStates} noisy states and its error exceeds its own residual in every one, by a factor of ${(stTrapDeep.errorInSigma / stTrapDeep.residualInSigma).toFixed(1)} at the realistic seed spread (${stTrapDeep.errorInSigma.toFixed(1)} sigma against ${stTrapDeep.residualInSigma.toFixed(1)} sigma), and spending the same budget higher up strictly reduces that error across the 3 five-point ladders; the noise-free scan recovers the true offset to within one scan step on every ladder, while under noise one draw settles nothing -- refitting the same ladder on all ${stApi.ST_DRAWS.length} rotations of the draw list leaves E spanning ${stSpanDeep.offsetSpan.toFixed(3)} against ${stSpanDeep.predictedSpan.toFixed(3)} for the prediction drawn from it at the realistic seed spread, an asymmetry of at least ${stWorstRatio.toFixed(1)}x in every noisy state, and the prediction stays inside 10 sigma in all 6 noisy five-point states; the 3-point ladder at the same reach interpolates exactly (residual ${stSparse.fit.rmse.toExponential(1)}) and misses by ${stSparse.errorInSigma.toFixed(1)} sigma -- ${(Math.abs(stSparse.error) / Math.abs(stDeep.error)).toFixed(0)} times the 5-point error, an exact fit that is the absence of a test; the bound E < min L is exercised ${stRefused} times as a refusal and ${stAdmitted} times as a fit, while the scan's own ceiling is shown to decide nothing -- moving it to the largest measured loss shifts the recovered offset by ${stCeilingDrift.toFixed(3)} of one scan step, so that bound is knowingly untested rather than silently so; and ${stReadBack} figures are read back out of the rendered markup in both languages rather than off the report`);
+}
+
+// ---- card numerals: the German notation on the surfaces the panel sweep cannot see (v121) ----
+// `panel decimal point` (v120) swept labMarkup -- the control panel. The decimal sweep (v92) and
+// the exponential sweep (v110) swept the stage, the markup an update function writes. All three
+// look at a lab. None of them has ever looked at a CARD: a formula's worked example, a concept's
+// details, a term's example line, a lab's mental model or transfer answer. Those are the strings
+// that carry the numbers a claim actually rests on, and there nothing decides a separator at all
+// -- the text is typed once and rendered as written.
+//
+// It was the largest surface left, and it was half-converted, which is worse than untouched:
+// FORMULAS.logsumexp printed "exp(z-m) ~= [1,0,368]" to the German reader. The decimals had been
+// turned into commas and the list separators had not, so a two-element vector read as the three
+// numbers 1, 0 and 368 -- inside the one card whose subject is that you may not lose precision.
+// Eleven more examples had never been converted at all (rmsnorm "mitteln -> 12.5", swiglu
+// "[0.731,-0.269]", moe-balance "f=[0.75,0.25]"), and CONCEPTS.adamw wrote that weight decay
+// leaves theta "auf 9.999" where it means 9,999 -- a thousandfold error in the one direction a
+// reader has no way to detect, since the sentence's other three numbers are correctly German.
+//
+// The notation decision, applied per card by hand because no pattern can make it: the comma is
+// the decimal separator and the SEMICOLON is the list separator, so "[0,849; 1,131]". Changing
+// only the scalars would have produced sentences that contradict themselves -- "0,55" beside
+// "[0.75,0.25]" -- which is why the brackets moved with them.
+//
+// The same collision existed on the English side and had been invisible for the same reason:
+// `content numerals` compares the digit runs of both locales after dropping every separator that
+// stands between two digits, so English "b=[0.5,1,-2]" collapsed to the phantom figure 051 and
+// German's identical spelling collapsed to the same phantom. They matched, and the guard passed.
+// Repairing German alone broke that match and exposed the English half: 14 fields printed runs
+// like 102040 and 025075 -- "a figure the app never computed", in that guard's own words. The
+// English lists now carry a space after the separator, which is ordinary English typography and
+// removes the ambiguity there too.
+{
+  const cnumFail = message => { throw new Error(`card numerals: ${message}`); };
+  // The field list is the app's own. A field added to I18N_FIELDS without being added here
+  // would otherwise leave a new card surface unswept, silently.
+  const cnumFields = runInNewContext(`${sliceDeclaration(source, "I18N_FIELDS")} I18N_FIELDS`, {});
+  const cnumPacks = ["modules", "concepts", "formulas", "assignments", "labs", "glossary", "symbols", "diagnostic", "quiz"];
+  for (const kind of cnumPacks)
+    if (!Array.isArray(cnumFields[kind])) cnumFail(`I18N_FIELDS has no field list for ${kind}, so that pack would go unswept`);
+
+  const cnumClasses = { grouping: 0, reference: 0, version: 0, dottedQuad: 0, codeLiteral: 0, shape: 0 };
+  const cnumLeaks = [], cnumUnconfirmed = [];
+  let cnumStrings = 0, cnumTokens = 0, cnumConfirmed = 0, cnumRuns = 0;
+
+  // Walk German and English side by side down the same path, so every token can be asked what
+  // its twin says. `terms` is swept as well: it is where a concept's worked example lines live.
+  const cnumWalk = (german, english, visit, trail = "") => {
+    if (typeof german === "string") { visit(german, english, trail); return; }
+    if (Array.isArray(german)) { german.forEach((value, index) => cnumWalk(value, Array.isArray(english) ? english[index] : undefined, visit, `${trail}[${index}]`)); return; }
+    if (german && typeof german === "object")
+      for (const key of Object.keys(german)) cnumWalk(german[key], english && typeof english === "object" ? english[key] : undefined, visit, `${trail}.${key}`);
+  };
+
+  for (const kind of cnumPacks) {
+    const items = keyed(base[kind]);
+    for (const [id, item] of Object.entries(items)) {
+      for (const field of [...cnumFields[kind], "terms"]) {
+        if (item[field] === undefined) continue;
+        cnumWalk(item[field], pack[kind]?.[id]?.[field], (german, english, trail) => {
+          if (!/\d/u.test(german)) return;
+          cnumStrings++;
+          const where = `${kind}.${id}.${field}${trail}`;
+          // The collision. German spells a decimal with a comma and a list with a comma too, so
+          // half-converting a card produces a run no reader can parse: logsumexp printed
+          // "[1,0,368]" for the two-element vector [1; 0,368], temperature "[1,0,5]" for [1; 0,5].
+          // A run carrying two or more commas is only safe when the string never uses the comma
+          // as a decimal point at all -- einsum-notation's tensor shapes "[2,3,4]" are printed
+          // the way PyTorch prints them and that card writes no decimal anywhere. So the test is
+          // not "is there a run" but "does this string use the comma BOTH ways".
+          const cnumBare = german.replace(/\[[^\[\]]*\]|\([^()]*\)/gu, " ");
+          const cnumDecimal = /\d+,\d+/u.test(cnumBare);
+          for (const run of german.match(/\d+(?:,\d+){2,}/gu) || []) {
+            cnumRuns++;
+            if (!cnumDecimal) { cnumClasses.shape++; continue; }
+            cnumLeaks.push(`${where}: "${run}" is a comma run in a string that also writes decimals with a comma -- ${german.slice(Math.max(0, german.indexOf(run) - 40), german.indexOf(run) + run.length + 20).replace(/\s+/gu, " ").trim()}`);
+          }
+          for (const hit of german.matchAll(/\d+(?:\.\d+)+/gu)) {
+            const token = hit[0];
+            cnumTokens++;
+            const before = german.slice(Math.max(0, hit.index - 45), hit.index);
+            const after = german.slice(hit.index + token.length, hit.index + token.length + 12);
+            // A handout reference: "A1 §7.2.1", and also the bare "A1 5.2" and "A1 4.4" the labs
+            // write. The assignment label itself is the structure, not the digits behind it.
+            if (/(?:§|Abschnitt|Kapitel)\s*[\d.]*$|A[1-5]\s*§?\s*$/u.test(before)) { cnumClasses.reference++; continue; }
+            // A value the handout assigns to a named argument -- "sampling_temperature = 1.0".
+            // That is Python source quoted verbatim, not a quantity the prose computes with, so
+            // it keeps the point in both locales. The snake_case name in front is the structure.
+            if (/[a-z][a-z0-9]*_[a-z0-9_]*\s*=\s*$/u.test(before)) { cnumClasses.codeLiteral++; continue; }
+            // A model version, recognised by the parameter count that follows it -- "Llama 3.3
+            // 70B" -- rather than by a list of product names. "Precision 1.000000" was exactly a
+            // capitalised word followed by digits, so the word before decides nothing here.
+            if (/^\s*\d+[BM]\b/u.test(after)) { cnumClasses.version++; continue; }
+            // Grouped thousands: groups of exactly three, never a leading zero. v120 proved that
+            // clause load-bearing on the panels, and it carries more weight here -- a card writes
+            // "0,849" and "1.048.576" in the same paragraph. This test runs BEFORE the dotted
+            // quad, because "1.073.741.824" and "2.147.483.648" are four groups too: letting the
+            // quad rule reach them first would have excused 21 of the largest numbers in the app
+            // from the English confirmation below, which is the only test that can judge them.
+            if (/^[1-9]\d{0,2}(?:\.\d{3})+$/u.test(token)) {
+              const digits = token.replace(/\./gu, "");
+              const grouped = digits.replace(/\B(?=(\d{3})+(?!\d))/gu, ",");
+              if (typeof english !== "string") { cnumUnconfirmed.push(`${where}: "${token}" has no English twin to confirm it`); continue; }
+              // A grouping is only a grouping if the English twin says so. This is the one test
+              // that can separate a real 3.536 thousand from a decimal 3.536, because the two
+              // shapes are identical in German and never identical in English -- it is what
+              // caught compression-ratio's "1.353x" and "1.658x", which are ratios.
+              if (english.includes(grouped) || english.includes(digits)) { cnumClasses.grouping++; cnumConfirmed++; continue; }
+              // Spelled the same on both sides and grouped on neither: not a quantity at all but
+              // a literal the prose QUOTES -- mask-pii's „999.999.999.999", rejected as an IP.
+              // The quotation marks are the whole of the exception. Without them this escape
+              // also swallowed adamw's "auf 9.999", where English writes the decimal 9.999 and
+              // the identical spelling is the defect rather than the proof of innocence.
+              if (/[\u201e\u201c\u00ab"']\s*$/u.test(before) && /^\s*[\u201c\u201d\u00bb"']/u.test(after) && english.includes(token)) { cnumClasses.dottedQuad++; continue; }
+              cnumUnconfirmed.push(`${where}: "${token}" is written as a thousands group, but the English card has neither ${grouped} nor ${digits} -- so it is a decimal wearing a grouping's clothes`);
+              continue;
+            }
+            // mask-pii's „1.2.3.4": four dot-separated groups that no grouping rule can produce.
+            if (/^\d{1,3}(?:\.\d{1,3}){3}$/u.test(token)) { cnumClasses.dottedQuad++; continue; }
+            cnumLeaks.push(`${where}: "${token}" -- ${german.slice(Math.max(0, hit.index - 50), hit.index + token.length + 20).replace(/\s+/gu, " ").trim()}`);
+          }
+        });
+      }
+    }
+  }
+
+  if (cnumLeaks.length)
+    cnumFail(`${cnumLeaks.length} number(s) print a decimal point to a German reader -- ${cnumLeaks.slice(0, 4).join(" | ")}`);
+  if (cnumUnconfirmed.length)
+    cnumFail(`${cnumUnconfirmed.length} grouped number(s) the English card does not confirm -- ${cnumUnconfirmed.slice(0, 4).join(" | ")}`);
+  // Both directions. A walk that stopped seeing the packs, or a class that stopped matching,
+  // would report a clean sweep over nothing at all.
+  if (cnumStrings < 2100) cnumFail(`only ${cnumStrings} card strings with digits seen across ${cnumPacks.length} packs -- the walk is not reading the content any more`);
+  if (cnumTokens < 340) cnumFail(`only ${cnumTokens} dotted number(s) seen -- the scan is not reading the cards it claims to`);
+  if (cnumClasses.grouping < 360) cnumFail(`grouped thousands matched only ${cnumClasses.grouping} times, so that exception is no longer carrying its weight`);
+  if (cnumConfirmed < 360) cnumFail(`only ${cnumConfirmed} grouping(s) confirmed against an English twin -- the confirmation is what tells a thousand from a decimal`);
+  if (cnumClasses.reference < 3) cnumFail(`handout references matched only ${cnumClasses.reference} times`);
+  if (!cnumClasses.version) cnumFail("no model version number left (Llama 3.3 70B) -- drop the exception rather than keeping an unexercised one");
+  if (!cnumClasses.dottedQuad) cnumFail("mask-pii's literal dotted quad is gone -- drop the exception rather than keeping an unexercised one");
+  if (!cnumClasses.codeLiteral) cnumFail("no argument value left (sampling_temperature = 1.0) -- drop the exception rather than keeping an unexercised one");
+  // The collision test has its own vacuity floor: if no comma run survives anywhere, the test
+  // above would pass over an empty set and say nothing about the defect it exists for.
+  if (cnumRuns < 4) cnumFail(`only ${cnumRuns} comma run(s) seen -- the collision test is reading nothing`);
+  if (!cnumClasses.shape) cnumFail("no tensor shape left in PyTorch notation -- drop that exception rather than keeping an unexercised one");
+
+  console.log(`card numerals OK: ${cnumTokens} dotted numbers across ${cnumStrings} card strings in all ${cnumPacks.length} content packs -- the surface no number helper touches, where the text is typed once and rendered as written, and the last one none of the three lab sweeps could see. It was half-converted, which is worse than untouched: logsumexp printed "[1,0,368]" for a two-element vector because the decimals had become commas and the list separators had not, and adamw said weight decay leaves theta "auf 9.999" where it means 9,999. 16 German strings across 13 cards now write the comma as the decimal separator and the semicolon as the list separator, brackets moved with the scalars so no sentence contradicts itself. What survives translation is classified by structure and held in both directions: ${cnumClasses.grouping} grouped thousands (never a leading zero), of which ${cnumConfirmed} are confirmed as thousands by the English twin rather than assumed -- the one test that can tell a grouped 1.048 from a decimal 1,048, since the two shapes are identical in German and never identical in English -- plus ${cnumClasses.reference} handout references, ${cnumClasses.codeLiteral} argument value quoted from the handout's own Python, ${cnumClasses.version} model version and ${cnumClasses.dottedQuad} dotted quad, that last one excused only because the prose quotes it -- without the quotation clause the same escape also swallowed adamw's unquoted 9.999, where English writes the decimal 9.999 and the identical spelling is the defect rather than the proof of innocence. The comma collision is tested apart from all of this, because the defect this run started from carries no dot at all: ${cnumRuns} comma runs, of which ${cnumClasses.shape} are tensor shapes printed the way PyTorch prints them in cards that never write a decimal comma, and any other one is a run no reader can parse. The same collision sat on the English side unseen, because content numerals drops every separator between two digits and both locales collapsed "b=[0.5,1,-2]" to the same phantom 051; 17 English lists now carry a space after the separator, which removed 14 fields' worth of figures the app never computed`);
+}
+
+// ---- compression growth: the three cells the transfer answer sends the reader to (v121) ----
+// The answer's whole argument is one identity -- the uint16 file grows by 2/r, so it grows at
+// all exactly when r < 2 -- and it hands the reader three worked pairs to check it against the
+// lab's own "Verhältnis zur Rohtextgröße" row. Two were right. The third named the MATCHING
+// tokenizer on the web text (r = 1.3605) and then quoted 1.658x, which is the CROSSED cell of
+// that same row (r = 1.2062); the matching one reads 1.470x. A reader who does the division the
+// sentence just taught gets 1.470 and has to conclude that either the lab or the identity is
+// broken. Nothing pinned those figures, because the notation sweep that found the card only
+// asked how a number is spelled, never whether it is the right number.
+{
+  const cgFail = message => { throw new Error(`compression growth: ${message}`); };
+  const cgCorpus = crApi.CR_CORPORA.find(entry => entry.key === "web");
+  if (!cgCorpus) cgFail("the web corpus is gone, and the answer's third pair is measured on it");
+  const cgStories = crApi.CR_CORPORA.find(entry => entry.key === "stories");
+  // Recomputed through the app's own tokenizer at the merge count the panel opens on, so a
+  // changed corpus or trainer moves these numbers and this guard rather than the prose alone.
+  const cgCell = (target, tokenizerKey, merges) => {
+    const model = crApi.crTokenizerFor(tokenizerKey, merges);
+    const bytes = crApi.crBytes(target.held).length;
+    return crApi.crBudget(bytes, crApi.crTokenize(target.held, "bpe", model.merges));
+  };
+  const cgMerges = 128;
+  const cgPairs = [
+    ["stories", cgCell(cgStories, "stories", cgMerges)],
+    ["stories crossed", cgCell(cgStories, "web", cgMerges)],
+    ["web", cgCell(cgCorpus, "web", cgMerges)],
+    ["web crossed", cgCell(cgCorpus, "stories", cgMerges)],
+  ];
+  let cgChecks = 0;
+  // The identity the answer teaches, on every cell rather than on the three it quotes.
+  for (const [label, cell] of cgPairs) {
+    if (Math.abs(cell.uint16Growth - 2 / cell.ratio) > 1e-12)
+      cgFail(`${label}: the row shows ${cell.uint16Growth} where 2/r is ${2 / cell.ratio}, so the answer's identity is not what the lab computes`);
+    if ((cell.ratio < 2) !== (cell.uint16Growth > 1))
+      cgFail(`${label}: r = ${cell.ratio} and growth = ${cell.uint16Growth} disagree about whether the file grows, which is the whole claim`);
+    cgChecks += 2;
+  }
+  // ...and then the three pairs the prose actually names, read back out of both locales.
+  const cgAnswers = { de: labAnswers["compression-ratio"], en: pack.labs["compression-ratio"].transferAnswer };
+  const cgQuoted = [
+    [cgPairs[0][1], "stories, matching"],
+    [cgPairs[1][1], "stories, crossed"],
+    [cgPairs[2][1], "web, matching"],
+  ];
+  for (const [locale, text] of Object.entries(cgAnswers)) {
+    const decimal = locale === "de" ? "," : ".";
+    for (const [cell, label] of cgQuoted) {
+      const ratio = cell.ratio.toFixed(4).replace(".", decimal);
+      const growth = cell.uint16Growth.toFixed(3).replace(".", decimal);
+      if (!text.includes(ratio)) cgFail(`${locale}: the answer no longer names r = ${ratio} (${label})`);
+      if (!text.includes(growth)) cgFail(`${locale}: the answer names r = ${ratio} (${label}) but not the ${growth}x the lab prints beside it`);
+      // The pairing is the part that was wrong: the figure has to follow its own ratio, not
+      // another cell's. Anything between them but no second ratio.
+      const between = text.slice(text.indexOf(ratio) + ratio.length, text.indexOf(ratio) + ratio.length + 160);
+      if (!between.slice(0, between.indexOf(growth) + growth.length).includes(growth))
+        cgFail(`${locale}: ${growth}x does not follow r = ${ratio} (${label}) -- this is exactly how the crossed cell's 1.658 came to stand behind the matching tokenizer`);
+      cgChecks += 3;
+    }
+    // The crossed web cell is the number that used to stand there. It must not be quoted as
+    // the matching one's, in either spelling.
+    const cgWrong = cgPairs[3][1].uint16Growth.toFixed(3).replace(".", decimal);
+    const cgRight = cgPairs[2][1].ratio.toFixed(4).replace(".", decimal);
+    const cgAfter = text.slice(text.indexOf(cgRight));
+    if (cgAfter.slice(0, 40).includes(cgWrong))
+      cgFail(`${locale}: ${cgWrong}x stands behind r = ${cgRight} again -- that is the crossed tokenizer's cell`);
+    cgChecks++;
+  }
+  console.log(`compression growth OK: ${cgChecks} checks -- the transfer answer teaches one identity, that the uint16 file grows by 2/r and therefore grows exactly when r < 2, and hands the reader three cells of the lab's own raw-size row to check it on. It is proved here on all 4 cells of that row, recomputed through the app's tokenizer rather than read off the prose, in both directions (r < 2 if and only if the file grows). The third quoted pair was wrong: it named the matching tokenizer on the web text at r = ${cgPairs[2][1].ratio.toFixed(4)} and then quoted ${cgPairs[3][1].uint16Growth.toFixed(3)}x, which is the crossed cell beside it at r = ${cgPairs[3][1].ratio.toFixed(4)}; the matching cell reads ${cgPairs[2][1].uint16Growth.toFixed(3)}x, so a reader doing the division the sentence had just taught got a third answer and no way to tell which was broken. Each ratio and each factor is now read back out of both locales with the factor required to follow its own ratio, which is the pairing that failed`);
 }
