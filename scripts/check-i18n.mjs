@@ -10243,6 +10243,85 @@ console.log(`english render OK: ${englishStates} states across ${englishLabs} la
   // added without a false alarm, and a real collapse of the vocabulary still trips it.
   if (lrGermanSeen < lrGermanScanned * 0.9)
     throw new Error(`lab render sweep: the German-only vocabulary sees German in only ${lrGermanSeen} of ${lrGermanScanned} German renders, so its silence on the English ones proves nothing`);
+
+  // ---- the German decimal point on the surface the reader stands on ---------------------
+  // The decimal sweep (v92) and the scientific-notation sweep (v110) both swept the *stage* --
+  // the markup a lab's update function writes, where every number passes fixedNum or expNum.
+  // Neither ever looked at the control panel. There the numbers are written by hand into the
+  // template, so no helper decides their separator, and 23 of them printed a point to a German
+  // reader: "Precision 1.000000" standing beside the panel's own computed "1,000000",
+  // "+36.63 % Tokens", "c = 0.25 · der Unterblock schreibt wenig", "0.000000e+0". In German the
+  // point is the THOUSANDS separator, so "1.000000" does not merely look foreign -- it reads as
+  // one million, and "327.68 M Tokens" as 32768. Three of them sat in the same sentence as a
+  // correctly written German number ("Bei tau = 0,50 ... auf 1.000000"), which is the shape the
+  // reader notices and cannot explain.
+  //
+  // The general claim -- every dot between digits that a German reader sees is a thousands
+  // separator -- is false in this app, and deliberately so. Four classes of dot survive
+  // translation, and each is recognised by its structure rather than by a list of spellings:
+  // grouped thousands, handout section references, product version numbers and mask-pii's
+  // literal dotted quad. Each class is counted, and a class that stops appearing is an error
+  // in its own right: a classifier that silently matches nothing would wave everything through.
+  {
+    // An <output> body is dead text: initLab assigns these ids a value built with fixedNum or
+    // expNum before the reader sees the panel, so whatever the template wrote is overwritten.
+    // Measured rather than assumed -- the id has to be one the app really rewrites.
+    const dpAssigned = new Set();
+    for (const hit of source.matchAll(/getElementById\("(\w+)"\)\.value\s*=/gu)) {
+      const statement = source.slice(hit.index + hit[0].length, hit.index + hit[0].length + 220).split(";")[0];
+      if (/fixedNum|expNum/u.test(statement)) dpAssigned.add(hit[1]);
+    }
+    for (const hit of source.matchAll(/\["(\w+)",\s*(?:fixedNum|expNum)\(/gu)) dpAssigned.add(hit[1]);
+    if (dpAssigned.size < 8)
+      throw new Error(`panel decimal point: only ${dpAssigned.size} output ids are rewritten through a number helper -- the masking below would start excusing live text`);
+
+    const dpClasses = { grouping: 0, section: 0, version: 0, dottedQuad: 0 };
+    const dpLeaks = [];
+    let dpInert = 0, dpScanned = 0;
+    for (const lab of lrDe.api.LABS) {
+      const raw = String(lrDe.api.labMarkup(lab.id));
+      const masked = raw.replace(/<output id="(\w+)"[^>]*>([\s\S]*?)<\/output>/gu,
+        (all, id) => (dpAssigned.has(id) ? `<output id="${id}">0</output>` : all));
+      const count = text => {
+        const visible = text.replace(/<pre[^>]*data-no-i18n[\s\S]*?<\/pre>/gu, " ").replace(/<[^>]*>/gu, " ");
+        let hits = 0;
+        for (const hit of visible.matchAll(/\d+(?:[.,]\d+)+(?:e[+-]?\d+)?/gu)) {
+          const token = hit[0];
+          if (!/\.\d/u.test(token)) continue;          // a comma-only number is already German
+          hits++;
+          const before = visible.slice(Math.max(0, hit.index - 45), hit.index);
+          // A1 §7.2.1, "Abschnitt 3.2" -- a reference into the handout, not a quantity.
+          if (/(?:§|Abschnitt|Kapitel)\s*[\d.]*$|A[1-5]\s*§?\s*$/u.test(before)) { dpClasses.section++; continue; }
+          // Grouped thousands: groups of exactly three, and never a leading zero -- no German
+          // number is written "0.368". That leading-zero clause is not cosmetic: without it the
+          // classifier read online-softmax-kata's "e^-1 ~= 0.368" as grouping and waved it past.
+          if (/^[1-9]\d{0,2}(?:\.\d{3})+(?:,\d+)?$/u.test(token)) { dpClasses.grouping++; continue; }
+          if (/(?:Llama|GPT|Python|PyTorch|CUDA)\s*$/iu.test(before)) { dpClasses.version++; continue; }
+          if (/^\d{1,3}(?:\.\d{1,3}){3}$/u.test(token)) { dpClasses.dottedQuad++; continue; }
+          dpLeaks.push(`${lab.id}: ${token} -- ${visible.slice(Math.max(0, hit.index - 55), hit.index + token.length + 25).replace(/\s+/gu, " ").trim()}`);
+        }
+        return hits;
+      };
+      dpScanned += count(masked);
+      // The masked-out <output> bodies, counted so the excuse stays a measured quantity.
+      const rawHits = (raw.replace(/<[^>]*>/gu, " ").match(/\d+(?:[.,]\d+)+/gu) || []).filter(token => /\.\d/u.test(token)).length;
+      const maskedHits = (masked.replace(/<[^>]*>/gu, " ").match(/\d+(?:[.,]\d+)+/gu) || []).filter(token => /\.\d/u.test(token)).length;
+      dpInert += rawHits - maskedHits;
+    }
+    if (dpLeaks.length)
+      throw new Error(`panel decimal point: ${dpLeaks.length} number(s) print a decimal point to a German reader -- ${dpLeaks.slice(0, 4).join(" | ")}`);
+    // Both directions. A classifier that matched nothing would report a clean sweep over an
+    // empty scan, so every class it excuses has to be shown to still occur, and the scan as a
+    // whole has to be seeing numbers at all.
+    if (dpScanned < 60) throw new Error(`panel decimal point: only ${dpScanned} dotted number(s) seen across all panels -- the scan is not reading the markup it claims to`);
+    if (dpClasses.grouping < 40) throw new Error(`panel decimal point: grouped thousands matched only ${dpClasses.grouping} times, so that exception is no longer carrying its weight`);
+    if (dpClasses.section < 20) throw new Error(`panel decimal point: handout section references matched only ${dpClasses.section} times`);
+    if (!dpClasses.version) throw new Error("panel decimal point: no product version number left (Llama 3.1) -- drop the exception rather than keeping an unexercised one");
+    if (!dpClasses.dottedQuad) throw new Error("panel decimal point: mask-pii's literal 1.2.3.4 is gone -- drop the exception rather than keeping an unexercised one");
+    if (dpInert < 8) throw new Error(`panel decimal point: only ${dpInert} <output> literal(s) masked as dead text, against the 8 measured -- if a panel stopped rewriting its output, that text is live again`);
+    console.log(`panel decimal point OK: ${dpScanned} dotted numbers across all ${lrDe.api.LABS.length} lab control panels, the surface the reader stands on before touching a control and the one surface no number helper decides -- 23 of them printed a German reader a point where the panel beside them computes a comma ("Precision 1.000000" against its own 1,000000, "327.68 M Tokens" which reads as 32768, "0.000000e+0", "c = 0.25"), and three sat in the same sentence as a correctly written German number. What survives translation is classified by structure rather than by a list of spellings and each class is held in both directions: ${dpClasses.grouping} grouped thousands (never with a leading zero -- that clause is what stopped "0.368" from passing as grouping), ${dpClasses.section} handout section references, ${dpClasses.version} product version number and ${dpClasses.dottedQuad} dotted quad, plus ${dpInert} <output> literals masked as dead text because initLab provably rewrites them through fixedNum before the panel is read`);
+  }
+
   console.log(`lab render sweep OK: ${lrStates} renders across ${lrLabs} of ${base.labs.length} labs in both languages, driven through the page's own labMarkup and initLab against a stubbed DOM -- every state balanced, free of "undefined" and of uninterpolated placeholders, no German left in the English render, and ${lrMoving} of ${lrControls} controls demonstrably move their lab (${LR_NO_STAGE.length} labs have no computed stage and are excused by name). The German check is no longer a word list: ${GERMAN_ONLY_WORDS.size} words the German side of this app uses and the English side never does, derived from the packs rather than typed, which is what caught "gegen" in run-budget-ledger and the subscript of theta_neu in optimizer -- and the same detector is shown to see German in ${lrGermanSeen} of ${lrGermanScanned} German renders, so its silence on the English ones is evidence`);
 }
 
