@@ -1,6 +1,6 @@
 # Activity
 
-Iteration Counter: 2
+Iteration Counter: 3
 
 ## 2026-07-14 - Interaktiver CS336-Lernbegleiter (manueller Run)
 
@@ -1020,4 +1020,74 @@ einer Zeile je Lauf; die Einzelheiten stehen in `tmp/deep-review-2026-09-<tag>-c
 - **Kein Browsertest** - in geplanten Laeufen gesperrt. Ersatz: **164 Renders** aller 82
   Formelkarten als vollstaendiges Akkordeon in beiden Sprachen, 0 Probleme, der Scanner
   vorher mit zwei injizierten Defekten als sehend belegt.
+- Der Iteration Counter wurde erhoeht, da der Run ueber einen Scheduled Task startete.
+
+## v122 - 2026-09-24 - zwei Kommas hatte der Test verlangt, die Listen haben eins
+
+- Status: abgeschlossen. Branch `claude/dreamy-cray-97d7fd`, gebaut auf dem Kettenkopf v121
+  (`c230c69`). Der zugewiesene Worktree stand auf v99 (`2ed21e7`), **22 Commits hinter dem
+  Kopf**; die Ahnenpruefung ueber alle Spitzen fand keinen verlorenen Zweig, auch der
+  Haupt-Checkout (`1461c41`) ist im Kopf enthalten. Codex-Pruefung: Haupt-Checkout seit dem
+  29. Juli unberuehrt.
+- **Zuerst der Hebel, den v121 als groessten offenen genannt hatte:** die gerechneten
+  Beispiele aller 82 Formelkarten gegen **ihre eigene Arithmetik** gehalten, nicht nur gegen
+  ihre Schreibweise. Alle 82 nachgerechnet - Mittelwert bis PPO-Clip, inklusive der
+  Byte-Zaehlung von Lecture 1s Emoji-String, der Kaskadenausbeute mit ihren vier
+  Verwerfungsanteilen und des Flash-Backward-Falls. **Kein einziger Rechenfehler.** Die
+  Kennzahl war Verdacht, der Befund liegt woanders.
+- **Der Befund: `{2,}` heisst zwei Kommas.** `card numerals` (v121) prueft die Kollision mit
+  `/\d+(?:,\d+){2,}/` - zwei Kommas, also drei Zahlen und mehr. Der Defekt, aus dem der Test
+  entstand (`[1,0,368]`), trug genau zwei; das Muster wurde daran angepasst, und **eine Liste
+  mit genau ZWEI Elementen wurde nie angesehen**. Das ist die Form, die die meisten Listen der
+  App haben. Der Test lief ausserdem leer: 5 Komma-Laeufe, alle 5 als Tensor-Shape entschuldigt.
+- **16 Kollisionen in 5 Feldern**, jede in einem String, der das Komma auch als Dezimaltrenner
+  benutzt: `mean-var` „Zahlen [1,3]" neben eigenem `1,414`; `z-loss` `z_t=[0,0]` neben `0,693`
+  - und ohne die zwei Nullen ist nicht nachvollziehbar, warum die Summe `log 2` ist;
+  `logistic` `x=[2,1]` neben `0,368`, wo `wᵀx` zwei Komponenten braucht; **acht Listen in
+  `flash-backward`** neben `dQ≈0,462`, in der Karte, die man Index fuer Index liest.
+- **Der schaerfste Fall:** `concepts.rope.answers[1]` druckte die Dezimalzahl `0,2` und das
+  Koordinatenpaar `[0,2]` **dreissig Zeichen auseinander in einem Satz** - als Antwort auf den
+  Check, der genau fragt, welche *Winkel* und welche *Koordinatenpaare* A1 verlangt. Die zwei
+  Dinge, die der Leser unterscheiden soll, waren gleich geschrieben.
+- **Die Zusicherung war wieder der Grund.** `requireTextFragments` schrieb `"[0,1]"` und
+  `"[2,3]"` fuer **beide** Sprachen fest - derselbe Fehler, den v121 zwei Zeilen unter
+  `parameter-init`s korrekt getrennter Fassung bei `linear-map` gefunden hatte. Der Vertrag
+  zertifizierte die Kollision.
+- **Repariert:** 11 deutsche Strings (Semikolon als Listentrenner) und ihre 11 englischen
+  Zwillinge (Leerzeichen hinter dem Trenner, damit `content numerals` nicht auf eine
+  Phantomzahl laeuft). Dazu die drei rope-Geschwister (`details`, `mental`, `pitfall`), weil
+  sonst die Antwort `[0; 1]` und die Erklaerung `[0,1]` schreibt.
+- **Der Einzelfall, dessen Fehllesung eine gueltige Rechnung ist:**
+  `distributed-critical-path` schrieb `max(0,40−25)`. Deutsch gelesen ist das `0,40−25 =
+  −24,6` - ein vollstaendiger Ausdruck, der eine Zahl ergibt, an der Stelle, an der die Prosa
+  eine Zahl verlangt. Ein fehlgelesener Shape ergibt nichts. Genau eine Fundstelle, und sie
+  wird jetzt auch ohne Dezimalzahl in der Naehe gemeldet.
+- **Neuer Guard `card comma lists`** (Suite **75 -> 76 Bloecke gruen**): 1743 Einkomma-Paare
+  ueber 2296 Strings in 9 Paketen. **Der Zwilling wird an den eigenen Trennzeichen verankert**
+  - 1446 so bestaetigt, 249 ueber den unverankerten Rueckfall. Ohne die Verankerung ist
+  `rope.answers` **nicht** entscheidbar: eine Suche ueber den ganzen String findet dessen
+  eigene legitime `0.2` im Englischen und buergt damit fuer das Paar `[0,2]` daneben - der
+  Defekt zertifiziert sich selbst aus dem Bericht heraus.
+- Entschuldigt und gezaehlt: 34 Strings ohne jeden Dezimalkomma-Gebrauch (PyTorch-Shapes,
+  Python-Quelltext, Matrixadressen, Einheitsintervall, aus dem Handout zitierte Zahlen),
+  10 Regex-Quantoren `\d{1,3}`, 2 tiefgestellte Indexpaare `θ_(2,1)`. Die erste Klasse ist
+  **string-lokal und damit wissentlich blind**, denn die Gewohnheit eines Lesers ist es nicht;
+  das steht im Guard.
+- **Der Guard ist bei jedem Lauf als sehend belegt, nicht nur unter Mutation:** eine
+  eingebaute Fixture-Kollision muss gefangen werden und ein Kontroll-Shape gruen bleiben,
+  beide durch denselben Codepfad.
+- **Mutationstest:** 19 Mutationen, **0 inert**. 12 gefangen (jeder reparierte String
+  einzeln zurueck, plus die beiden Ausnahmen, deren Streichung Falschmeldungen erzeugt),
+  3 als Paar tragend bewiesen (Verankerung, Arithmetik-Klausel, Fixture als letzte Instanz),
+  4 gruene Kontrollen. Drei erste Ergebnisse waren Lehrgeld: zwei Mutationen wurden von einer
+  **Leerlauf-Schranke** gefangen statt von der geprueften Klausel, und eine Kontrolle war
+  falsch gebaut - ein Shape neben eine Dezimalzahl gesetzt **ist** die Kollision.
+- **Kein Browsertest** - in geplanten Laeufen gesperrt. Ersatz: **778 Renders** aller
+  Formelkarten-`example`/`pitfall` und aller Konzept-`mental`/`details`/`answers` in beiden
+  Sprachen durch `formulaText`, `esc` und `selfCheckMarkup` der App selbst. 0 Probleme, 9/9
+  geaenderte Felder im gerenderten Deutsch nachgewiesen, der Scanner vorher mit zwei
+  injizierten Defekten als sehend belegt (0 -> genau 2 -> 0). Zusaetzlich geprueft: **kein
+  `split(";")` existiert in der App**; die zwei `split(",")` treffen `adapters`/`tests` von
+  Problemen, keine Kartenprosa.
+- Cache-Bump auf **v99** (4 Stellen).
 - Der Iteration Counter wurde erhoeht, da der Run ueber einen Scheduled Task startete.

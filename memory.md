@@ -234,3 +234,38 @@
   Slicer** - der lief bis zum Dateiende (1,5 MB) und der Kontext starb an `</script>`. Die
   Guard-Suite umgeht das mit einem Zeilen-Slice bis zum naechsten `\n`. Beim Aufbau einer
   Render-Umgebung zuerst die Groesse jedes Slices pruefen.
+- **Ein Wiederholungsquantor im Guard ist eine stillschweigende Mengenangabe.** `card numerals`
+  pruefte die Komma-Kollision mit `/\d+(?:,\d+){2,}/` - `{2,}` heisst **zwei** Kommas, also drei
+  Zahlen und mehr. Der Defekt, aus dem der Test entstand, trug zufaellig zwei; das Muster wurde
+  daran angepasst, und die **zweielementige** Liste - die haeufigste Form der App - wurde nie
+  angesehen. Beim Schreiben eines musterbasierten Guards gehoert gefragt, welche *Groessen* des
+  Defekts das Muster ausschliesst, nicht nur welche Schreibweisen. Siehe
+  [[cs336-mutation-test-blind-spots]].
+- **Ein Zwillingsvergleich ueber den ganzen String kann vom Defekt selbst gebuergt werden.**
+  `rope.answers` enthaelt die legitime Dezimalzahl `0,2` **und** das Koordinatenpaar `[0,2]` in
+  einem Satz. Eine Suche nach `0.2` irgendwo im englischen Zwilling findet die Dezimalzahl und
+  erklaert damit das Paar fuer unbedenklich - der Defekt zertifiziert sich selbst heraus. Der
+  Ausweg ist **Verankerung an den eigenen Trennzeichen**: die umschliessende Klammer ist in
+  beiden Sprachen dasselbe Zeichen und damit das einzige ueber eine Uebersetzung hinweg
+  vergleichbare Stueck Kontext. Siehe [[cs336-german-decimal-sweep]].
+- **Eine Fehllesung, die unter Arithmetik geschlossen ist, ist schaerfer als eine, die es nicht
+  ist.** `max(0,40−25)` deutsch gelesen ergibt `0,40−25 = −24,6`: ein vollstaendiger Ausdruck,
+  der eine Zahl liefert, dort wo die Prosa eine Zahl verlangt. Ein fehlgelesener Shape
+  `(B,T,8,64)` ergibt nichts. Das trennt die Faelle, die auch ohne Dezimalzahl im selben String
+  gemeldet werden muessen, von denen, die der string-lokale Ausweis entschuldigen darf.
+- **Eine Leerlauf-Schranke kann eine Mutation fangen, die die geprueften Klausel nicht faengt.**
+  Zwei Mutationen wurden von `pairs < 1500` bzw. `anchoredList < 20` gefangen, nicht von der
+  Klausel, die sie pruefen sollten. Das Ergebnis sieht wie ein Erfolg aus und beweist nichts
+  ueber die Klausel. Zum Isolieren einer Klausel gehoeren die Schranken mit abgeschaltet.
+- **Eine Kontrolle kann falsch gebaut sein statt zu gross.** Ein Tensor-Shape neben eine
+  Dezimalzahl gesetzt **ist** die Kollision - der Guard hatte recht, die Kontrolle war falsch.
+  Und eine Kontrolle, die nur eine Sprache aendert, prueft die Uebersetzungslueche, nicht das,
+  was sie pruefen sollte: sie muss **symmetrisch in beiden Sprachen** eingreifen.
+- **Ein Guard kann bei jedem Lauf als sehend belegt werden, nicht nur unter Mutation.** Eine
+  eingebaute Fixture - ein Defekt, der gefangen werden *muss*, und eine Kontrolle, die gruen
+  bleiben *muss*, beide durch denselben Codepfad wie das Korpus - macht das Leerlaufen des
+  Blocks selbst zum Fehler. Siehe [[cs336-guard-suite-slim-harness]].
+- **Die 82 gerechneten Beispiele sind arithmetisch korrekt** (Stand v122, alle einzeln
+  nachgerechnet, inklusive Bytezaehlung, Kaskadenanteile und Flash-Backward). Wer dort erneut
+  sucht, sucht am falschen Ort; der naechste Inhaltsfehler liegt nicht in ihrer Arithmetik.
+

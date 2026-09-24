@@ -624,11 +624,15 @@ for (const [locale, formulas] of [["de", baseFormulas], ["en", englishFormulas]]
 requireTextFragments("de.formulas.rope.expr", baseFormulas.rope.expr, [
   "i / Θ^((2k−2)/d)", "q′₂ₖ₋₁", "q′₂ₖ"
 ]);
+// The pair notation is locale-specific, exactly as parameter-init's and residual's are above:
+// German separates a list with the semicolon because the comma is already the decimal point, and
+// rope.answers writes the decimal 0,2 and the coordinate pair [0; 2] in one sentence. Pinning one
+// spelling for both locales is what certified that collision through v121.
 requireTextFragments("de.concepts.rope", baseConcepts.rope, [
-  "[0,1]", "[2,3]", "Half-Split", "self.register_buffer(..., persistent=False)", "keine nn.Parameter"
+  "[0; 1]", "[2; 3]", "Half-Split", "self.register_buffer(..., persistent=False)", "keine nn.Parameter"
 ]);
 requireTextFragments("en.concepts.rope", englishConcepts.rope, [
-  "[0,1]", "[2,3]", "Half-Split", "self.register_buffer(..., persistent=False)", "not nn.Parameters"
+  "[0, 1]", "[2, 3]", "Half-Split", "self.register_buffer(..., persistent=False)", "not nn.Parameters"
 ]);
 requireTextFragments("de.formulas.next-token-batch.expr", baseFormulas["next-token-batch"].expr, [
   "{0,…,n−m−1}", "x[s_b:s_b+m]", "x[s_b+1:s_b+m+1]"
@@ -16513,4 +16517,167 @@ console.log(`ffn-backward OK: ${fbValues} values, all four gradients match A2's 
     cgChecks++;
   }
   console.log(`compression growth OK: ${cgChecks} checks -- the transfer answer teaches one identity, that the uint16 file grows by 2/r and therefore grows exactly when r < 2, and hands the reader three cells of the lab's own raw-size row to check it on. It is proved here on all 4 cells of that row, recomputed through the app's tokenizer rather than read off the prose, in both directions (r < 2 if and only if the file grows). The third quoted pair was wrong: it named the matching tokenizer on the web text at r = ${cgPairs[2][1].ratio.toFixed(4)} and then quoted ${cgPairs[3][1].uint16Growth.toFixed(3)}x, which is the crossed cell beside it at r = ${cgPairs[3][1].ratio.toFixed(4)}; the matching cell reads ${cgPairs[2][1].uint16Growth.toFixed(3)}x, so a reader doing the division the sentence had just taught got a third answer and no way to tell which was broken. Each ratio and each factor is now read back out of both locales with the factor required to follow its own ratio, which is the pairing that failed`);
+}
+
+// ---- card comma lists: the two-element list the run test could not see (v122) ----
+// `card numerals` (v121) closed the comma collision on the card surface -- German spells a
+// decimal with a comma and a list with a comma too, so a half-converted card printed
+// "[1,0,368]" for the two-element vector [1; 0,368]. Its collision test reads
+//
+//     german.match(/\d+(?:,\d+){2,}/gu)
+//
+// and {2,} means TWO commas: three numbers or more. The defect it was written from happened to
+// carry two, and the pattern was fitted to it, so a list of exactly TWO elements was never
+// examined at all. That is the whole of this run's finding, and it is the shape most lists in
+// the app actually have: mean-var opened with "Zahlen [1,3]" beside its own decimal "1,414",
+// z-loss set "z_t=[0,0]" beside 0,693 and 0,480, logistic set "x=[2,1]" beside 0,368, and
+// flash-backward wrote V=[1,2], P=[1/3,2/3] and [3,6] beside dQ≈0,462 -- eight lists in the one
+// card that has to be read index by index to be read at all.
+//
+// The sharpest was concepts.rope.answers[1], which printed the decimal 0,2 and the coordinate
+// pair [0,2] thirty characters apart in one sentence, as the answer to the check that asks which
+// angles AND WHICH COORDINATE PAIRS A1 requires: the two things the reader is told to tell apart
+// were spelled the same. Its assertion pinned "[0,1]" and "[2,3]" for BOTH locales, so the
+// contract certified the collision -- the same way v121 found linear-map's fragment pinned for
+// both, two lines under parameter-init's correctly locale-split pair.
+//
+// The decider is the English twin, as in v121: English is unambiguous here, a decimal carries a
+// point and a list a comma, so the twin says which reading was meant rather than leaving it to
+// be assumed. That is also why the counters below matter -- an earlier draft of this test had a
+// boundary that rejected a decimal followed by a sentence period, which made mean-var's own
+// "1,414." invisible and classified the card as one that writes no decimal at all, excusing the
+// very string the run started from.
+{
+  const cclFail = message => { throw new Error(`card comma lists: ${message}`); };
+  const cclFields = runInNewContext(`${sliceDeclaration(source, "I18N_FIELDS")} I18N_FIELDS`, {});
+  const cclPacks = ["modules", "concepts", "formulas", "assignments", "labs", "glossary", "symbols", "diagnostic", "quiz"];
+  for (const kind of cclPacks)
+    if (!Array.isArray(cclFields[kind])) cclFail(`I18N_FIELDS has no field list for ${kind}, so that pack would go unswept`);
+
+  // A boundary is "not glued into a longer number". A decimal at the end of a sentence is still a
+  // decimal, so a trailing period is a boundary unless a digit follows it.
+  const cclPair = () => /(?<!\d)(?<![\d][,.])(\d+),(\d+)(?!\d)(?![,.]\d)/gu;
+  const cclEscape = text => text.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const cclTwin = (english, a, b, middle) =>
+    new RegExp(`(?<!\\d)(?<![\\d][,.])${a}${middle}${b}(?!\\d)(?![,.]\\d)`, "u").test(english);
+  // Anchored on the delimiters that enclose the token. A whole-string lookup cannot settle
+  // rope.answers, the sharpest case of all: that string legitimately contains the decimal 0,2,
+  // so an unanchored twin test finds "0.2" in the English and vouches for the coordinate pair
+  // [0,2] beside it -- the defect certifies itself out of the report. The enclosing brackets are
+  // the same character in both locales, so they are the one piece of context that can be
+  // compared across a translation, and "[0" + separator + "2]" is a list while "=0.2 " is not.
+  const cclAnchored = (english, a, b, middle, lead, trail) =>
+    new RegExp(`${cclEscape(lead)}${a}${middle}${b}${cclEscape(trail)}`, "u").test(english);
+
+  // One string, classified. Returned so the fixture below can run the identical code path.
+  const cclScan = (german, english, report) => {
+    // Does this string use the comma as a DECIMAL? Confirmed against the twin, never assumed.
+    let usesDecimalComma = false;
+    if (typeof english === "string")
+      for (const found of german.matchAll(cclPair())) {
+        const lead = german.slice(Math.max(0, found.index - 1), found.index);
+        const trail = german.slice(found.index + found[0].length, found.index + found[0].length + 1);
+        if (cclAnchored(english, found[1], found[2], "\\.", lead, trail)) { usesDecimalComma = true; break; }
+      }
+    for (const hit of german.matchAll(cclPair())) {
+      const [token, a, b] = hit;
+      const before = german.slice(Math.max(0, hit.index - 8), hit.index);
+      const after = german.slice(hit.index + token.length, hit.index + token.length + 2);
+      report.pairs++;
+      // Regex syntax, not a quantity: \d{1,3} in the PII pattern.
+      if (before.endsWith("{") && after.startsWith("}")) { report.quantifier++; continue; }
+      // A subscript index tuple -- rope's θ_(2,1). The indices of a symbol, not its value.
+      if (before.endsWith("_(") && after.startsWith(")")) { report.subscript++; continue; }
+      if (typeof english !== "string") { report.noTwin.push(token); continue; }
+      // The delimiters first, because only they can tell a decimal from a list inside a string
+      // that carries both. The unanchored forms are the fallback for a sentence the translation
+      // restructured, and they are counted apart so their share stays visible.
+      const lead = german.slice(Math.max(0, hit.index - 1), hit.index);
+      const trail = german.slice(hit.index + token.length, hit.index + token.length + 1);
+      if (cclAnchored(english, a, b, "\\.", lead, trail)) { report.decimal++; continue; }
+      if (cclAnchored(english, a, b, "\\s*[,;]\\s*", lead, trail)) { report.anchoredList++; }
+      else if (cclTwin(english, a, b, "\\.")) { report.looseDecimal++; continue; }
+      else if (!cclTwin(english, a, b, "\\s*[,;]\\s*")) { report.noTwin.push(token); continue; }
+      // Two operands of an arithmetic call. This one is flagged even in a string that writes no
+      // decimal, because the misreading is CLOSED UNDER ARITHMETIC: "max(0,40−25)" read the
+      // German way is 0,40−25 = −24,6, a complete expression yielding a number, in a place where
+      // the prose asks the reader for a number. A shape "(B,T,8,64)" misread yields nothing.
+      if (/(?:max|min|clip|clamp)\($/u.test(before)) { report.arithCall.push(token); continue; }
+      // The string-local boundary, and it is knowingly blind: PyTorch shapes "(B,T,8,64)",
+      // Python source "(x for x in [1,2])", matrix addresses "(0,1)", the unit interval "[0,1)"
+      // and figures quoted from the English handout ("8/3 × 1,600") keep the comma because no
+      // competing reading exists INSIDE that string. A reader's habit is not string-local, so a
+      // pair like this in a card that never writes a decimal stays invisible to this test.
+      if (!usesDecimalComma) { report.notation++; continue; }
+      report.collisions.push(`${token} -- ${german.slice(Math.max(0, hit.index - 45), hit.index + token.length + 25).replace(/\s+/gu, " ").trim()}`);
+    }
+  };
+
+  const cclBlank = () => ({ pairs: 0, decimal: 0, looseDecimal: 0, anchoredList: 0, quantifier: 0, subscript: 0, notation: 0, noTwin: [], collisions: [], arithCall: [] });
+
+  // A control that must stay green and a defect that must be caught, both through the code above.
+  // Without this the whole block passes over an empty set the moment the classifier stops
+  // matching, and reports a clean sweep over nothing -- a broken harness calls everything caught.
+  const cclFixture = cclBlank();
+  cclScan("Zahlen [1,3] und der Wert 1,414 am Satzende.", "Values [1,3] and the value 1.414 at the end.", cclFixture);
+  if (cclFixture.collisions.length !== 1) cclFail(`the fixture collision "[1,3]" beside the decimal 1,414 was not caught (${cclFixture.collisions.length} found) -- the classifier is not reading`);
+  if (cclFixture.decimal !== 1) cclFail(`the fixture decimal 1,414 was not recognised as a decimal (${cclFixture.decimal}) -- a sentence-final period is still a number boundary`);
+  const cclControl = cclBlank();
+  cclScan("Der Shape ist (B,T,8,64) und es gibt keine Dezimalzahl.", "The Shape is (B,T,8,64) and there is no decimal.", cclControl);
+  if (cclControl.collisions.length) cclFail("the control shape (B,T,8,64) was flagged although its string writes no decimal comma -- the string-local boundary is gone");
+
+  const cclWalk = (german, english, visit, trail = "") => {
+    if (typeof german === "string") { visit(german, english, trail); return; }
+    if (Array.isArray(german)) { german.forEach((value, index) => cclWalk(value, Array.isArray(english) ? english[index] : undefined, visit, `${trail}[${index}]`)); return; }
+    if (german && typeof german === "object")
+      for (const key of Object.keys(german)) cclWalk(german[key], english && typeof english === "object" ? english[key] : undefined, visit, `${trail}.${key}`);
+  };
+
+  const ccl = cclBlank();
+  const cclLeaks = [], cclArith = [], cclUntwinned = [];
+  let cclStrings = 0;
+  for (const kind of cclPacks) {
+    for (const [id, item] of Object.entries(keyed(base[kind]))) {
+      for (const field of [...cclFields[kind], "terms"]) {
+        if (item[field] === undefined) continue;
+        cclWalk(item[field], pack[kind]?.[id]?.[field], (german, english, trail) => {
+          if (!/\d/u.test(german)) return;
+          cclStrings++;
+          const where = `${kind}.${id}.${field}${trail}`;
+          const report = cclBlank();
+          cclScan(german, english, report);
+          ccl.pairs += report.pairs; ccl.decimal += report.decimal; ccl.quantifier += report.quantifier;
+          ccl.subscript += report.subscript; ccl.notation += report.notation;
+          ccl.looseDecimal += report.looseDecimal; ccl.anchoredList += report.anchoredList;
+          for (const hit of report.collisions) cclLeaks.push(`${where}: "${hit}"`);
+          for (const hit of report.arithCall) cclArith.push(`${where}: "${hit}"`);
+          // An untwinned pair cannot be judged at all. The only field without a twin is `expr`,
+          // which carries international mathematical notation -- "N(0,1)", "E∈[−3,3]" -- and is
+          // not translated. Anywhere else it is a translation gap hiding a pair from this test.
+          for (const hit of report.noTwin) {
+            ccl.noTwin.push(hit);
+            if (!/\.expr(\[|$)/u.test(`${field}${trail}`.replace(/^/, ".")) && field !== "expr") cclUntwinned.push(`${where}: "${hit}"`);
+          }
+        });
+      }
+    }
+  }
+
+  if (cclLeaks.length)
+    cclFail(`${cclLeaks.length} two-element comma list(s) read as a decimal to a German reader, in a string that writes decimals with a comma -- ${cclLeaks.slice(0, 4).join(" | ")}`);
+  if (cclArith.length)
+    cclFail(`${cclArith.length} arithmetic-call comma(s) whose German reading is itself a valid expression -- ${cclArith.slice(0, 4).join(" | ")}`);
+  if (cclUntwinned.length)
+    cclFail(`${cclUntwinned.length} comma pair(s) outside expr have no English twin to judge them -- ${cclUntwinned.slice(0, 4).join(" | ")}`);
+  // Both directions: a walk that stopped reading, or a class that stopped matching, would report
+  // a clean sweep over nothing. Each number below is a measurement, not a target.
+  if (cclStrings < 2100) cclFail(`only ${cclStrings} strings with digits seen across ${cclPacks.length} packs -- the walk is not reading the content any more`);
+  if (ccl.pairs < 1500) cclFail(`only ${ccl.pairs} one-comma pair(s) seen -- the pattern is not matching the corpus`);
+  if (ccl.decimal < 1300) cclFail(`only ${ccl.decimal} pair(s) confirmed as decimals by a twin anchored on their own delimiters -- that anchoring is what decides the cases a whole-string lookup cannot`);
+  if (ccl.anchoredList < 20) cclFail(`only ${ccl.anchoredList} list(s) recognised by an anchored twin, so the anchoring is no longer separating a list from a decimal`);
+  if (ccl.notation < 20) cclFail(`the string-local notation class matched only ${ccl.notation} times, so it is no longer carrying its weight`);
+  if (!ccl.quantifier) cclFail("no regex quantifier left (\\d{1,3}) -- drop that exception rather than keeping an unexercised one");
+  if (!ccl.subscript) cclFail("no subscript index tuple left (θ_(2,1)) -- drop that exception rather than keeping an unexercised one");
+
+  console.log(`card comma lists OK: ${ccl.pairs} one-comma digit pairs across ${cclStrings} strings in all ${cclPacks.length} content packs, ${ccl.decimal} of them confirmed as decimals by an English twin anchored on their own delimiters and ${ccl.looseDecimal} more by an unanchored twin where the translation restructured the sentence, never by assumption. card numerals (v121) closed this collision with a run test reading /\\d+(?:,\\d+){2,}/ -- two commas, three numbers or more -- so a list of exactly TWO elements was never examined, which is the shape most lists in the app have. 16 of them printed as decimals beside real decimals in the same string: mean-var's "Zahlen [1,3]" beside its own 1,414, z-loss's "z_t=[0,0]" beside 0,693, logistic's "x=[2,1]" beside 0,368, eight lists in flash-backward beside dQ≈0,462, and rope.answers printing the decimal 0,2 and the coordinate pair [0,2] thirty characters apart in the answer to the check that asks the reader to tell angles from coordinate pairs -- with "[0,1]" and "[2,3]" pinned for both locales, so the contract certified it. What keeps its comma is classified by structure and counted: ${ccl.notation} strings that never use the comma as a decimal at all (PyTorch shapes, Python source, matrix addresses, the unit interval, figures quoted from the handout) -- ${ccl.anchoredList} of those lists recognised by an anchored twin -- plus ${ccl.quantifier} regex quantifiers and ${ccl.subscript} subscript index tuples. The anchoring is what settles rope.answers, and nothing else can: an unanchored lookup finds that string's own legitimate decimal 0.2 in the English and vouches with it for the coordinate pair [0,2] beside it, so the defect certifies itself out of the report. The enclosing bracket is the same character in both locales, which makes it the one piece of context comparable across a translation. That first class is string-local and therefore knowingly blind, since a reader's habit is not -- which is why the arithmetic-call comma is flagged separately even without a decimal nearby: "max(0,40−25)" misread is 0,40−25 = −24,6, a complete expression yielding a number where the prose asks for one, while a misread shape yields nothing. ${ccl.noTwin.length} pairs have no twin and all sit in expr, the untranslated field carrying international notation. The classifier is proved sighted on every run, not only under mutation: a fixture collision must be caught and a control shape must stay green through this same code`);
 }
