@@ -1,8 +1,8 @@
-const CACHE_NAME = "cs336-shell-v99";
+const CACHE_NAME = "cs336-shell-v100";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./i18n-en.js?v=99",
+  "./i18n-en.js?v=100",
   "./config.js",
   "./manifest.webmanifest",
   "./vendor/supabase.js",

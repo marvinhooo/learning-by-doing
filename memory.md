@@ -269,3 +269,34 @@
   nachgerechnet, inklusive Bytezaehlung, Kaskadenanteile und Flash-Backward). Wer dort erneut
   sucht, sucht am falschen Ort; der naechste Inhaltsfehler liegt nicht in ihrer Arithmetik.
 
+## Die nachgeschlagene Regel und die gehaltene Rechnung (v123)
+
+- **Produktentscheidung: A4s regelbasierter Qualitaetsfilter hat eine eigene Formelkarte**
+  (`gopher-rules`, Kategorie Daten, Quellen `l13` und `a4`). Die vier Schwellen des Handouts
+  stehen als Konjunktion auf der Karte, das gerechnete Beispiel ist die Tokenisierungsabhaengigkeit
+  selbst (dieselbe Linkliste faellt je nach Tokenisierung durch andere Regeln; derselbe
+  Forumsbeitrag dreht sein Urteil). Damit endet das Konzept `quality-filtering` nicht mehr beim
+  Klassifikator.
+- **`CONCEPTS[].formulas` ist eine geordnete Liste, und die Ordnung ist tragend.** Auf einer
+  Lecture, die **keine** Karte des Konzepts kuratiert, druckt die App nur die **erste**. Eine
+  neue Karte gehoert deshalb ans **Ende** der Liste; sie voranzustellen schiebt die bisherige
+  erste lautlos vom Lernpfad. Erkennbar an `lecture formulas`, gemeint ist aber die Regel:
+  anhaengen, nicht voranstellen.
+- **Anwesenheit einer Zahl ist kein Beleg; die Fundstellenzahl ist es.** `softmax` druckt seine
+  Summe `1,503` viermal (einmal Ergebnis, dreimal Nenner). Ein Guard, der nur `includes` fragt,
+  laesst die Verfaelschung einer der vier Stellen durch. Jede gehaltene Zahl braucht ihre
+  **erwartete Fundstellenzahl**. Siehe [[cs336-mutation-test-blind-spots]].
+- **Reihenfolge hat zwei Ebenen: die der Zahlen und die der Schritte.** `rmsnorm`s zwei Zaehler
+  zu tauschen laesst beide Divisionen `3/3,536` und `4/3,536` je einmal stehen und beide Quotienten
+  in richtiger Reihenfolge - gefangen wird es erst, wenn auch die **ausgeschriebenen Schritte**
+  in ihrer Reihenfolge geprueft werden. Ein Reihenfolge-Check auf dem ersten Vorkommen ist
+  ausserdem falsch, sobald eine Zahl zweimal legitim vorkommt: vorwaerts ab dem Cursor suchen.
+- **Eine Schwellenmessung per `value += 0.01` misst sich selbst falsch.** Die Akkumulation
+  ergibt 0,30000000000000004 und meldet die Ellipsen-Schwelle bei 0,295. Ueber exakt
+  darstellbare Kandidaten `i/100` scannen. Und eine Schranke, die den **Rand des Lineals**
+  meldet, ist wieder eine Leerlauf-Schranke: den Scan weiten, bis die gemeinte Klausel spricht.
+- **Die Arithmetik der Karten ist jetzt teilweise gehalten**, nicht mehr nur einmal von Hand
+  geprueft: `card arithmetic` rechnet die sechs rein arithmetischen Beispiele (`mean-var`,
+  `softmax`, `logsumexp`, `rmsnorm`, `swiglu`, `bloom-filter`) aus ihrer eigenen Gleichung nach.
+  Die uebrigen gerechneten Beispiele haengen an Lab-Code oder an Handout-Tabellen und sind der
+  naechste Schritt desselben Musters.

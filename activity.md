@@ -1,6 +1,6 @@
 # Activity
 
-Iteration Counter: 3
+Iteration Counter: 4
 
 ## 2026-07-14 - Interaktiver CS336-Lernbegleiter (manueller Run)
 
@@ -1090,4 +1090,80 @@ einer Zeile je Lauf; die Einzelheiten stehen in `tmp/deep-review-2026-09-<tag>-c
   `split(";")` existiert in der App**; die zwei `split(",")` treffen `adapters`/`tests` von
   Problemen, keine Kartenprosa.
 - Cache-Bump auf **v99** (4 Stellen).
+- Der Iteration Counter wurde erhoeht, da der Run ueber einen Scheduled Task startete.
+
+## v123 - 2026-09-25 - die Regel, die das Handout ausschreibt, stand im Tafelwerk nicht
+
+- Status: abgeschlossen. Branch `claude/deep-review-v123`, gebaut auf dem Kettenkopf v122
+  (`29e0540`). Der zugewiesene Worktree stand auf v99 (`2ed21e7`), **24 Commits hinter dem
+  Kopf**; die Ahnenpruefung ueber alle Branch-Spitzen fand keinen verlorenen Zweig.
+  Codex-Pruefung: Haupt-Checkout seit dem 29. Juli unberuehrt.
+- **Der Hebel, den v121 und v122 beide als groessten offenen *inhaltlichen* genannt hatten.**
+  Lecture 13 kuratierte zwei Formelkarten (`corpus-throughput`, `cascade-yield`) und keine fuer
+  den regelbasierten Qualitaetsfilter - obwohl A4 §2.6 alle vier Schwellen wortwoertlich
+  ausschreibt (50 bis 100000 Woerter, mittlere Wortlaenge 3 bis 10 Zeichen, hoechstens 30 %
+  Zeilen auf drei Punkten, mindestens 80 % Woerter mit Buchstaben), Problem
+  (gopher_quality_filters) 3 Punkte traegt und L13 die vierte Regel selbst nennt: „Quality
+  filtering using manual rules (not classifier) - e.g., 80% words contain at least one
+  alphabetic character". Das Lab rechnete die Regeln; die Flaeche, auf der ein Leser eine Regel
+  **nachschlaegt**, nannte sie nicht. Und die einzige Formelkarte des Konzepts
+  `quality-filtering` war `logistic` - der **Klassifikator**.
+- **Neue Karte `gopher-rules`** (Tafelwerk 82 -> 83), deutsch und englisch, mit Gleichung als
+  Konjunktion der vier Bedingungen, sieben Symbolerklaerungen, Intuition, Fallstrick, gerechnetem
+  Beispiel und Selbstcheck mit Musterloesung. Verknuepft in `quality-filtering` und in L13s
+  kuratierter Liste.
+- **Das gerechnete Beispiel ist der Fallstrick selbst.** Drei der vier Regeln zaehlen Woerter,
+  und A4 legt nicht fest, was ein Wort ist. Die Linkliste aus dem Lab: an Leerraum getrennt
+  N = 6 und L̄ = 417/6 = 69,5 - zwei Regeln greifen; satzzeichenweise N = 102 und
+  L̄ = 417/102 = 4,0882 - beide Wortregeln erfuellt, verworfen nur noch vom alphabetischen
+  Anteil 54/102 = 0,5294. Der Forumsbeitrag (menschliches Urteil: behalten) **dreht das Urteil**:
+  an Leerraum besteht er alle vier, satzzeichenweise faellt er durch zwei. Dasselbe Dokument,
+  zwei zulaessige Tokenisierungen, zwei Urteile - genau der Vergleich, den A4 (b) an 20
+  Beispielen verlangt.
+- **Die Reihenfolge in `CONCEPTS[].formulas` ist tragend, nicht kosmetisch.** Die Karte zuerst
+  einzutragen liess `lecture formulas` sofort rot laufen: auf einer Lecture, die **keine** Karte
+  des Konzepts kuratiert, druckt die App nur die **erste** - `logistic` fiel damit vollstaendig
+  vom Lernpfad. Anhaengen ist richtig, Voranstellen still falsch; der neue Guard haelt genau das
+  mit Namen fest.
+- **Guard 1: `gopher rules`** (Suite 76 -> 77). Alle sechs Schwellen werden aus den Praedikaten
+  des Labs **herausgemessen** statt getippt, jede Zahl des Beispiels zweimal nachgerechnet (durch
+  `qtMeasure` der App und durch die Handout-Referenz am Dateikopf) und dann in **dem** Abschnitt
+  des Beispiels verlangt, der zu ihrer eigenen Tokenisierung gehoert - der Wert der anderen ist
+  dort **verboten**. Die gerichtete Behauptung (Satzzeichen abtrennen hebt N und senkt L̄ und
+  f_α) ist auf allen 8 Dokumenten in beide Richtungen bewiesen, als nicht-leer belegt und mit
+  ihrem Mechanismus (beide Tokenisierungen behalten exakt dieselben Zeichen) und ihrer Grenze
+  (eine Messung an acht konstruierten Dokumenten, kein Satz) im Guard notiert.
+- **Guard 2: `card arithmetic`** (Suite 77 -> 78) - der zweite Hebel aus v122: „Die Arithmetik
+  ist einmal von Hand geprueft, aber von keinem Guard gehalten." Die sechs Karten, deren Beispiel
+  reine Arithmetik ist (`mean-var`, `softmax`, `logsumexp`, `rmsnorm`, `swiglu`, `bloom-filter`),
+  werden jetzt aus ihrer eigenen Gleichung nachgerechnet: 25 Zahlen plus 11 ausgeschriebene
+  Divisionen und Summen, in beiden Sprachen, **in der Reihenfolge**, in der die Rechnung sie
+  erzeugt. Die drei bestehenden Kartensweeps fragen nur, wie eine Zahl *geschrieben* ist; ein
+  Beispiel, dessen Zahlen in beiden Sprachen gleich falsch sind, kommt durch alle drei.
+- **Zwei Blindstellen, die erst der Mutationstest zeigte.** (1) **Anwesenheit genuegt nicht:**
+  `softmax` druckt seine Summe `1,503` viermal - einmal als Ergebnis und dreimal als Nenner. Eine
+  davon zu verfaelschen laesst die Zahl im Text stehen; erst die **festgeschriebene
+  Fundstellenzahl** faengt es. (2) **Die Reihenfolge braucht beide Haelften:** `rmsnorm`s zwei
+  Zaehler zu tauschen laesst `3/3,536` und `4/3,536` je einmal stehen - erst die
+  Reihenfolgepruefung **der Schritte** faengt es. Beide Luecken standen in der ersten Fassung
+  des Blocks offen und wurden geschlossen, nicht wegdefiniert.
+- **Eine dritte Lehre, ueber die Messung statt ueber den Code:** die erste Fassung der
+  Schwellenmessung lief `value += 0.01` und meldete die Ellipsen-Schwelle bei 0,295, weil die
+  Akkumulation 0,30000000000000004 ergibt. Der Code war richtig, das Messinstrument falsch;
+  seitdem laeuft die Messung ueber exakt darstellbare Kandidaten `i/100`. Und die erste
+  Wortzahl-Messung wurde von der **Randschranke** des Lineals gefangen statt von der geprueften
+  Klausel - der Scan wurde geweitet, bis die gemeinte Klausel spricht.
+- **Mutationstest:** 58 Mutationen ueber beide Bloecke, **0 entkommen, 0 inert**, 6 gruene
+  Kontrollen, Kontrolle vor und nach dem Lauf gruen. `gopher rules`: 30 gefangen (jede Zahl des
+  Beispiels einzeln, die gekreuzte Paarung bei stehengebliebenem eigenen Wert, die vertauschte
+  Reihenfolge, beide Sprachen, die vier Lab-Praedikate, die Tokenizer-Regex, das menschliche
+  Urteil des Forumsbeitrags und ein neuntes Dokument). `card arithmetic`: 28 gefangen.
+  Schlankfassung nach [[cs336-guard-suite-slim-harness]]: 0,25 s je Lauf statt 85 s.
+- **Kein Browsertest** - in geplanten Laeufen gesperrt. Ersatz: die neue Karte durch
+  `formulaLearningSequence`, `formulaPrimerMarkup`, `formulaNotationMarkup` und
+  `selfCheckMarkup` der App selbst headless gerendert, in beiden Sprachen, 5471 und 5301 Zeichen,
+  neun Tagpaare ausbalanciert, kein `undefined`, kein uninterpoliertes Template, kein NaN. Die
+  volle Suite rendert die Karte zusaetzlich in `accordion route` (265 Akkordeon-Instanzen) und
+  prueft sie in `formula field fallthrough` gegen deutsche Reste.
+- Cache-Bump auf **v100** (4 Stellen), README auf 83 Formeln.
 - Der Iteration Counter wurde erhoeht, da der Run ueber einen Scheduled Task startete.

@@ -16681,3 +16681,438 @@ console.log(`ffn-backward OK: ${fbValues} values, all four gradients match A2's 
 
   console.log(`card comma lists OK: ${ccl.pairs} one-comma digit pairs across ${cclStrings} strings in all ${cclPacks.length} content packs, ${ccl.decimal} of them confirmed as decimals by an English twin anchored on their own delimiters and ${ccl.looseDecimal} more by an unanchored twin where the translation restructured the sentence, never by assumption. card numerals (v121) closed this collision with a run test reading /\\d+(?:,\\d+){2,}/ -- two commas, three numbers or more -- so a list of exactly TWO elements was never examined, which is the shape most lists in the app have. 16 of them printed as decimals beside real decimals in the same string: mean-var's "Zahlen [1,3]" beside its own 1,414, z-loss's "z_t=[0,0]" beside 0,693, logistic's "x=[2,1]" beside 0,368, eight lists in flash-backward beside dQ≈0,462, and rope.answers printing the decimal 0,2 and the coordinate pair [0,2] thirty characters apart in the answer to the check that asks the reader to tell angles from coordinate pairs -- with "[0,1]" and "[2,3]" pinned for both locales, so the contract certified it. What keeps its comma is classified by structure and counted: ${ccl.notation} strings that never use the comma as a decimal at all (PyTorch shapes, Python source, matrix addresses, the unit interval, figures quoted from the handout) -- ${ccl.anchoredList} of those lists recognised by an anchored twin -- plus ${ccl.quantifier} regex quantifiers and ${ccl.subscript} subscript index tuples. The anchoring is what settles rope.answers, and nothing else can: an unanchored lookup finds that string's own legitimate decimal 0.2 in the English and vouches with it for the coordinate pair [0,2] beside it, so the defect certifies itself out of the report. The enclosing bracket is the same character in both locales, which makes it the one piece of context comparable across a translation. That first class is string-local and therefore knowingly blind, since a reader's habit is not -- which is why the arithmetic-call comma is flagged separately even without a decimal nearby: "max(0,40−25)" misread is 0,40−25 = −24,6, a complete expression yielding a number where the prose asks for one, while a misread shape yields nothing. ${ccl.noTwin.length} pairs have no twin and all sit in expr, the untranslated field carrying international notation. The classifier is proved sighted on every run, not only under mutation: a fixture collision must be caught and a control shape must stay green through this same code`);
 }
+
+// ---- gopher rules: the card A4's 3-point problem never had, held against its own arithmetic (v123) ----
+// The lever v121 and v122 both named as the largest open CONTENT gap: l13 carried two formula cards
+// (corpus-throughput, cascade-yield) and none for the rule-based quality filter, although A4 §2.6
+// writes all four thresholds out verbatim, Problem (gopher_quality_filters) is worth 3 points, and
+// lecture 13 names the fourth rule itself ("80% words contain at least one alphabetic character").
+// The quality-threshold lab computed the rules; the Tafelwerk -- the surface a reader looks a rule up
+// on while solving -- did not name them at all, and `quality-filtering`'s only linked card was
+// `logistic`, the CLASSIFIER. Reading the concept page therefore ended one click short of the rules
+// whose numbers the handout dictates.
+//
+// v122 also left the second lever open: the arithmetic of the 82 worked examples was checked once by
+// hand and held by no test, so the next edit to a figure would not be recomputed. This block is the
+// `compression growth` pattern applied to the new card: every figure in its worked example and in its
+// self-check answer is recomputed from the four rules and from the lab's own documents, in both
+// locales, and each figure is required to stand in the part of the example that belongs to its own
+// tokenisation. The crossed pairing is exactly how compression-ratio's 1.658x came to stand behind
+// the matching tokenizer, and this card carries four figures per document that differ only by which
+// tokenisation produced them.
+{
+  const grFail = message => { throw new Error(`gopher rules: ${message}`); };
+  let grChecks = 0;
+
+  const grCard = base.formulas.find(formula => formula.id === "gopher-rules");
+  if (!grCard) grFail("the card is gone -- A4's Problem (gopher_quality_filters) has no formula card again");
+  const grEnglish = pack.formulas["gopher-rules"];
+  if (!grEnglish) grFail("the English twin is gone");
+
+  // --- 1. reachability, in the two ways a card is reached at all -------------------------------
+  // The route in is CONCEPTS[].formulas and the lecture's curated list; `formula route` proves the
+  // inversion renders, and `lecture formulas` proves every card is walked -- but only the FIRST
+  // formula of a concept is printed on a lecture that curates none of them, so appending here is
+  // safe and PREPENDING silently pushes `logistic` off the path. That trap is pinned by name.
+  const grConcept = base.concepts.find(concept => concept.id === "quality-filtering");
+  if (!grConcept) grFail("the concept quality-filtering is gone, and it is the card's only way in");
+  if (!(grConcept.formulas || []).includes("gopher-rules"))
+    grFail("quality-filtering no longer links gopher-rules, so the card renders no route section and the concept page ends at the classifier again");
+  if (grConcept.formulas[0] !== "logistic")
+    grFail(`quality-filtering's first formula is ${grConcept.formulas[0]} -- on l14, which curates none of this concept's cards, only the first one is printed, so putting gopher-rules there drops logistic off the lecture path entirely`);
+  if (!(base.lectureGuides.l13.formulas || []).includes("gopher-rules"))
+    grFail("lecture 13 no longer curates gopher-rules, although its MassiveWeb section is where the rule is named");
+  if (!(grCard.sources || []).includes("l13") || !(grCard.sources || []).includes("a4"))
+    grFail("the card must cite l13 and a4 -- the lecture that names the rule and the handout that writes the thresholds out");
+  grChecks += 5;
+
+  // --- 2. the four thresholds, probed out of the app's own predicates -------------------------
+  // Typed nowhere here: each bound is found by asking QT_RULES where it flips, so a changed rule
+  // moves this guard rather than leaving the card's equation standing alone.
+  const grRule = key => {
+    const rule = qtApi.QT_RULES.find(entry => entry.key === key);
+    if (!rule) grFail(`the lab lost its ${key} rule, and the card's equation quotes its bound`);
+    return rule;
+  };
+  // The extreme value a rule still accepts, scanned over exactly representable candidates -- a
+  // running `value += 0.01` accumulates to 0.30000000000000004 and would report the ellipsis bound
+  // one step off, which is the measurement being wrong rather than the rule.
+  const grBound = (key, field, from, to, scale, edge) => {
+    const rule = grRule(key);
+    const passing = [];
+    for (let step = from; step <= to; step++) {
+      const value = step / scale;
+      if (rule.test({ n: 1, meanLen: 5, ellipsisFrac: 0, alphaFrac: 1, lines: 1, ellipsisLines: 0, alphaWords: 1, [field]: value }))
+        passing.push(value);
+    }
+    if (!passing.length) grFail(`the ${key} rule accepts no value in the scanned range, so its bound cannot be read off the code`);
+    const bound = edge === "low" ? passing[0] : passing[passing.length - 1];
+    // A bound at the edge of the scan is not a bound but the end of the ruler.
+    if (bound === from / scale || bound === to / scale)
+      grFail(`the ${key} rule's ${edge} bound sits at the edge of the scanned range (${bound}), so the scan did not bracket it`);
+    return bound;
+  };
+  const grThresholds = {
+    countLow: grBound("count", "n", 20, 60, 1, "low"),
+    countHigh: grBound("count", "n", 99990, 100010, 1, "high"),
+    meanLow: grBound("meanlen", "meanLen", 250, 350, 100, "low"),
+    meanHigh: grBound("meanlen", "meanLen", 950, 1050, 100, "high"),
+    ellipsis: grBound("ellipsis", "ellipsisFrac", 20, 40, 100, "high"),
+    alpha: grBound("alpha", "alphaFrac", 70, 90, 100, "low")
+  };
+  // A4 section 2.6, typed here once so a changed predicate is a decision and not an inheritance.
+  const grExpected = { countLow: 50, countHigh: 100000, meanLow: 3, meanHigh: 10, ellipsis: 0.3, alpha: 0.8 };
+  for (const [key, value] of Object.entries(grExpected))
+    if (grThresholds[key] !== value)
+      grFail(`the ${key} bound of the lab's own predicate is ${grThresholds[key]} where A4 §2.6 puts it at ${value} -- the card's equation quotes the handout, so a moved rule has to be decided, not inherited`);
+  grChecks += Object.keys(grExpected).length;
+
+  // Every bound the card's equation names, in each locale's own spelling.
+  for (const [locale, expr] of [["de", grCard.expr], ["en", grEnglish.expr]]) {
+    const decimal = locale === "de" ? "," : ".";
+    const grBounds = [String(grThresholds.countLow), String(grThresholds.countHigh),
+      String(grThresholds.meanLow), String(grThresholds.meanHigh),
+      grThresholds.ellipsis.toFixed(2).replace(".", decimal), grThresholds.alpha.toFixed(2).replace(".", decimal)];
+    for (const figure of grBounds)
+      if (!expr.includes(figure)) grFail(`${locale}: the equation no longer names ${figure}, one of the four handout bounds the lab's predicates actually use`);
+    // The conjunction is the claim: four independent rules, all of which have to hold.
+    if ((expr.match(/∧/gu) || []).length !== 3)
+      grFail(`${locale}: the equation joins the four rules with ${(expr.match(/∧/gu) || []).length} conjunctions instead of 3, so it no longer says that all four have to hold`);
+    grChecks += 7;
+  }
+
+  // --- 3. the worked example, recomputed from the documents it names ---------------------------
+  // qtRefMeasure is the reference implementation typed from the handout at the head of this file,
+  // not the app's qtMeasure; both are computed and required to agree, so the card's figures rest on
+  // two independent paths rather than on the one the lab happens to run.
+  const grDoc = key => {
+    const doc = qtApi.QT_DOCS.find(entry => entry.key === key);
+    if (!doc) grFail(`the lab lost its ${key} document, which the card's example measures`);
+    return doc;
+  };
+  const grMeasure = (key, mode) => {
+    const doc = grDoc(key);
+    const reference = qtRefMeasure(doc.text, mode), app = qtApi.qtMeasure(doc.text, mode);
+    for (const field of ["n", "meanLen", "lines", "ellipsisLines", "ellipsisFrac", "alphaWords", "alphaFrac"])
+      if (Math.abs(reference[field] - app[field]) > 1e-12)
+        grFail(`${key}/${mode}: the app computes ${field} = ${app[field]} where the handout reference computes ${reference[field]}`);
+    grChecks += 7;
+    return reference;
+  };
+  const grCells = {
+    linkWhite: grMeasure("linkdump", "whitespace"), linkPunct: grMeasure("linkdump", "punct"),
+    forumWhite: grMeasure("forum", "whitespace"), forumPunct: grMeasure("forum", "punct")
+  };
+
+  // The verdicts the example asserts in words, recomputed rather than read.
+  const grFired = (cell, expected, label) => {
+    const fired = qtRefFired(cell, "").sort();
+    if (JSON.stringify(fired) !== JSON.stringify(expected.slice().sort()))
+      grFail(`${label}: the rules that fire are ${JSON.stringify(fired)}, the card's example says ${JSON.stringify(expected)}`);
+    grChecks++;
+  };
+  grFired(grCells.linkWhite, ["count", "meanlen"], "link list, split on whitespace");
+  grFired(grCells.linkPunct, ["alpha"], "link list, tokenised by punctuation -- the card says only the fourth rule still removes it");
+  grFired(grCells.forumWhite, [], "forum post, split on whitespace -- the card says it passes all four");
+  grFired(grCells.forumPunct, ["meanlen", "alpha"], "forum post, tokenised by punctuation -- the card says it fails two");
+  // The verdict flip is the point of part (3); without it the card teaches the weaker claim that
+  // only the REASON moves.
+  if (qtRefFired(grCells.forumWhite, "").length || !qtRefFired(grCells.forumPunct, "").length)
+    grFail("the forum post no longer flips its verdict between the two tokenisations, so part (3) of the example claims something the documents do not show");
+  if (grDoc("forum").human !== "keep")
+    grFail("the forum post is no longer labelled keep, so the flip is no longer a false positive and the example's point is gone");
+  grChecks += 2;
+
+  // Each figure required in the part of the example that belongs to its own tokenisation. Parts are
+  // cut at the card's own numbering, so a figure that drifts into the neighbouring part fails here
+  // instead of quietly teaching the crossed cell.
+  const grSplit = text => {
+    const two = text.indexOf("(2)"), three = text.indexOf("(3)");
+    if (two < 0 || three < 0 || two > three) grFail("the example no longer carries its three numbered parts, so no figure can be tied to its tokenisation");
+    return [text.slice(0, two), text.slice(two, three), text.slice(three)];
+  };
+  const grShow = (value, digits, decimal) => {
+    const text = value.toFixed(digits).replace(/\.?0+$/u, "");
+    return (text.includes(".") ? text : value.toFixed(0)).replace(".", decimal);
+  };
+  for (const [locale, text] of [["de", grCard.example], ["en", grEnglish.example]]) {
+    const decimal = locale === "de" ? "," : ".";
+    const [first, second, third] = grSplit(text);
+    const want = (part, partLabel, figures, forbidden = []) => {
+      for (const figure of figures)
+        if (!part.includes(figure)) grFail(`${locale}: part ${partLabel} of the example no longer prints ${figure}`);
+      for (const figure of forbidden)
+        if (part.includes(figure)) grFail(`${locale}: part ${partLabel} prints ${figure}, which belongs to the other tokenisation -- that is the crossed cell`);
+      grChecks += figures.length + forbidden.length;
+    };
+    const grMean = cell => grShow(cell.meanLen, 4, decimal);
+    const grAlpha = cell => grShow(cell.alphaFrac, 4, decimal);
+    // (1) whitespace on the link list: the word count decides, the mean length confirms.
+    want(first, "(1)", [`${grCells.linkWhite.n} <`, `/${grCells.linkWhite.n} = ${grMean(grCells.linkWhite)}`],
+      [grMean(grCells.linkPunct), grAlpha(grCells.linkPunct)]);
+    // (2) punctuation on the same document: both word rules now pass and the alphabetic share fails.
+    want(second, "(2)", [`${grCells.linkPunct.n}`, `= ${grMean(grCells.linkPunct)}`,
+      `${grCells.linkPunct.alphaWords}/${grCells.linkPunct.n} = ${grAlpha(grCells.linkPunct)}`],
+      [grMean(grCells.linkWhite)]);
+    // (3) both tokenisations of the forum post, and the whitespace figures have to come first --
+    // the sentence argues from "passes all four" to "fails two", so a swapped pair inverts it.
+    want(third, "(3)", [`${grCells.forumWhite.n};`, `= ${grMean(grCells.forumWhite)}`,
+      `${grCells.forumWhite.alphaWords}/${grCells.forumWhite.n} = ${grAlpha(grCells.forumWhite)}`,
+      `= ${grMean(grCells.forumPunct)}`,
+      `${grCells.forumPunct.alphaWords}/${grCells.forumPunct.n} = ${grAlpha(grCells.forumPunct)}`]);
+    if (third.indexOf(grMean(grCells.forumWhite)) > third.indexOf(grMean(grCells.forumPunct)))
+      grFail(`${locale}: part (3) prints the punctuation mean word length before the whitespace one, which inverts the sentence's own argument`);
+    grChecks++;
+  }
+
+  // --- 4. the directional claim, in both directions and with its boundary written down ---------
+  // The pitfall and the answer both assert that splitting punctuation off raises N and lowers the
+  // mean word length and the alphabetic share, "on all eight documents of the Gopher lab". That is
+  // a MEASUREMENT on these eight documents and not a theorem -- so it is proved on all eight, and
+  // it is required to be non-vacuous (a document where nothing moved would make it true for free).
+  // The mechanism is checked too: both tokenisations keep exactly the same characters, which is why
+  // a rising N must lower the mean.
+  let grMoved = { n: 0, mean: 0, alpha: 0 };
+  for (const doc of qtApi.QT_DOCS) {
+    const white = qtRefMeasure(doc.text, "whitespace"), punct = qtRefMeasure(doc.text, "punct");
+    const chars = cell => cell.meanLen * cell.n;
+    if (Math.abs(chars(white) - chars(punct)) > 1e-9)
+      grFail(`${doc.key}: the two tokenisations keep ${chars(white)} and ${chars(punct)} characters -- the claim that the mean falls because the same characters spread over more tokens no longer holds`);
+    if (punct.n < white.n) grFail(`${doc.key}: tokenising by punctuation lowers N from ${white.n} to ${punct.n}, against the card's claim`);
+    if (punct.meanLen > white.meanLen) grFail(`${doc.key}: tokenising by punctuation raises the mean word length from ${white.meanLen} to ${punct.meanLen}, against the card's claim`);
+    if (punct.alphaFrac > white.alphaFrac) grFail(`${doc.key}: tokenising by punctuation raises the alphabetic share from ${white.alphaFrac} to ${punct.alphaFrac}, against the card's claim`);
+    if (punct.n > white.n) grMoved.n++;
+    if (punct.meanLen < white.meanLen) grMoved.mean++;
+    if (punct.alphaFrac < white.alphaFrac) grMoved.alpha++;
+    // The other half of the mechanism: more tokens over the same characters IS a smaller mean.
+    if ((punct.n > white.n) !== (punct.meanLen < white.meanLen))
+      grFail(`${doc.key}: N and the mean word length disagree about whether the document was split further, although both are computed from the same ${chars(white)} characters`);
+    grChecks += 5;
+  }
+  if (qtApi.QT_DOCS.length !== 8)
+    grFail(`the card's pitfall and answer both say "all eight documents", the lab now has ${qtApi.QT_DOCS.length}`);
+  for (const [field, count] of Object.entries(grMoved))
+    if (count < 5) grFail(`only ${count} of 8 documents move their ${field} at all, so the directional claim is close to vacuous and no longer worth asserting`);
+  grChecks += 4;
+
+  // The magnitude the answer quotes for it, in both locales, and its pairing: the 69.5 has to be
+  // the value it FALLS FROM and the 4.0882 the value it falls TO.
+  for (const [locale, text] of [["de", formulaAnswers["gopher-rules"]], ["en", grEnglish.answer]]) {
+    if (typeof text !== "string") grFail(`${locale}: the self-check answer is missing`);
+    const decimal = locale === "de" ? "," : ".";
+    const from = grShow(grCells.linkWhite.meanLen, 4, decimal), to = grShow(grCells.linkPunct.meanLen, 4, decimal);
+    if (!text.includes(from) || !text.includes(to))
+      grFail(`${locale}: the answer no longer names both ends of the mean word length it calls the magnitude (${from} and ${to})`);
+    if (text.indexOf(from) > text.indexOf(to))
+      grFail(`${locale}: the answer names ${to} before ${from}, so it says the mean word length rises where the measurement falls`);
+    // The one rule the answer exempts is the one that counts lines, not words.
+    const grEllipsisRule = grRule("ellipsis");
+    if (grEllipsisRule.test({ ...grCells.linkWhite }) !== grEllipsisRule.test({ ...grCells.linkPunct }))
+      grFail("the ellipsis rule now decides differently under the two tokenisations, so the answer's exemption is wrong");
+    grChecks += 3;
+  }
+
+  // --- 5. the fixture, so the pairing check is proved to see at every run ----------------------
+  // Two strings through the same splitting and the same comparison: one with the crossed mean word
+  // length in part (1), which has to be caught, and the card's own text, which has to stay green.
+  const grProbe = text => {
+    const two = text.indexOf("(2)"), three = text.indexOf("(3)");
+    const first = text.slice(0, two);
+    return first.includes(grShow(grCells.linkPunct.meanLen, 4, ",")) ? "crossed" : "clean";
+  };
+  if (grProbe(grCard.example) !== "clean") grFail("the fixture's control reads the card's own example as crossed, so the probe is broken rather than the card");
+  const grCrossed = grCard.example.replace(
+    `= ${grShow(grCells.linkWhite.meanLen, 4, ",")}`,
+    `= ${grShow(grCells.linkPunct.meanLen, 4, ",")}`);
+  if (grCrossed === grCard.example) grFail("the fixture could not build a crossed example, so nothing is shown to be catchable");
+  if (grProbe(grCrossed) !== "crossed") grFail("the fixture's injected crossed mean word length is not caught, so the pairing check above is blind");
+  grChecks += 3;
+
+  console.log(`gopher rules OK: ${grChecks} checks -- the card A4's Problem (gopher_quality_filters) never had. Before this pass l13 curated 2 formula cards and none of them was the rule-based quality filter, although the handout writes all four thresholds out verbatim and lecture 13 names the fourth itself; the concept quality-filtering linked only \`logistic\`, the classifier, so a reader looking the rules up in the Tafelwerk found nothing. All six bounds are probed out of the lab's own predicates rather than typed (the count between ${grThresholds.countLow} and ${grThresholds.countHigh} words, the mean between ${grThresholds.meanLow} and ${grThresholds.meanHigh} characters, the ellipsis share at ${grThresholds.ellipsis} and the alphabetic share at ${grThresholds.alpha}) and each is read back out of both locales' equation. Every figure of the worked example is recomputed twice -- once through the app's qtMeasure and once through the handout reference at the head of this file -- and then required to stand in the part of the example belonging to its own tokenisation, with the crossed value forbidden there: the link list reads N = ${grCells.linkWhite.n} and ${grCells.linkWhite.meanLen} characters per word on whitespace and N = ${grCells.linkPunct.n} and ${grCells.linkPunct.meanLen.toFixed(4)} on punctuation, and the forum post flips from keeping all four rules to failing ${qtRefFired(grCells.forumPunct, "").length}. The directional claim both the pitfall and the answer rest on is proved on all ${qtApi.QT_DOCS.length} documents in both directions and shown non-vacuous (${grMoved.n} move N, ${grMoved.mean} the mean, ${grMoved.alpha} the alphabetic share), together with the mechanism behind it -- both tokenisations keep exactly the same characters, so a rising N is a falling mean -- and its boundary is written down: this is a measurement on eight constructed documents, not a theorem. A built-in fixture crosses part (1) with the other tokenisation's mean word length and must be caught while the card's own text stays green, through the same code path`);
+}
+
+// ---- card arithmetic: the worked examples held against their own formula, not their spelling (v123) ----
+// v122's finding, in its own words: "Die Arithmetik ist einmal von Hand geprüft, aber von keinem Guard
+// gehalten. Eine künftige Änderung an einem Beispiel wird nicht nachgerechnet." All 82 examples were
+// recomputed by hand there and none was wrong -- so this block is not a repair but the missing test.
+// The three card sweeps that exist look at NOTATION: `card numerals` asks how a number is spelled,
+// `card comma lists` asks whether a comma is a decimal point, `worked steps` asks whether both locales
+// show the same digits. All three would pass an example whose every figure is wrong in the same way in
+// both languages -- which is exactly what compression-ratio's transfer answer was before v121.
+//
+// Held here: the six cards whose worked example is pure arithmetic, reproducible from the equation the
+// card itself prints. Each figure is recomputed in this file from the definition (not read from the
+// app, which has no code for these -- they are prose), and then required to appear IN ORDER in both
+// locales. The order is the load-bearing half: a card that names the right set of numbers in the wrong
+// places teaches a different calculation, and a set comparison cannot see it.
+{
+  const caFail = message => { throw new Error(`card arithmetic: ${message}`); };
+  let caChecks = 0;
+
+  // German groups thousands with a point and English with a comma; logsumexp's result crosses that
+  // boundary (1.000,313 against 1,000.313), so the formatter has to know both.
+  const caFormat = (value, digits, locale) => {
+    const negative = value < 0;
+    const fixed = Math.abs(value).toFixed(digits);
+    const [whole, fraction] = fixed.split(".");
+    const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/gu, locale === "de" ? "." : ",");
+    const decimal = locale === "de" ? "," : ".";
+    return `${negative ? "−" : ""}${grouped}${fraction ? decimal + fraction : ""}`;
+  };
+  // The formatter itself, in both directions, so a broken formatter cannot report a broken card.
+  for (const [value, digits, de, en] of [[1000.313, 3, "1.000,313", "1,000.313"], [-0.269, 3, "−0,269", "−0.269"], [12.5, 1, "12,5", "12.5"]]) {
+    if (caFormat(value, digits, "de") !== de || caFormat(value, digits, "en") !== en)
+      caFail(`the formatter writes ${caFormat(value, digits, "de")} / ${caFormat(value, digits, "en")} where the cards write ${de} / ${en}`);
+    caChecks += 2;
+  }
+
+  const caSilu = z => z / (1 + Math.exp(-z));
+  // Each entry: the figures the example computes, in the order it computes them, each derived here
+  // from the card's own equation. Integers and one-digit results are left out on purpose -- they are
+  // spelled out in one language and written in the other, which is what `worked steps` documents.
+  const caCards = [
+    ["mean-var", () => {
+      const xs = [1, 3], n = xs.length;
+      const mean = xs.reduce((sum, x) => sum + x, 0) / n;
+      const population = xs.reduce((sum, x) => sum + (x - mean) ** 2, 0) / n;
+      const sample = xs.reduce((sum, x) => sum + (x - mean) ** 2, 0) / (n - 1);
+      // Only one decimal here, because this card's other results are single digits, which one
+      // language spells out and the other writes. A bare "1" cannot be searched for, so the two
+      // integer results are held as the whole division the card writes -- built from the numbers,
+      // not typed. A first draft held only √2, and a mutation that made the population variance 2
+      // walked straight through it.
+      const squares = xs.map(x => (x - mean) ** 2);
+      return { figures: [["the sample standard deviation √2", Math.sqrt(sample), 3, 1]],
+        steps: () => [`(${xs[0]}+${xs[1]})/${n}=${mean}`, `(${squares[0]}+${squares[1]})/${n}=${population}`] };
+    }],
+    ["softmax", () => {
+      const z = [2, 1, 0], m = Math.max(...z);
+      const shifted = z.map(value => Math.exp(value - m));
+      const total = shifted.reduce((sum, value) => sum + value, 0);
+      const probabilities = shifted.map(value => value / total);
+      return { figures: [["exp(−1)", shifted[1], 3, 2], ["exp(−2)", shifted[2], 3, 2], ["the sum of the shifted exponentials", total, 3, 4],
+        ["p₁", probabilities[0], 3, 1], ["p₂", probabilities[1], 3, 1], ["p₃", probabilities[2], 3, 1],
+        ["the sum of the weights", probabilities.reduce((sum, value) => sum + value, 0), 3, 1]],
+        // Each numerator tied to the one denominator it belongs to: a set of the right numbers can
+        // still divide the wrong one by the sum.
+        steps: locale => [`1/${caFormat(total, 3, locale)}`,
+          `${caFormat(shifted[1], 3, locale)}/${caFormat(total, 3, locale)}`,
+          `${caFormat(shifted[2], 3, locale)}/${caFormat(total, 3, locale)}`] };
+    }],
+    ["logsumexp", () => {
+      const z = [1000, 999], m = Math.max(...z);
+      const shifted = z.map(value => Math.exp(value - m));
+      const total = shifted.reduce((sum, value) => sum + value, 0);
+      return { figures: [["exp(−1)", shifted[1], 3, 1], ["the sum", total, 3, 2], ["log of the sum", Math.log(total), 3, 3],
+        ["LSE(z), the figure that crosses the thousands separator", m + Math.log(total), 3, 1]],
+        steps: locale => [`${m}+${caFormat(Math.log(total), 3, locale)}=${caFormat(m + Math.log(total), 3, locale)}`] };
+    }],
+    ["rmsnorm", () => {
+      const x = [3, 4], d = x.length;
+      const meanSquare = x.reduce((sum, value) => sum + value * value, 0) / d;
+      const norm = Math.sqrt(meanSquare);
+      return { figures: [["the mean of the squares", meanSquare, 1, 1], ["its square root", norm, 3, 3],
+        ["x₁ divided by it", x[0] / norm, 3, 1], ["x₂ divided by it", x[1] / norm, 3, 1]],
+        steps: locale => [`${x[0]}/${caFormat(norm, 3, locale)}`, `${x[1]}/${caFormat(norm, 3, locale)}`] };
+    }],
+    ["swiglu", () => {
+      const gate = [1, -1], up = [4, 2], down = [0.5, -1];
+      const activated = gate.map(caSilu);
+      const product = activated.map((value, index) => value * up[index]);
+      const output = product.reduce((sum, value, index) => sum + value * down[index], 0);
+      return { figures: [["SiLU(1)", activated[0], 3, 1], ["SiLU(−1)", activated[1], 3, 1],
+        ["the first element of the gated product", product[0], 3, 2], ["the second", product[1], 3, 2],
+        ["the output of W₂", output, 1, 1]],
+        steps: locale => [`${caFormat(down[0], 1, locale)}·${caFormat(product[0], 3, locale)}`] };
+    }],
+    ["bloom-filter", () => {
+      const m = 100, n = 10;
+      const optimal = (m / n) * Math.LN2;
+      const k = 7;
+      const exponent = -(k * n / m);
+      const rate = (1 - Math.exp(exponent)) ** k;
+      return { figures: [["k*, the optimal number of hashes", optimal, 2, 1], ["the exponent −kn/m", exponent, 1, 1],
+        ["the false-positive rate", rate, 4, 1], ["the same rate as a percentage", rate * 100, 2, 1]],
+        steps: locale => [`(${m}/${n})·ln2≈${caFormat(optimal, 2, locale)}`, `)^${k}≈${caFormat(rate, 4, locale)}`] };
+    }]
+  ];
+
+  // The expected figure count per card, so a shortened example is a failure rather than a smaller
+  // pass. Derived from the recomputation itself and compared against what is written down.
+  const caExpected = { "mean-var": 1, softmax: 7, logsumexp: 4, rmsnorm: 4, swiglu: 5, "bloom-filter": 4 };
+  let caFigures = 0;
+  const caProbe = (text, figures, locale) => {
+    // Two passes, so the message names the real failure: presence anywhere first, then the order,
+    // searched FORWARD from the previous figure. A figure may legitimately appear twice -- softmax
+    // prints its sum both as a result and as a denominator -- so an order check anchored on the
+    // first occurrence would read a correct card as reordered.
+    // The occurrence COUNT, not merely presence: softmax prints its sum four times, once as a
+    // result and three times as a denominator, so corrupting one of them leaves the figure in the
+    // text. A pattern-based check that does not say how many hits it expects is silent about that.
+    for (const [label, value, digits, occurrences] of figures) {
+      const written = caFormat(value, digits, locale);
+      const hits = text.split(written).length - 1;
+      if (!hits) return `${written} (${label}) is not in the example`;
+      if (hits !== occurrences) return `${written} (${label}) stands ${hits} time(s) where the calculation uses it ${occurrences} -- one of its occurrences was changed and the others still carry the figure`;
+    }
+    let cursor = -1;
+    for (const [label, value, digits] of figures) { // eslint-disable-line no-unused-vars
+      const written = caFormat(value, digits, locale);
+      const at = text.indexOf(written, cursor + 1);
+      if (at < 0) return `${written} (${label}) appears only before the figure the calculation produces earlier -- the example computes its own steps out of order`;
+      cursor = at;
+    }
+    return "";
+  };
+  let caSteps = 0;
+  for (const [id, compute] of caCards) {
+    const card = base.formulas.find(formula => formula.id === id);
+    if (!card) caFail(`${id} is gone, and its arithmetic was held here`);
+    const english = pack.formulas[id];
+    if (!english?.example) caFail(`${id} has no English example to hold`);
+    const { figures, steps } = compute();
+    if (figures.length !== caExpected[id])
+      caFail(`${id} recomputes ${figures.length} figures where ${caExpected[id]} are written down -- the count is pinned so a shortened example cannot pass as a smaller one`);
+    for (const [locale, text] of [["de", card.example], ["en", english.example]]) {
+      const problem = caProbe(text, figures, locale);
+      if (problem) caFail(`${id}/${locale}: ${problem}`);
+      caFigures += figures.length;
+      // The written-out divisions and sums, built from the numbers rather than typed. Each has to
+      // stand exactly once AND in the order the calculation produces them: this is where a right
+      // set of figures paired the wrong way is caught, and the two halves are both needed --
+      // swapping rmsnorm's two numerators leaves both divisions standing once each.
+      let caCursor = -1;
+      for (const step of steps(locale)) {
+        const hits = text.split(step).length - 1;
+        if (hits !== 1) caFail(`${id}/${locale}: the step ${step}, which the calculation produces, stands ${hits} time(s) in the example`);
+        const at = text.indexOf(step, caCursor + 1);
+        if (at < 0) caFail(`${id}/${locale}: the step ${step} stands before a step the calculation produces earlier, so the example works through its own derivation out of order`);
+        caCursor = at;
+        caSteps += 2;
+      }
+    }
+    caChecks += 1 + 2 * figures.length;
+  }
+  caChecks += caSteps;
+
+  // The fixture, through the same probe: a figure moved to the wrong place in the sequence has to be
+  // caught, and the untouched card has to stay green. Without it a probe that silently stopped
+  // looking would report the same success as a correct set of cards.
+  {
+    const softmax = base.formulas.find(formula => formula.id === "softmax");
+    const { figures } = caCards.find(([id]) => id === "softmax")[1]();
+    if (caProbe(softmax.example, figures, "de")) caFail("the fixture's control reads the untouched softmax example as broken, so the probe is wrong rather than the card");
+    const swapped = softmax.example.replace("[0,665; 0,245; 0,090]", "[0,245; 0,665; 0,090]");
+    if (swapped === softmax.example) caFail("the fixture could not build a reordered softmax example, so nothing is shown to be catchable");
+    if (!caProbe(swapped, figures, "de")) caFail("a softmax example with two probabilities swapped passes the probe, so the order half of this block is blind");
+    // The second fixture corrupts ONE of the four places the sum 1,503 stands, which leaves the
+    // figure in the text: that is what the occurrence count is for, and it is the reason a first
+    // draft of this block passed a card whose denominator had been changed.
+    const wrong = softmax.example.replace("0,135/1,503", "0,135/1,504");
+    if (wrong === softmax.example) caFail("the fixture could not build a wrong softmax denominator");
+    if (!caProbe(wrong, figures, "de")) caFail("a softmax example with one of its four denominators changed passes the probe, so the occurrence count is not doing its work");
+    caChecks += 3;
+  }
+
+  console.log(`card arithmetic OK: ${caChecks} checks -- v122 recomputed all 82 worked examples by hand, found no error, and said in the same breath that no guard holds them, so the next edit to a figure would not be recomputed. The three card sweeps that exist ask how a number is SPELLED (card numerals), whether its comma is a decimal point (card comma lists) and whether both locales print the same digits (worked steps); all three pass an example whose every figure is wrong the same way in both languages, which is the state compression-ratio's transfer answer was in before v121. The ${caCards.length} cards whose example is pure arithmetic are now recomputed here from the equation each card itself prints -- mean and variance, the shifted softmax, the log-sum-exp that never evaluates exp(1000), the root mean square, SiLU through the gated product to the output of W₂, and the Bloom filter's optimal k with the rate it implies -- and all ${caFigures} figures plus ${caSteps} written-out divisions and sums are required in both locales IN THE ORDER the calculation produces them, which is the half a set comparison cannot see: a card naming the right numbers in the wrong places teaches a different calculation. The per-card figure count is pinned so a shortened example fails instead of passing as a smaller one, the locale formatter is proved in both directions on the grouped thousand logsumexp crosses (1.000,313 against 1,000.313), and a built-in fixture swaps two softmax probabilities and corrupts one quotient, both of which must be caught while the untouched card stays green`);
+}
