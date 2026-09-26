@@ -300,3 +300,18 @@
   `softmax`, `logsumexp`, `rmsnorm`, `swiglu`, `bloom-filter`) aus ihrer eigenen Gleichung nach.
   Die uebrigen gerechneten Beispiele haengen an Lab-Code oder an Handout-Tabellen und sind der
   naechste Schritt desselben Musters.
+
+## Das Beispiel muss den Fall enthalten, an dem seine Gleichung haengt (v124)
+
+- **Ein richtiges Beispiel kann seine Gleichung trotzdem verschweigen.** `flash-backward` rechnete
+  bei d=1 (√d=1, der Faktor 1/√d existiert nicht), `moe-capacity` bei ganzzahligem T·k/E (das ⌈·⌉
+  rundet nie). Beim Nachrechnen eines Beispiels deshalb auch fragen: **welcher Operator der
+  Gleichung ist hier ein Leerlauf?** Ein Beispiel, in dem ein Faktor 1 ist oder eine Rundung nichts
+  rundet, kann gerade den Fehler nicht zeigen, den ein Lab daneben lehrt.
+- **FlashAttention-Backward: "Skalierung" hat zwei Haelften.** Eine falsche Scoreskalierung beim
+  Rekonstruieren von P faengt rowsum(dS)=0 (am Kartenbeispiel +2/3); ein vergessener oder doppelter
+  Faktor 1/√d in dQ und dK laesst dS bitgleich und ist fuer die Zeilensumme unsichtbar. Karte,
+  Antwortschluessel und Lab sagen das jetzt gleich.
+- Der Hebel "Beispiele an Lab-Code nachrechnen" ist fuer `flash-backward`, `grpo-advantage` und
+  `moe-capacity` geschlossen (`card lab arithmetic`). Offen: die Kaskadenanteile und die
+  uebrigen Beispiele, die an Handout-Tabellen haengen.

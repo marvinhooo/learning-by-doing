@@ -17116,3 +17116,172 @@ console.log(`ffn-backward OK: ${fbValues} values, all four gradients match A2's 
 
   console.log(`card arithmetic OK: ${caChecks} checks -- v122 recomputed all 82 worked examples by hand, found no error, and said in the same breath that no guard holds them, so the next edit to a figure would not be recomputed. The three card sweeps that exist ask how a number is SPELLED (card numerals), whether its comma is a decimal point (card comma lists) and whether both locales print the same digits (worked steps); all three pass an example whose every figure is wrong the same way in both languages, which is the state compression-ratio's transfer answer was in before v121. The ${caCards.length} cards whose example is pure arithmetic are now recomputed here from the equation each card itself prints -- mean and variance, the shifted softmax, the log-sum-exp that never evaluates exp(1000), the root mean square, SiLU through the gated product to the output of W₂, and the Bloom filter's optimal k with the rate it implies -- and all ${caFigures} figures plus ${caSteps} written-out divisions and sums are required in both locales IN THE ORDER the calculation produces them, which is the half a set comparison cannot see: a card naming the right numbers in the wrong places teaches a different calculation. The per-card figure count is pinned so a shortened example fails instead of passing as a smaller one, the locale formatter is proved in both directions on the grouped thousand logsumexp crosses (1.000,313 against 1,000.313), and a built-in fixture swaps two softmax probabilities and corrupts one quotient, both of which must be caught while the untouched card stays green`);
 }
+
+// ---- card lab arithmetic: the examples that could not show the step their equation hinges on (v124) ----
+// v123's `card arithmetic` held the six pure-arithmetic cards and named the next lever: the examples
+// that hang on lab code. Recomputing them turned up no wrong figure but two examples that were right
+// and could not teach their own equation. flash-backward worked at d=1, where √d=1 and the factor
+// 1/√d in dQ and dK does not exist -- the one factor the lab `flash-backward-kernel` shows the usual
+// self-check to be blind to, and the card closed with that very self-check ("dS sums to 0"). Its
+// self-check answer even listed "scaling" among the errors a row sum reveals, which is true for the
+// scale inside P and false for the scale in dQ and dK, the answer key certifying the misconception
+// the lab exists to break. moe-capacity worked at c_f=1 where T·k/E=6 is whole, so the ⌈·⌉ of its
+// own equation never rounded anything and no reader could see that capacity rounds UP.
+// Held here: flash-backward recomputed on two routes (the card's closed form and central finite
+// differences of L = O·dO), grpo-advantage through the lab's own advAdvantages, moe-capacity from its
+// equation, each figure required IN ORDER in both locales with a pinned occurrence count, and each
+// card's teaching claim proved on the example itself.
+{
+  const claFail = message => { throw new Error(`card lab arithmetic: ${message}`); };
+  let claChecks = 0;
+  const claFormat = (value, digits, locale) => {
+    const fixed = Math.abs(value).toFixed(digits).replace(".", locale === "de" ? "," : ".");
+    return `${value < 0 ? "−" : ""}${fixed}`;
+  };
+  // Counted at number boundaries: grpo-advantage writes both 0,5 and 0,577, and a plain split would
+  // count the mean inside the standard deviation.
+  const claEscape = text => text.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const claCount = (text, written) => (text.match(new RegExp(`(?<![\\d.,])${claEscape(written)}(?![\\d])`, "gu")) || []).length;
+  const claFirst = (text, written, from) => {
+    const pattern = new RegExp(`(?<![\\d.,])${claEscape(written)}(?![\\d])`, "gu");
+    pattern.lastIndex = from;
+    const match = pattern.exec(text);
+    return match ? match.index : -1;
+  };
+  const claHold = (id, locale, text, figures, steps) => {
+    let cursor = -1;
+    for (const [label, value, digits, occurrences] of figures) {
+      const written = claFormat(value, digits, locale);
+      const hits = claCount(text, written);
+      if (hits !== occurrences) claFail(`${id}/${locale}: ${written} (${label}) stands ${hits} time(s) where the calculation uses it ${occurrences}`);
+      const at = claFirst(text, written, cursor + 1);
+      if (at < 0) claFail(`${id}/${locale}: ${written} (${label}) appears only before a figure the calculation produces earlier`);
+      cursor = at;
+      claChecks += 2;
+    }
+    let stepCursor = -1;
+    for (const step of steps) {
+      const hits = text.split(step).length - 1;
+      if (hits !== 1) claFail(`${id}/${locale}: the step ${step}, which the calculation produces, stands ${hits} time(s)`);
+      const at = text.indexOf(step, stepCursor + 1);
+      if (at < 0) claFail(`${id}/${locale}: the step ${step} stands before a step the calculation produces earlier`);
+      stepCursor = at;
+      claChecks += 2;
+    }
+  };
+  const claCard = id => {
+    const card = base.formulas.find(formula => formula.id === id);
+    if (!card) claFail(`${id} is gone, and its arithmetic was held here`);
+    const english = pack.formulas[id];
+    if (!english?.example) claFail(`${id} has no English example to hold`);
+    return [["de", card.example], ["en", english.example]];
+  };
+
+  // --- 1. flash-backward ------------------------------------------------------------------------
+  // The example's dimensions are read off the example, not typed here: a card that goes back to d=1
+  // fails on the factor it would hide, not on a changed string.
+  const fbTexts = claCard("flash-backward");
+  const fbD = Number((fbTexts[0][1].match(/d=(\d+)/u) || [])[1]);
+  if (!(fbD > 1)) claFail(`flash-backward works at d=${fbD}, where √d=1 and the factor 1/√d in dQ and dK cannot be seen -- the factor the row-sum check is blind to`);
+  const fbRoot = Math.sqrt(fbD);
+  const fbQ = [2, ...Array(fbD - 1).fill(0)], fbK = [Array(fbD).fill(0), [Math.LN2, ...Array(fbD - 1).fill(0)]];
+  const fbV = [1, 2], fbdO = 3;
+  const fbDot = (a, b) => a.reduce((sum, value, index) => sum + value * b[index], 0);
+  const fbForward = (q, keys, scaled) => {
+    const scores = keys.map(key => fbDot(q, key) * (scaled ? 1 / fbRoot : 1));
+    const peak = Math.max(...scores);
+    const weights = scores.map(score => Math.exp(score - peak));
+    const total = weights.reduce((sum, value) => sum + value, 0);
+    return { scores, L: peak + Math.log(total), P: weights.map(value => value / total) };
+  };
+  const fbRun = fbForward(fbQ, fbK, true);
+  if (Math.abs(fbRun.scores[1] - Math.LN2) > 1e-15 || fbRun.scores[0] !== 0)
+    claFail(`the card's vectors give the scores ${fbRun.scores} after dividing by √d=${fbRoot}, not [0, ln2]`);
+  const fbO = fbDot(fbRun.P, fbV), fbDrow = fbO * fbdO;
+  const fbdS = fbRun.P.map((p, j) => p * (fbdO * fbV[j] - fbDrow));
+  const fbdQ = (fbdS[0] * fbK[0][0] + fbdS[1] * fbK[1][0]) / fbRoot;
+  const fbForgotten = fbdQ * fbRoot;
+  // The second route: dQ is the derivative of L = O·dO with respect to the first coordinate of q.
+  const fbStep = 1e-6;
+  const fbLoss = shift => fbDot(fbForward([fbQ[0] + shift, ...fbQ.slice(1)], fbK, true).P, fbV) * fbdO;
+  const fbNumeric = (fbLoss(fbStep) - fbLoss(-fbStep)) / (2 * fbStep);
+  if (Math.abs(fbNumeric - fbdQ) > 1e-8) claFail(`the closed form gives dQ=${fbdQ} and finite differences ${fbNumeric}, so the example's dQ is not the gradient`);
+  if (Math.abs(fbdQ - Math.LN2 / 3) > 1e-15) claFail(`dQ=${fbdQ} is not ln2/3, which the example writes`);
+  // The two claims the example and its answer key make, each proved on the example itself: the row
+  // sum is exactly the same with the factor forgotten (dS never sees it), and it is NOT zero when the
+  // scale is dropped inside the reconstruction of P -- the half of "scaling" a row sum does catch.
+  const fbRowSum = fbdS[0] + fbdS[1];
+  if (Math.abs(fbRowSum) > 1e-15) claFail(`the example's dS sums to ${fbRowSum}, not 0`);
+  const fbWrongP = fbK.map(key => Math.exp(fbDot(fbQ, key) - fbRun.L));
+  const fbWrongSum = fbWrongP.reduce((sum, p, j) => sum + p * (fbdO * fbV[j] - fbDrow), 0);
+  if (Math.abs(fbWrongSum) < 0.1) claFail(`dropping 1/√d inside P leaves the row sum at ${fbWrongSum}, so the answer key's claim that a row sum reveals a wrong score scaling is not shown on its own example`);
+  if (fbRoot !== 2) claFail(`the forgotten factor makes dQ ${fbRoot} times as large, and the example says "twice" (doppelt)`);
+  claChecks += 7;
+  for (const [locale, text] of fbTexts) {
+    claHold("flash-backward", locale, text,
+      [["dQ with the factor", fbdQ, 3, 1], ["dQ with the factor forgotten", fbForgotten, 3, 1]],
+      [`d=${fbD}`, `√d=${fbRoot}`, `2·ln2/${fbRoot}`, `ln2)/${fbRoot}=ln2/3`, `ᵀ·2/${fbRoot}=`]);
+    if (!(locale === "de" ? /doppelt so groß/u : /twice as large/u).test(text))
+      claFail(`flash-backward/${locale} no longer says the forgotten factor doubles dQ`);
+    claChecks++;
+  }
+  // The answer key has to name both halves: what a row sum catches and what it cannot see.
+  for (const [locale, text] of [["de", formulaAnswers["flash-backward"]], ["en", pack.formulas["flash-backward"]?.answer]]) {
+    if (!text) claFail(`flash-backward has no ${locale} self-check answer to hold`);
+    const [inside, blind] = locale === "de" ? [/Rekonstruieren von P/u, /1\/√d in dQ und dK/u] : [/reconstructing P/u, /1\/√d in dQ and dK/u];
+    if (!inside.test(text)) claFail(`flash-backward/${locale}: the answer key no longer confines the caught scaling error to the reconstruction of P`);
+    if (!blind.test(text)) claFail(`flash-backward/${locale}: the answer key no longer says the row sum is blind to 1/√d in dQ and dK, so it certifies the check the lab shows to be blind`);
+    claChecks += 2;
+  }
+
+  // --- 2. grpo-advantage, through the lab's own functions --------------------------------------
+  const grpoRewards = [1, 0, 0, 1];
+  const grpoVariant = advApi.ADV_VARIANTS.find(variant => variant.baseline === "mean" && variant.normalizer === "std");
+  if (!grpoVariant) claFail("the advantage lab lost its mean/std variant, and the card's example is that variant");
+  const grpoLab = advApi.advAdvantages(grpoRewards, grpoVariant.key, 0);
+  const grpoPopulation = Math.sqrt(grpoRewards.reduce((sum, r) => sum + (r - grpoLab.mu) ** 2, 0) / grpoRewards.length);
+  for (const [locale, text] of claCard("grpo-advantage")) {
+    // μ stands four times: as the mean, squared, subtracted, and as the population std it equals here.
+    claHold("grpo-advantage", locale, text,
+      [["the mean μ", grpoLab.mu, 1, 4], ["the sample std from advSampleStd", grpoLab.std, 3, 2], ["the advantage of reward one", grpoLab.adv[0], 3, 2]],
+      [`4·${claFormat(grpoLab.mu, 1, locale)}²=1`, `1/3`, `(1−${claFormat(grpoLab.mu, 1, locale)})/${claFormat(grpoLab.std, 3, locale)}≈+${claFormat(grpoLab.adv[0], 3, locale)}`, `≈−${claFormat(-grpoLab.adv[1], 3, locale)}`, `±${(grpoRewards[0] - grpoLab.mu) / grpoPopulation}`]);
+  }
+  if (grpoPopulation !== grpoLab.mu) claFail(`the example says the population std equals 0.5, the mean; recomputed it is ${grpoPopulation}`);
+  claChecks += 3;
+
+  // --- 3. moe-capacity -------------------------------------------------------------------------
+  const moeT = 12, moeK = 2, moeE = 4;
+  const moeFactors = [1, 1.25];
+  const moeUniform = moeT * moeK / moeE;
+  // The rounding has to be visible: at least one factor in the example must land between integers,
+  // otherwise ⌈·⌉ and ⌊·⌋ give the same example and nobody can read which one the equation means.
+  if (!moeFactors.some(factor => !Number.isInteger(factor * moeUniform)))
+    claFail("every capacity factor in the example gives a whole number, so the ceiling of the equation is never exercised");
+  for (const [locale, text] of claCard("moe-capacity")) {
+    const raw = moeFactors[1] * moeUniform;
+    claHold("moe-capacity", locale, text,
+      [["the capacity factor 1.25", moeFactors[1], 2, 2], ["the unrounded slots", raw, 1, 2]],
+      [`${moeT * moeK}/${moeE}=${moeUniform}`, `⌈1·${moeT}·${moeK}/${moeE}⌉=⌈${moeUniform}⌉=${Math.ceil(moeUniform)}`,
+        `${claFormat(moeFactors[1], 2, locale)}·${moeUniform}=${claFormat(raw, 1, locale)}`,
+        `⌈${claFormat(raw, 1, locale)}⌉=${Math.ceil(raw)}`]);
+  }
+  // The lab computes exactly this ceiling; if it ever floors, the card and the lab disagree.
+  if (!/Math\.ceil\(factor\*MOE_T\*k\/MOE_E\)/u.test(source)) claFail("the moe-routing lab no longer computes capacity with Math.ceil, so the card's rounding rule is not the lab's");
+  claChecks += 2;
+
+  // --- 4. the fixture: the probe must see a card that went back to d=1's figure ----------------
+  {
+    const [[, deText]] = claCard("flash-backward");
+    const reverted = deText.replace("ln2/3≈0,231", "ln2/3≈0,462");
+    if (reverted === deText) claFail("the fixture could not build a flash-backward example with the unscaled dQ");
+    let caught = false;
+    try { claHold("flash-backward", "de", reverted, [["dQ with the factor", fbdQ, 3, 1], ["dQ with the factor forgotten", fbForgotten, 3, 1]], []); } catch { caught = true; }
+    if (!caught) claFail("a flash-backward example that prints the unscaled dQ as its result passes the probe, so the probe is blind");
+    let control = true;
+    try { claHold("flash-backward", "de", deText, [["dQ with the factor", fbdQ, 3, 1], ["dQ with the factor forgotten", fbForgotten, 3, 1]], []); } catch { control = false; }
+    if (!control) claFail("the fixture's control reads the untouched example as broken, so the probe is wrong rather than the card");
+    claChecks += 2;
+  }
+
+  console.log(`card lab arithmetic OK: ${claChecks} checks -- v123 held the six pure-arithmetic cards and named the ones that hang on lab code as the next lever. Recomputing them found no wrong figure but two examples that were right and could not teach their own equation: flash-backward worked at d=1, where the factor 1/√d in dQ and dK does not exist -- the factor the lab shows the row-sum self-check to be blind to -- and ended on that same self-check, while its answer key listed "scaling" among what a row sum reveals; moe-capacity worked at c_f=1 where T·k/E is whole, so its ⌈·⌉ never rounded. flash-backward now works at d=${fbD} (√d=${fbRoot}), its dQ=ln2/3 is recomputed on two routes (closed form and central finite differences of L=O·dO) and its unscaled twin is shown to be exactly ${fbRoot}x with the same dS, while a scale dropped inside P moves the row sum to ${fbWrongSum.toFixed(3)}, which is the half of "scaling" the answer key may still claim; grpo-advantage is recomputed through the lab's own advAdvantages; moe-capacity shows c_f=1.25 landing on 7.5 and rounding up to 8, the same ceiling the lab computes. Every figure is required in order in both locales with a pinned occurrence count, and a built-in fixture restores the d=1 dQ and must be caught while the untouched card stays green`);
+}

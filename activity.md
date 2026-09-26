@@ -1,6 +1,6 @@
 # Activity
 
-Iteration Counter: 4
+Iteration Counter: 5
 
 ## 2026-07-14 - Interaktiver CS336-Lernbegleiter (manueller Run)
 
@@ -1166,4 +1166,44 @@ einer Zeile je Lauf; die Einzelheiten stehen in `tmp/deep-review-2026-09-<tag>-c
   volle Suite rendert die Karte zusaetzlich in `accordion route` (265 Akkordeon-Instanzen) und
   prueft sie in `formula field fallthrough` gegen deutsche Reste.
 - Cache-Bump auf **v100** (4 Stellen), README auf 83 Formeln.
+- Der Iteration Counter wurde erhoeht, da der Run ueber einen Scheduled Task startete.
+
+## v124 - 2026-09-26 - das Beispiel lebte in der einen Dimension, in der sein Fehler nicht existiert
+
+- Status: abgeschlossen. Branch `claude/deep-review-v124`, gebaut auf dem Kettenkopf v123
+  (`7ab1ac0`) per `git switch -c`. Der zugewiesene Worktree stand auf v99 (`2ed21e7`); die
+  Ahnenpruefung ueber alle Branch-Spitzen fand keinen verlorenen Zweig. Codex-Pruefung:
+  Haupt-Checkout seit dem 29. Juli unberuehrt.
+- **Hebel aus v123:** die gerechneten Beispiele, die an Lab-Code haengen, nachrechnen
+  (`flash-backward`, `grpo-advantage`, `moe-capacity`). Ergebnis: **keine falsche Zahl**, aber zwei
+  Beispiele, die richtig waren und ihre eigene Gleichung nicht lehren konnten.
+- **`flash-backward` (A2, `flash_backward` 5 P.) rechnete bei d=1.** Dort ist √d=1, und der
+  Faktor 1/√d in dQ und dK existiert nicht - genau der Faktor, fuer den das Lab
+  `flash-backward-kernel` die uebliche Selbstpruefung rowsum(dS)=0 als blind vorfuehrt. Das
+  Beispiel endete ausgerechnet mit dieser Selbstpruefung ("Als Kontrolle summiert sich dS zu 0"),
+  und der **Antwortschluessel** nannte "Skalierung" unter den Fehlern, die eine Zeilensumme
+  aufdeckt. Das stimmt fuer die Skala **in P** und ist falsch fuer die Skala **in dQ/dK** - die
+  Karte widersprach dem Lab. Neu: d=4 (√d=2), nur die erste Koordinate belegt (q=2, k₂=ln2), damit
+  Scores, P, O, D_row und dS unveraendert bleiben; dQ=ln2/3≈0,231, und der Satz "fehlt /√d, ist dS
+  dasselbe Array und dQ≈0,462 doppelt so gross". Antwortschluessel in beiden Sprachen auf beide
+  Haelften praezisiert (falsche Scoreskalierung beim Rekonstruieren von P: gefangen, Zeilensumme
+  +2/3 am Beispiel; 1/√d in dQ und dK: blind, nur Betragsvergleich mit Referenz).
+- **`moe-capacity` rechnete bei c_f=1 mit T·k/E=6 ganz** - das ⌈·⌉ der eigenen Gleichung rundete
+  nie, dieselbe Luecke, die v113 im Lab schloss. Neu: der Schritt c_f=1,25 -> 7,5 -> ⌈7,5⌉=8 mit
+  dem Grund (ein halber Slot nimmt kein Token auf).
+- `grpo-advantage` nachgerechnet und korrekt (ueber `advAdvantages` des Labs).
+- **Guard `card lab arithmetic`** (Suite 78 -> 79, 108 Pruefungen): `flash-backward` auf zwei
+  Wegen nachgerechnet (geschlossene Form und zentrale finite Differenzen von L=O·dO), d aus dem
+  Beispiel gelesen und d>1 verlangt, beide Behauptungen der Karte am Beispiel bewiesen (dS bei
+  vergessenem Faktor identisch, Faktor genau √d=2; falsch skaliertes P verschiebt die Zeilensumme
+  auf 0,667), der Antwortschluessel auf beide Haelften gehalten; `grpo-advantage` durch die
+  Lab-Funktionen; `moe-capacity` mit der Forderung, dass mindestens ein c_f zwischen ganzen Zahlen
+  landet, und gegen `Math.ceil` im Lab. Zaehlung an Zahlgrenzen, weil `0,5` in `0,577` steckt.
+  Eingebaute Fixture: das d=1-dQ zurueckgesetzt muss gefangen werden, die Kontrolle gruen bleiben.
+- **Mutationstest:** 30 Mutationen, **0 entkommen, 0 inert** (drei zunaechst inerte waren
+  mehrdeutige Suchstrings des Tests, nicht Luecken des Guards; praezisiert und gefangen),
+  Kontrolle vor und nach gruen. Schlankfassung plus `advApi`: 0,25 s je Lauf.
+- **Kein Browsertest** (geplanter Lauf). Die volle Suite rendert beide Karten in `accordion route`
+  und prueft sie in `formula field fallthrough`, `card numerals`, `card comma lists`; alle gruen.
+- Cache-Bump auf **v101** (sw.js zweimal, index.html, README).
 - Der Iteration Counter wurde erhoeht, da der Run ueber einen Scheduled Task startete.
