@@ -315,3 +315,15 @@
 - Der Hebel "Beispiele an Lab-Code nachrechnen" ist fuer `flash-backward`, `grpo-advantage` und
   `moe-capacity` geschlossen (`card lab arithmetic`). Offen: die Kaskadenanteile und die
   uebrigen Beispiele, die an Handout-Tabellen haengen.
+
+## Der Leerlauf-Sweep ueber alle 83 Beispiele (v125)
+
+- **Alle 83 gerechneten Beispiele auf Leerlauf-Operatoren gelesen.** Vier weitere gefunden und
+  behoben: `attention` und `causal-attention` bei dₖ=1 (/√dₖ teilt durch eins), `dpo` bei β=1
+  (β·Marge ist die Marge), `scaling-law` bei α=β=1 (das Potenzgesetz wird zur Division, und
+  "N verdoppeln halbiert den Term" sah aus wie das Gesetz statt wie der Sonderfall). Neue Werte:
+  dₖ=4, β=0,1 (Startwert aus A5-Supplement §6.4), α=1/2 und β=1/3.
+- Bewusst belassen: `rmsnorm` mit g=[1; 1] (das Beispiel sagt selbst, dass der Gain nichts
+  aendert) und ε≈0 in `adamw`, `gradient-clip`, `grpo-variants` (Numerikschutz, nicht Lerninhalt).
+- Offen und nicht Leerlauf, sondern Luecke: `importance-resampling` rechnet die Normierung w̃ᵢ
+  seiner eigenen Gleichung nicht vor und schreibt ".30/.60" ohne fuehrende Null.

@@ -1,6 +1,6 @@
 # Activity
 
-Iteration Counter: 5
+Iteration Counter: 6
 
 ## 2026-07-14 - Interaktiver CS336-Lernbegleiter (manueller Run)
 
@@ -1206,4 +1206,36 @@ einer Zeile je Lauf; die Einzelheiten stehen in `tmp/deep-review-2026-09-<tag>-c
 - **Kein Browsertest** (geplanter Lauf). Die volle Suite rendert beide Karten in `accordion route`
   und prueft sie in `formula field fallthrough`, `card numerals`, `card comma lists`; alle gruen.
 - Cache-Bump auf **v101** (sw.js zweimal, index.html, README).
+- Der Iteration Counter wurde erhoeht, da der Run ueber einen Scheduled Task startete.
+
+## v125 - 2026-09-27 - der Parameter, der den eigenen Operator abschaltete
+
+- Status: abgeschlossen. Branch `claude/deep-review-v125`, gebaut auf dem Kettenkopf v124
+  (`d5fd4c3`) per `git switch -c`. Der zugewiesene Worktree stand auf v99 (`2ed21e7`); die
+  Ahnenpruefung ueber alle Branch-Spitzen fand keinen verlorenen Zweig. Haupt-Checkout seit dem
+  29. Juli unberuehrt (keine aktive Codex-Session).
+- **Hebel aus v124, auf alle Karten ausgeweitet:** jedes der 83 Beispiele gefragt, welcher
+  Operator seiner Gleichung dort Leerlauf ist. Vier Funde, keine falsche Zahl:
+  - `attention` (A1 `scaled_dot_product_attention`) und `causal-attention` rechneten bei dₖ=1 -
+    ein vergessenes /√dₖ ergab dasselbe Beispiel. Neu dₖ=4 mit nur einer belegten Koordinate
+    (alle Zwischenwerte bleiben), und `attention` zeigt den Zwilling ohne Division: Gewichte
+    [0,1; 0,9] statt [0,25; 0,75], Output [0,2; 3,6] statt [0,5; 3].
+  - `dpo` (A5 `dpo_loss`) rechnete bei β=1. Neu β=0,1, der Startwert aus A5s DPO-Training:
+    Logit 0,07, L≈0,659 (kaum unter log2≈0,693); der Zwilling bei β=1 (0,403) zaehlt dieselbe
+    Marge zehnmal so stark.
+  - `scaling-law` (A3) rechnete bei α=β=1. Neu α=1/2, β=1/3: N verdoppeln senkt den Term nur um
+    √2≈1,414, erst 4N halbiert ihn.
+- **Guard `card idle operators`** (Suite 79 -> 80): jeder Leerlauf-Parameter wird aus dem
+  Beispiel beider Sprachen gelesen und muss lebendig sein, das Beispiel wird am gelesenen Wert
+  nachgerechnet, alle Zahlen in Reihenfolge mit festgeschriebener Fundstellenzahl, die Eingaben
+  (q, Keys, Log-Wahrscheinlichkeiten, E/A/B) als Schritte verlangt, die Zwillinge nachgerechnet.
+  Eingebaute Fixture: attention bei dₖ=1 und dpo bei β=1 muessen gefangen werden.
+- **Mutationstest:** 37 Mutationen, **0 entkommen, 0 inert**, zwei gruene Kontrollmutationen,
+  Kontrolle vor und nach gruen. Der erste Lauf liess die vertauschten Gewichte [0,75; 0,25]
+  durch: beide Zahlen stehen zweimal, und die Reihenfolgepruefung "erstes Vorkommen nach dem
+  Cursor" findet jede nach der vorigen. Jetzt werden die Listen als Ganzes verlangt.
+- **Kein Browsertest** (geplanter Lauf). Die volle Suite rendert die vier Karten in
+  `accordion route` und prueft sie in `formula field fallthrough`, `card numerals`,
+  `card comma lists`; alle gruen.
+- Cache-Bump auf **v102** (sw.js zweimal, index.html, README).
 - Der Iteration Counter wurde erhoeht, da der Run ueber einen Scheduled Task startete.

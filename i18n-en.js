@@ -3258,7 +3258,7 @@ window.CS336_EN = Object.freeze({
       ],
       "intuition": "Q and K decide where to read; V decides what is read. Every Head learns its own feature views, so the same Token states can be encoded differently for comparison and transferable content.",
       "pitfall": "Softmax runs over T_k for each fixed Query. Masks act on Scores before Softmax; Q, K, and V are Batch activations, while only their producing Linear Layers are learned.",
-      "example": "For one Head with dₖ=1, let q=1 and let the two Keys be k₁=0 and k₂=ln(3)≈1.099; ln(3) is exactly the value whose exponential is 3. The scores are [0, 1.099]. Their exponential values are [1, 3], and division by their sum 4 gives Softmax weights [0.25, 0.75]. With v₁=[2, 0] and v₂=[0, 4], the Output is 0.25v₁+0.75v₂=[0.5, 3].",
+      "example": "For one Head with dₖ=4, so √dₖ=2. Only the first feature coordinate is filled, all others are zero: let q=2 and let the two Keys be k₁=0 and k₂=ln(3)≈1.099; ln(3) is exactly the value whose exponential is 3. The dot products are [2·0, 2·ln(3)]≈[0, 2.197], divided by √dₖ=2 that gives the scores [0, 1.099]. Their exponential values are [1, 3], and division by their sum 4 gives Softmax weights [0.25, 0.75]. With v₁=[2, 0] and v₂=[0, 4], the Output is 0.25v₁+0.75v₂=[0.5, 3]. Without the division the scores stay [0, 2.197] with exponential values [1, 9], the weights become [0.1, 0.9] and the Output [0.2, 3.6]: the Softmax gets sharper while every single step still looks right. At dₖ=1 this error would be invisible, because √1=1.",
       "check": "What roles do Q/K play versus V, what Score Shape is produced, which axis does Softmax normalize, and why divide by √dₖ?",
       "answer": "Q and K create Compatibility Scores that determine where to read, while V supplies the content to mix. [B,H,T_q,d_k] and [B,H,T_k,d_k] produce [B,H,T_q,T_k], normalized over T_k. Dividing by √d_k keeps typical score scale stable as Head width grows."
     },
@@ -3321,7 +3321,7 @@ window.CS336_EN = Object.freeze({
       ],
       "intuition": "Row i may only see columns up to and including i. The mask leaves allowed scores unchanged but makes every future score impossible before probabilities are formed.",
       "pitfall": "Multiplying by zero after Softmax is incorrect because the remaining weights no longer sum to one. Apply the mask to scores before Softmax.",
-      "example": "Take Query position i=1, dₖ=1, q₁=2, and Keys k₀=1, k₁=3, k₂=4. The unmasked scores are [2·1, 2·3, 2·4]=[2, 6, 8]. Since j=2>i, M₁=[0, 0, −∞] and S₁=[2, 6, −∞]. Softmax gives approximately [0.018, 0.982, 0]; the future position receives exactly no weight.",
+      "example": "Take Query position i=1 and dₖ=4, so √dₖ=2. Only the first feature coordinate is filled: q₁=4 and Keys k₀=1, k₁=3, k₂=4. The dot products are [4·1, 4·3, 4·4]=[4, 12, 16], divided by √dₖ=2 that gives the unmasked scores [2, 6, 8]. Since j=2>i, M₁=[0, 0, −∞] and S₁=[2, 6, −∞]. Softmax gives approximately [0.018, 0.982, 0]; the future position receives exactly no weight.",
       "check": "Which triangle contains −∞?",
       "answer": "The strictly upper triangle contains −∞, meaning all entries where the column index j is greater than the row index i. These entries represent future key positions that a query must not see yet."
     },
@@ -4251,7 +4251,7 @@ window.CS336_EN = Object.freeze({
       ],
       "intuition": "More parameters or more data shrinks only its corresponding extra term. Because both terms fall as powers, each additional doubling typically brings a smaller absolute gain.",
       "pitfall": "A, B, α, β, and E are estimated from comparable completed Runs; they are not laws of nature. Units, architecture, data, and training recipe must not change silently.",
-      "example": "Pure numeric toy case in normalized units: E=1.5, A=0.8, B=0.6, α=β=1, N=2, and D=3. The parameter contribution is 0.8/2=0.4 and the data contribution is 0.6/3=0.2, so L=1.5+0.4+0.2=2.1. Doubling only N to 4 lowers L to 1.5+0.2+0.2=1.9.",
+      "example": "Pure numeric toy case in normalized units: E=1.5, A=0.8, B=0.6, α=1/2, β=1/3, N=4, and D=8. The parameter contribution is 0.8/4^α=0.8/√4=0.4 and the data contribution is 0.6/8^β=0.6/∛8=0.3, so L=1.5+0.4+0.3=2.2. Doubling only N to 8 lowers the parameter contribution merely to 0.8/√8≈0.283 and L to ≈2.083: the term shrinks by the factor 2^α=√2≈1.414, not by 2. Only N=16 halves it to 0.2, so L=2.0. With α=1 doubling would have sufficed; the exponent decides how much more model each halving of the term costs.",
       "check": "What happens for N,D→∞?",
       "answer": "For positive exponents, A/N^α and B/D^β vanish as N and D approach infinity. The modeled loss limit is therefore the irreducible term E."
     },
@@ -4789,7 +4789,7 @@ window.CS336_EN = Object.freeze({
       ],
       "intuition": "DPO does not ask only whether y⁺ is likely. It asks whether the trained Policy improved y⁺ relative to the base model more than it improved y⁻.",
       "pitfall": "All four values need the same Chat Template, response boundary, and Mask. Prompt, Padding, or inconsistent Template Tokens distort the margin; the Reference remains frozen.",
-      "example": "Four Log Probabilities: Current chosen −1.0; Reference chosen −1.5; Current rejected −2.0; Reference rejected −1.8. (1) Chosen change: −1.0−(−1.5)=+0.5. (2) Rejected change: −2.0−(−1.8)=−0.2. (3) Margin: 0.5−(−0.2)=0.7. With β=1, σ(0.7)≈0.668 and L_DPO=−log0.668≈0.403.",
+      "example": "Four Log Probabilities: Current chosen −1.0; Reference chosen −1.5; Current rejected −2.0; Reference rejected −1.8. (1) Chosen change: −1.0−(−1.5)=+0.5. (2) Rejected change: −2.0−(−1.8)=−0.2. (3) Margin: 0.5−(−0.2)=0.7. (4) With β=0.1, the starting value of A5's DPO training, the logit is 0.1·0.7=0.07, σ(0.07)≈0.5175 and L_DPO=−log0.5175≈0.659 — barely below log2≈0.693, the loss at margin 0. With β=1 it would be σ(0.7)≈0.668 and L_DPO≈0.403: the same margin counts ten times as much, so β is part of the objective, not merely a second learning rate.",
       "check": "Why are πθ log-probs alone not enough for this form?",
       "answer": "The reference log-probabilities measure how strongly the trained policy reorders the preferred against the rejected answer relative to the base model. Without them, exactly this KL-related comparison basis is missing; what would remain is a different pairwise policy objective, not the specified DPO loss."
     },

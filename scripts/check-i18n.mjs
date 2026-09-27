@@ -17285,3 +17285,209 @@ console.log(`ffn-backward OK: ${fbValues} values, all four gradients match A2's 
 
   console.log(`card lab arithmetic OK: ${claChecks} checks -- v123 held the six pure-arithmetic cards and named the ones that hang on lab code as the next lever. Recomputing them found no wrong figure but two examples that were right and could not teach their own equation: flash-backward worked at d=1, where the factor 1/√d in dQ and dK does not exist -- the factor the lab shows the row-sum self-check to be blind to -- and ended on that same self-check, while its answer key listed "scaling" among what a row sum reveals; moe-capacity worked at c_f=1 where T·k/E is whole, so its ⌈·⌉ never rounded. flash-backward now works at d=${fbD} (√d=${fbRoot}), its dQ=ln2/3 is recomputed on two routes (closed form and central finite differences of L=O·dO) and its unscaled twin is shown to be exactly ${fbRoot}x with the same dS, while a scale dropped inside P moves the row sum to ${fbWrongSum.toFixed(3)}, which is the half of "scaling" the answer key may still claim; grpo-advantage is recomputed through the lab's own advAdvantages; moe-capacity shows c_f=1.25 landing on 7.5 and rounding up to 8, the same ceiling the lab computes. Every figure is required in order in both locales with a pinned occurrence count, and a built-in fixture restores the d=1 dQ and must be caught while the untouched card stays green`);
 }
+
+// ---- card idle operators: the parameter that switched the card's own operator off (v125) ----
+// v124 found flash-backward working at d=1 and moe-capacity at a whole T·k/E and named the question
+// for every remaining example: which operator of the equation is idle in this example? Asked of all
+// 83 cards, it found four more. attention and causal-attention worked at dₖ=1, where /√dₖ divides by
+// one -- the step A1's scaled_dot_product_attention asks for, and forgetting it gave the identical
+// example. dpo worked at β=1, where β·margin is the margin -- the coefficient A5's DPO training starts
+// at 0.1, and at β=1 the card could not show that β decides how much a margin counts. scaling-law
+// worked at α=β=1, where A/Nᵅ is A/N -- the exponents a Chinchilla fit exists to estimate, and at 1
+// "double N, halve the term" looked like the law instead of the special case.
+// Held here: each idle parameter is READ from the example in both locales and required to be live,
+// the example is recomputed at the value read, every figure stands in order with a pinned count, and
+// the twin the card shows (operator removed) is recomputed too, so the lesson is proved on the
+// example rather than asserted. A built-in fixture puts attention back at dₖ=1 and dpo at β=1; both
+// must be caught while the untouched cards stay green.
+{
+  const cioFail = message => { throw new Error(`card idle operators: ${message}`); };
+  let cioChecks = 0;
+  const cioFormat = (value, digits, locale) => {
+    const fixed = Math.abs(value).toFixed(digits).replace(".", locale === "de" ? "," : ".");
+    return `${value < 0 ? "−" : ""}${fixed}`;
+  };
+  const cioEscape = text => text.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const cioPattern = written => new RegExp(`(?<![\\d.,])${cioEscape(written)}(?![\\d])`, "gu");
+  const cioHold = (id, locale, text, figures, steps) => {
+    let cursor = -1;
+    for (const [label, value, digits, occurrences] of figures) {
+      const written = cioFormat(value, digits, locale);
+      const hits = (text.match(cioPattern(written)) || []).length;
+      if (hits !== occurrences) cioFail(`${id}/${locale}: ${written} (${label}) stands ${hits} time(s) where the calculation uses it ${occurrences}`);
+      const pattern = cioPattern(written);
+      pattern.lastIndex = cursor + 1;
+      const match = pattern.exec(text);
+      if (!match) cioFail(`${id}/${locale}: ${written} (${label}) appears only before a figure the calculation produces earlier`);
+      cursor = match.index;
+      cioChecks += 2;
+    }
+    let stepCursor = -1;
+    for (const step of steps) {
+      const hits = text.split(step).length - 1;
+      if (hits !== 1) cioFail(`${id}/${locale}: the step ${step}, which the calculation produces, stands ${hits} time(s)`);
+      const at = text.indexOf(step, stepCursor + 1);
+      if (at < 0) cioFail(`${id}/${locale}: the step ${step} stands before a step the calculation produces earlier`);
+      stepCursor = at;
+      cioChecks += 2;
+    }
+  };
+  const cioCard = id => {
+    const card = base.formulas.find(formula => formula.id === id);
+    if (!card) cioFail(`${id} is gone, and its idle-operator check was held here`);
+    const english = pack.formulas[id];
+    if (!english?.example) cioFail(`${id} has no English example to hold`);
+    return [["de", card.example], ["en", english.example]];
+  };
+  const cioList = (values, locale, digits = 0) => `[${values.map(value => cioFormat(value, digits, locale)).join(locale === "de" ? "; " : ", ")}]`;
+  // Reads one parameter from each locale and requires both to say the same.
+  const cioRead = (id, texts, pattern, parse, name) => {
+    const values = texts.map(([locale, text]) => {
+      const match = text.match(pattern);
+      if (!match) cioFail(`${id}/${locale} no longer states ${name}`);
+      return parse(match);
+    });
+    if (values[0] !== values[1]) cioFail(`${id} states ${name}=${values[0]} in German and ${values[1]} in English`);
+    return values[0];
+  };
+  const cioSoftmax = scores => {
+    const peak = Math.max(...scores);
+    const weights = scores.map(score => score === -Infinity ? 0 : Math.exp(score - peak));
+    const total = weights.reduce((sum, value) => sum + value, 0);
+    return weights.map(value => value / total);
+  };
+
+  // --- 1. attention: /√dₖ has to divide by something ------------------------------------------
+  const cioAttention = texts => {
+    const d = cioRead("attention", texts, /dₖ=(\d+)/u, match => Number(match[1]), "dₖ");
+    if (!(d > 1)) cioFail(`attention works at dₖ=${d}, where /√dₖ divides by one and a forgotten scaling gives the identical example`);
+    const root = Math.sqrt(d), q = 2, keys = [0, Math.log(3)], values = [[2, 0], [0, 4]];
+    const raw = keys.map(key => q * key), scaled = raw.map(score => score / root);
+    if (scaled[0] !== 0 || Math.abs(scaled[1] - Math.log(3)) > 1e-15) cioFail(`attention's q=2 over √dₖ=${root} gives the scores ${scaled}, not [0, ln(3)]`);
+    const mix = weights => values[0].map((_, c) => weights[0] * values[0][c] + weights[1] * values[1][c]);
+    const weights = cioSoftmax(scaled), output = mix(weights);
+    const bare = cioSoftmax(raw), bareOutput = mix(bare);
+    // The lesson, proved on the example: without the division the distribution is sharper.
+    if (!(bare[1] > weights[1])) cioFail(`attention's unscaled weights ${bare} are not sharper than ${weights}`);
+    cioChecks += 3;
+    for (const [locale, text] of texts) {
+      cioHold("attention", locale, text,
+        [["k₂=ln(3)", keys[1], 3, 2], ["the raw dot product", raw[1], 3, 2], ["the scaled score", scaled[1], 3, 2],
+          ["the first weight", weights[0], 2, 2], ["the second weight", weights[1], 2, 2], ["the first output", output[0], 1, 1],
+          ["the raw dot product again, unscaled", raw[1], 3, 2],
+          ["the unscaled first weight", bare[0], 1, 1], ["the unscaled second weight", bare[1], 1, 1],
+          ["the unscaled first output", bareOutput[0], 1, 1], ["the unscaled second output", bareOutput[1], 1, 1]],
+        [`q=${q}`, `k₁=${keys[0]}`, locale === "de" ? "[2·0; 2·ln(3)]" : "[2·0, 2·ln(3)]",
+          // The lists are held whole: 0,25 and 0,75 each stand twice, so two weights trading places
+          // keep every count and still find each figure after the one before it.
+          cioList(weights, locale, 2), `v₁=${cioList(values[0], locale)}`, `v₂=${cioList(values[1], locale)}`,
+          cioList(raw.map(Math.exp).map(Math.round), locale), cioList(bare, locale, 1), cioList(bareOutput, locale, 1)]);
+      if (!(locale === "de" ? /Bei dₖ=1 wäre dieser Fehler unsichtbar/u : /At dₖ=1 this error would be invisible/u).test(text))
+        cioFail(`attention/${locale} no longer says why the example cannot work at dₖ=1`);
+      cioChecks++;
+    }
+    return d;
+  };
+
+  // --- 2. causal-attention: the same division, ahead of the mask ------------------------------
+  const cioCausal = texts => {
+    const d = cioRead("causal-attention", texts, /dₖ=(\d+)/u, match => Number(match[1]), "dₖ");
+    if (!(d > 1)) cioFail(`causal-attention works at dₖ=${d}, where the division in its own equation is idle`);
+    const root = Math.sqrt(d), q = 4, keys = [1, 3, 4], i = 1;
+    const raw = keys.map(key => q * key), scaled = raw.map(score => score / root);
+    const masked = scaled.map((score, j) => j <= i ? score : -Infinity);
+    const weights = cioSoftmax(masked);
+    if (weights[2] !== 0) cioFail("the future key of causal-attention's example receives weight");
+    cioChecks++;
+    for (const [locale, text] of texts) {
+      const sep = locale === "de" ? "; " : ", ";
+      cioHold("causal-attention", locale, text,
+        [["the first weight", weights[0], 3, 1], ["the second weight", weights[1], 3, 1]],
+        [`i=${i}`, `q₁=${q}`, `k₀=${keys[0]}, k₁=${keys[1]}, k₂=${keys[2]}`, `[${keys.map(key => `${q}·${key}`).join(sep)}]=${cioList(raw, locale)}`, `√dₖ=${root} ${locale === "de" ? "also die unmaskierten Scores" : "that gives the unmasked scores"} ${cioList(scaled, locale)}`,
+          `S₁=[${scaled.slice(0, 2).join(sep)}${sep}−∞]`]);
+    }
+    return d;
+  };
+
+  // --- 3. dpo: β at the handout's value, and the twin at β=1 -----------------------------------
+  const cioDpo = texts => {
+    const beta = cioRead("dpo", texts, /β=(\d+(?:[.,]\d+)?)/u, match => Number(match[1].replace(",", ".")), "β");
+    if (beta === 1) cioFail("dpo works at β=1, where β·margin is the margin and the coefficient of its own loss is idle");
+    // A5's supplement (§6.4, step 5) starts DPO training at β = 0.1, and the example says so.
+    if (beta !== 0.1) cioFail(`dpo works at β=${beta} and calls it the starting value of A5's DPO training, which is 0.1`);
+    const sigmoid = x => 1 / (1 + Math.exp(-x));
+    const logps = [-1.0, -1.5, -2.0, -1.8];
+    const margin = Math.round(((logps[0] - logps[1]) - (logps[2] - logps[3])) * 10) / 10;
+    const logit = beta * margin, prob = sigmoid(logit), loss = -Math.log(Number(prob.toFixed(4)));
+    const twinProb = sigmoid(margin), twinLoss = -Math.log(Number(twinProb.toFixed(3)));
+    if (Math.abs(-Math.log(prob) - loss) > 5e-4) cioFail(`dpo's loss from the rounded σ (${loss}) and from the exact one (${-Math.log(prob)}) differ in the printed digits`);
+    if (Math.round(1 / beta) !== 10) cioFail(`β=${beta} does not make the β=1 twin count the margin ten times as much`);
+    cioChecks += 3;
+    for (const [locale, text] of texts) {
+      cioHold("dpo", locale, text,
+        [["the margin", margin, 1, 3], ["β", beta, 1, 2], ["the logit β·margin", logit, 2, 2], ["σ of the logit", prob, 4, 2],
+          ["the loss", loss, 3, 1], ["log 2, the loss at margin 0", Math.LN2, 3, 1], ["σ at β=1", twinProb, 3, 1], ["the loss at β=1", twinLoss, 3, 1]],
+        [`chosen ${cioFormat(logps[0], 1, locale)}; Reference chosen ${cioFormat(logps[1], 1, locale)}; Current rejected ${cioFormat(logps[2], 1, locale)}; Reference rejected ${cioFormat(logps[3], 1, locale)}.`,
+          `${cioFormat(beta, 1, locale)}·${cioFormat(margin, 1, locale)}=${cioFormat(logit, 2, locale)}`]);
+      if (!(locale === "de" ? /zehnmal so stark/u : /ten times as much/u).test(text)) cioFail(`dpo/${locale} no longer says what β=1 would do to the same margin`);
+      cioChecks++;
+    }
+    return beta;
+  };
+
+  // --- 4. scaling-law: exponents that are neither 1 nor each other -----------------------------
+  const cioScaling = texts => {
+    const fraction = match => Number(match[1]) / Number(match[2]);
+    const alpha = cioRead("scaling-law", texts, /α=(\d+)\/(\d+)/u, fraction, "α");
+    const beta = cioRead("scaling-law", texts, /β=(\d+)\/(\d+)/u, fraction, "β");
+    if (alpha === 1 || beta === 1) cioFail(`scaling-law works at α=${alpha}, β=${beta}; an exponent of 1 turns its power law into a plain division`);
+    if (alpha === beta) cioFail("scaling-law's two exponents are equal, so the example cannot show which term belongs to which");
+    const E = 1.5, A = 0.8, B = 0.6, N = 4, D = 8;
+    const nTerm = n => A / n ** alpha, dTerm = B / D ** beta;
+    const L = n => E + nTerm(n) + dTerm;
+    if (Math.abs(nTerm(N) - 0.4) > 1e-12 || Math.abs(dTerm - 0.3) > 1e-12) cioFail(`scaling-law's terms at N=${N}, D=${D} are ${nTerm(N)} and ${dTerm}, not 0.4 and 0.3`);
+    if (Math.abs(nTerm(4 * N) - nTerm(N) / 2) > 1e-12) cioFail("quadrupling N does not halve the parameter term, which the example claims");
+    cioChecks += 2;
+    for (const [locale, text] of texts) {
+      cioHold("scaling-law", locale, text,
+        [["the parameter term", nTerm(N), 1, 2], ["the data term", dTerm, 1, 2], ["L", L(N), 1, 1],
+          ["the parameter term at 2N", nTerm(2 * N), 3, 1], ["L at 2N", L(2 * N), 3, 1], ["the factor 2^α", 2 ** alpha, 3, 1],
+          ["the parameter term at 4N", nTerm(4 * N), 1, 1], ["L at 4N", L(4 * N), 1, 1]],
+        [`E=${cioFormat(E, 1, locale)}, A=${cioFormat(A, 1, locale)}, B=${cioFormat(B, 1, locale)}`, `N=${N}`, `D=${D}`, `/${N}^α=`, `/${D}^β=`, `/√${2 * N}≈`, `2^α=√2≈`, `N=${4 * N}`]);
+      if (!(locale === "de" ? /Mit α=1 hätte die Verdopplung gereicht/u : /With α=1 doubling would have sufficed/u).test(text))
+        cioFail(`scaling-law/${locale} no longer names the special case the old example taught`);
+      cioChecks++;
+    }
+    return [alpha, beta];
+  };
+
+  const cioD = cioAttention(cioCard("attention"));
+  const cioCausalD = cioCausal(cioCard("causal-attention"));
+  const cioBeta = cioDpo(cioCard("dpo"));
+  const [cioAlpha, cioScaleBeta] = cioScaling(cioCard("scaling-law"));
+
+  // --- 5. the fixture: the old idle values must be caught, the untouched cards not ----------
+  {
+    const revert = (texts, from, to) => texts.map(([locale, text]) => {
+      const changed = text.split(from).join(to);
+      if (changed === text) cioFail(`the fixture could not write ${to} into the ${locale} example`);
+      return [locale, changed];
+    });
+    const fixtures = [
+      ["attention back at dₖ=1", () => cioAttention(revert(cioCard("attention"), "dₖ=4", "dₖ=1"))],
+      ["dpo back at β=1", () => cioDpo(cioCard("dpo").map(([locale, text]) => [locale, text.replace(locale === "de" ? "β=0,1" : "β=0.1", "β=1")]))],
+    ];
+    for (const [label, run] of fixtures) {
+      let caught = false;
+      try { run(); } catch { caught = true; }
+      if (!caught) cioFail(`the fixture "${label}" passes, so the probe is blind to the idle operator it exists for`);
+      cioChecks++;
+    }
+    let control = true;
+    try { cioAttention(cioCard("attention")); cioDpo(cioCard("dpo")); } catch { control = false; }
+    if (!control) cioFail("the fixture's control reads the untouched examples as broken, so the probe is wrong rather than the cards");
+    cioChecks++;
+  }
+
+  console.log(`card idle operators OK: ${cioChecks} checks -- v124 asked of flash-backward and moe-capacity which operator of the equation is idle in the example; asked of all 83 cards the question found four more. attention and causal-attention worked at dₖ=1, where /√dₖ divides by one and a forgotten scaling -- the step A1's scaled_dot_product_attention is about -- gives the identical example; they now work at dₖ=${cioD} and ${cioCausalD}, and attention shows the unscaled twin, whose weights sharpen from 0.25/0.75 to 0.1/0.9. dpo worked at β=1, where β·margin is the margin; it now works at β=${cioBeta}, the value A5's DPO training starts at, where the same 0.7 margin moves the loss only from log 2 to 0.659 and the β=1 twin (0.403) counts it ten times as much. scaling-law worked at α=β=1, where doubling N halves the term; it now works at α=${cioAlpha.toFixed(3)}, β=${cioScaleBeta.toFixed(3)}, where doubling shrinks it by only √2 and it takes 4N to halve it. Each parameter is read from the example in both locales and required to be live, each example is recomputed at the value read with every figure in order and a pinned count, and a fixture putting attention back at dₖ=1 and dpo at β=1 must be caught while the untouched cards stay green`);
+}
