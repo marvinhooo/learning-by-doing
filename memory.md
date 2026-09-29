@@ -327,3 +327,15 @@
   aendert) und ε≈0 in `adamw`, `gradient-clip`, `grpo-variants` (Numerikschutz, nicht Lerninhalt).
 - Offen und nicht Leerlauf, sondern Luecke: `importance-resampling` rechnet die Normierung w̃ᵢ
   seiner eigenen Gleichung nicht vor und schreibt ".30/.60" ohne fuehrende Null.
+
+## Der DSIR-Normierer (v126)
+
+- **Ein Normierer ueber zwei Kandidaten ist nicht der Normierer ueber einen Pool.** w̃ über A und
+  B je einmal (0,2 und 0,8) liest sich als "DSIR waehlt B viermal so oft"; ueber einen nach p_R
+  gezogenen Pool ist der Anteil jedes Typs p_R·w=p_T. Je Dokument gewinnt B, in der Auswahl
+  steht mehr A. Karte, Check, Antwort und l14-Quizantwort tragen jetzt beide Haelften; Guard
+  `card importance resampling`.
+- Das Lab `filtering-mechanics` normiert ueber drei Einzeldokumente (je einmal im Pool) und
+  bleibt damit korrekt; es zeigt nur die Dokument-, nicht die Typ-Sicht.
+- Ein geplanter Lauf kann seine Arbeit uncommitted liegen lassen (v126 am 28.09.): vor dem Start
+  auch `git status` der juengsten Deep-Review-Worktrees pruefen, nicht nur die Branch-Spitzen.

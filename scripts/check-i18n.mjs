@@ -17491,3 +17491,108 @@ console.log(`ffn-backward OK: ${fbValues} values, all four gradients match A2's 
 
   console.log(`card idle operators OK: ${cioChecks} checks -- v124 asked of flash-backward and moe-capacity which operator of the equation is idle in the example; asked of all 83 cards the question found four more. attention and causal-attention worked at dₖ=1, where /√dₖ divides by one and a forgotten scaling -- the step A1's scaled_dot_product_attention is about -- gives the identical example; they now work at dₖ=${cioD} and ${cioCausalD}, and attention shows the unscaled twin, whose weights sharpen from 0.25/0.75 to 0.1/0.9. dpo worked at β=1, where β·margin is the margin; it now works at β=${cioBeta}, the value A5's DPO training starts at, where the same 0.7 margin moves the loss only from log 2 to 0.659 and the β=1 twin (0.403) counts it ten times as much. scaling-law worked at α=β=1, where doubling N halves the term; it now works at α=${cioAlpha.toFixed(3)}, β=${cioScaleBeta.toFixed(3)}, where doubling shrinks it by only √2 and it takes 4N to halve it. Each parameter is read from the example in both locales and required to be live, each example is recomputed at the value read with every figure in order and a pinned count, and a fixture putting attention back at dₖ=1 and dpo at β=1 must be caught while the untouched cards stay green`);
 }
+
+// ---- card importance resampling: the normalizer that sums over documents, not types (v126) ----
+// v125 named importance-resampling as the next lever: the example stopped at w_A=.5 and w_B=2 and
+// concluded that B "has four times the ratio", while the card's own equation has a second half, the
+// normalizer w̃ᵢ=w(xᵢ)/Σⱼw(xⱼ), that the example never used. That half was idle -- and it is the half
+// that decides what the selection contains. Over two candidates standing once each it gives 0.2 and
+// 0.8, which reads as "DSIR picks B four times as often as A"; over a pool drawn from p_R it gives
+// each type the share p_R·w = p_T, so the selection holds MORE A than B. The old example taught the
+// first reading, the l14 quiz answer said "B is therefore resampled more often", and both were wrong
+// about the selection while right about a single document.
+// Held here: p_T, p_R and the pool size are READ from the example in both locales, the pool, every
+// weight, the normalizer and each type's share are recomputed and required in order, the lesson is
+// proved on the example (a B document outweighs an A document, the selection still holds more A than
+// B, and each type's share is its p_T), and the check answers and the l14 quiz answer must carry the
+// distinction. A built-in fixture restores the v125 example and must be caught while the untouched
+// card stays green.
+{
+  const cirFail = message => { throw new Error(`card importance resampling: ${message}`); };
+  let cirChecks = 0;
+  const cirNum = (value, locale) => String(Number(value.toFixed(3))).replace(".", locale === "de" ? "," : ".");
+  const cirFixed = (value, locale) => value.toFixed(2).replace(".", locale === "de" ? "," : ".");
+  const cirParseList = text => text.split(/;\s*|,\s(?=\d)/u).map(item => Number(item.replace(",", ".")));
+  const cirHold = (locale, text) => {
+    const sep = locale === "de" ? "; " : ", ";
+    const pT = text.match(/p_T=\[([^\]]+)\]/u), pR = text.match(/p_R=\[([^\]]+)\]/u);
+    const size = text.match(locale === "de" ? /Raw-Pool von (\d+) Dokumenten/u : /raw pool of (\d+) documents/u);
+    if (!pT || !pR || !size) cirFail(`${locale}: the example no longer states p_T, p_R and the pool size, so its normalizer has nothing to sum over`);
+    const target = cirParseList(pT[1]), raw = cirParseList(pR[1]), n = Number(size[1]);
+    if (target.length !== 3 || raw.length !== 3) cirFail(`${locale}: the example lists ${target.length} p_T and ${raw.length} p_R values for three types`);
+    for (const [name, list] of [["p_T", target], ["p_R", raw]])
+      if (Math.abs(list.reduce((sum, value) => sum + value, 0) - 1) > 1e-9) cirFail(`${locale}: ${name} does not sum to one`);
+    const counts = raw.map(value => value * n);
+    if (counts.some(count => Math.abs(count - Math.round(count)) > 1e-9)) cirFail(`${locale}: a pool of ${n} cannot hold p_R=${raw} in whole documents`);
+    const pool = counts.map(Math.round), weights = target.map((value, i) => value / raw[i]);
+    const contributions = pool.map((count, i) => count * weights[i]), total = contributions.reduce((sum, value) => sum + value, 0);
+    const perDoc = weights.map(weight => weight / total), share = perDoc.map((value, i) => value * pool[i]);
+    // The lesson, proved on the example. The division by p_R must be live and must reorder A and B...
+    if (!(target[0] > target[1] && weights[1] > weights[0])) cirFail(`${locale}: the example no longer has p_T(A)>p_T(B) with w_B>w_A, so dividing by p_R changes nothing the reader can see`);
+    // ...and the normalizer must be live too: summed over documents, each type gets back its p_T.
+    share.forEach((value, i) => { if (Math.abs(value - target[i]) > 1e-9) cirFail(`${locale}: type ${"ABC"[i]} gets share ${value}, not its p_T=${target[i]}`); });
+    if (!(share[0] > share[1])) cirFail(`${locale}: the selection no longer holds more A than B, which is the half of the lesson the v125 example missed`);
+    cirChecks += 6;
+    const cw = weights[2], fraction = Math.abs(cw * 3 - Math.round(cw * 3)) < 1e-9 ? `${Math.round(cw * 3)}/3` : cirNum(cw, locale);
+    const steps = [
+      `p_T=[${target.map(v => cirFixed(v, locale)).join(sep)}]`,
+      `p_R=[${raw.map(v => cirFixed(v, locale)).join(sep)}]`,
+      `w_A=${cirFixed(target[0], locale)}/${cirFixed(raw[0], locale)}=${cirNum(weights[0], locale)}`,
+      `w_B=${cirFixed(target[1], locale)}/${cirFixed(raw[1], locale)}=${cirNum(weights[1], locale)}`,
+      `w_C=${cirFixed(target[2], locale)}/${cirFixed(raw[2], locale)}=${fraction}`,
+      `${pool[0]}×A, ${pool[1]}×B, ${pool[2]}×C`,
+      `Σⱼw(xⱼ)=${pool[0]}·${cirNum(weights[0], locale)}+${pool[1]}·${cirNum(weights[1], locale)}+${pool[2]}·${fraction}=${contributions.map(v => cirNum(v, locale)).join("+")}=${cirNum(total, locale)}`,
+      `w̃_A=${cirNum(perDoc[0], locale)}, w̃_B=${cirNum(perDoc[1], locale)}, w̃_C≈${cirNum(perDoc[2], locale)}`,
+      `A ${pool[0]}·${cirNum(perDoc[0], locale)}=${cirFixed(share[0], locale)}`,
+      `B ${pool[1]}·${cirNum(perDoc[1], locale)}=${cirFixed(share[1], locale)}`,
+      `C ${pool[2]}·1/${Math.round(1 / perDoc[2])}=${cirFixed(share[2], locale)}`
+    ];
+    let cursor = -1;
+    for (const step of steps) {
+      const hits = text.split(step).length - 1;
+      if (hits !== 1) cirFail(`${locale}: the step ${step}, which the calculation produces, stands ${hits} time(s)`);
+      const at = text.indexOf(step, cursor + 1);
+      if (at < 0) cirFail(`${locale}: the step ${step} stands before a step the calculation produces earlier`);
+      cursor = at;
+      cirChecks += 2;
+    }
+    const ratio = weights[1] / weights[0];
+    if (ratio !== 4 || !(locale === "de" ? /viermal so oft gezogen wie ein A-Dokument/u : /drawn four times as often as an A document/u).test(text))
+      cirFail(`${locale}: the example no longer says per document what w_B/w_A=${ratio} means`);
+    if (!(locale === "de" ? /Die Auswahl enthält also mehr A als B/u : /selection therefore contains more A than B/u).test(text))
+      cirFail(`${locale}: the example no longer says what the selection contains`);
+    cirChecks += 2;
+  };
+  const cirCard = base.formulas.find(formula => formula.id === "importance-resampling");
+  if (!cirCard) cirFail("importance-resampling is gone, and its normalizer check was held here");
+  const cirTexts = [["de", cirCard.example], ["en", pack.formulas["importance-resampling"]?.example]];
+  for (const [locale, text] of cirTexts) cirHold(locale, text);
+
+  // The answers have to carry both halves: per document B wins, per type the selection is p_T.
+  const cirAnswers = [["de", formulaAnswers["importance-resampling"], /6·0,5=3 gegen 1·2=2/u, /0,2 und 0,8/u],
+    ["en", pack.formulas["importance-resampling"]?.answer, /6·0\.5=3 against 1·2=2/u, /0\.2 and 0\.8/u]];
+  for (const [locale, text, pooled, pair] of cirAnswers) {
+    if (!text || !pooled.test(text)) cirFail(`${locale}: the check answer no longer sums the normalizer over the pool`);
+    if (!pair.test(text) || !/p_R·w=p_T/u.test(text)) cirFail(`${locale}: the check answer no longer names the two-candidate normalization as the error and p_R·w=p_T as the result`);
+    cirChecks += 2;
+  }
+  // The l14 quiz answer said "B is therefore resampled more often" -- right for one document, wrong for the selection.
+  for (const [locale, text, stale, fresh] of [
+    ["de", source, /Nach Normalisierung wird B deshalb häufiger resampled/u, /enthält die Auswahl trotzdem A und B im Target-Verhältnis 0,30 zu 0,20/u],
+    ["en", englishSource, /After normalization, B is therefore resampled more often/u, /the selection still contains A and B in the target ratio of 0\.30 to 0\.20/u]]) {
+    if (stale.test(text)) cirFail(`${locale}: the l14 quiz answer again says B is resampled more often, without saying per document`);
+    if (!fresh.test(text)) cirFail(`${locale}: the l14 quiz answer no longer says the selection keeps the target ratio`);
+    cirChecks += 2;
+  }
+
+  // Fixture: the v125 example, which never used the normalizer, must be caught in both locales.
+  for (const [locale, stale] of [["de", "A: .30/.60=.5; B: .20/.10=2 ⇒ B hat trotz kleinerem p_T vierfaches Ratio."],
+    ["en", "A: .30/.60=.5; B: .20/.10=2, so B has four times the ratio despite lower p_T."]]) {
+    let caught = false;
+    try { cirHold(locale, stale); } catch { caught = true; }
+    if (!caught) cirFail(`${locale}: the fixture restoring the v125 example was not caught, so this block cannot see`);
+    cirChecks++;
+  }
+  for (const [locale, text] of cirTexts) cirHold(locale, text);
+  console.log(`card importance resampling OK: ${cirChecks} checks -- v125 named importance-resampling as the next lever: its example stopped at w_A=0.5 and w_B=2 and concluded that B "has four times the ratio", while the second half of its own equation, the normalizer w̃ᵢ=w(xᵢ)/Σⱼw(xⱼ), stood idle. Over two candidates standing once each that normalizer gives 0.2 and 0.8, which reads as "DSIR picks B four times as often"; over a pool drawn from p_R it gives each type the share p_R·w=p_T, so the selection holds more A than B, and the l14 quiz answer said the opposite. The example now works a pool of 10 (6×A, 1×B, 3×C), recomputed from the p_T and p_R it states in both locales with every step in order and a pinned count: a B document is drawn four times as often as an A document, and the selection is exactly p_T. The check answers and the l14 quiz answer must carry both halves, and a fixture restoring the v125 example must be caught while the untouched card stays green`);
+}

@@ -1,6 +1,36 @@
 # Activity
 
-Iteration Counter: 6
+Iteration Counter: 7
+
+## v126 - 2026-09-29 - der Normierer, der ueber Dokumente summiert, nicht ueber Typen
+
+- Status: abgeschlossen. Branch `claude/deep-review-v126b`, gebaut auf dem Kettenkopf v125
+  (`440b23b`) per `git switch -c`. Der zugewiesene Worktree stand auf v99 (`2ed21e7`); die
+  Ahnenpruefung ueber alle Branch-Spitzen fand keinen verlorenen Zweig.
+- **Geborgene Arbeit:** Der geplante Lauf vom 28.09. (Worktree `xenodochial-jones-725f8d`, Branch
+  `claude/deep-review-v126`) hatte die Korrektur der DSIR-Karte geschrieben, aber nie committet -
+  kein Guard, kein Eintrag hier. Seit dem 28.09. 11:16 unveraendert, also keine aktive Session;
+  der Diff wurde hierher uebernommen, geprueft und abgesichert. Der dortige Worktree bleibt
+  unangetastet (uncommitted, jetzt redundant).
+- **Hebel aus v125 geschlossen:** `importance-resampling` (Lecture 14, DSIR) rechnete nur w_A=0,5
+  und w_B=2 und schloss "B hat vierfaches Ratio". Die zweite Haelfte der eigenen Gleichung, der
+  Normierer w̃ᵢ=w(xᵢ)/Σⱼw(xⱼ), lief leer - und genau sie entscheidet, was die Auswahl enthaelt.
+  Ueber einen nach p_R gezogenen Pool bekommt jeder Typ den Anteil p_R·w=p_T: ein einzelnes
+  B-Dokument wird viermal so oft gezogen wie ein A-Dokument, die Auswahl enthaelt aber **mehr A
+  als B**. Die l14-Quizantwort sagte "B wird deshalb haeufiger resampled" - richtig je Dokument,
+  falsch fuer die Auswahl. Neu: Pool aus 10 Dokumenten (6×A, 1×B, 3×C), Σ=3+2+5=10, w̃ je
+  Dokument 0,05/0,2/≈0,167, Typanteile 0,30/0,20/0,50 = p_T. Check, Antwort und l14-Antwort
+  tragen beide Haelften; ".30/.60" ohne fuehrende Null ist weg.
+- **Guard `card importance resampling`** (Suite 80 -> 81): p_T, p_R und Poolgroesse aus beiden
+  Sprachen gelesen, Pool, Gewichte, Normierer und Typanteile nachgerechnet und als Schritte in
+  Reihenfolge mit Fundstellenzahl 1 verlangt; die Lektion am Beispiel bewiesen (w_B>w_A bei
+  p_T(A)>p_T(B), Typanteil = p_T, mehr A als B); Antworten und l14-Antwort verankert. Eingebaute
+  Fixture: das v125-Beispiel muss in beiden Sprachen gefangen werden.
+- **Mutationstest** (Schlankfassung): 16 Mutationen, **0 entkommen, 0 inert**, Kontrolle vor und
+  nach gruen. Volle Suite gruen.
+- **Kein Browsertest** (geplanter Lauf).
+- Cache-Bump auf **v103** (sw.js zweimal, index.html, README).
+- Der Iteration Counter wurde erhoeht, da der Run ueber einen Scheduled Task startete.
 
 ## 2026-07-14 - Interaktiver CS336-Lernbegleiter (manueller Run)
 

@@ -1618,7 +1618,7 @@ window.CS336_EN = Object.freeze({
       ],
       "answers": [
         "KenLM is a generative target model that evaluates how likely a token sequence is under the target distribution; Perplexity is its length-normalized representation. fastText is discriminative and predicts a label such as target, language, or quality from hashed n-gram features. DSIR directly compares target and raw through p_T/p_R and estimates how underrepresented an example is relative to the available raw corpus.",
-        "DSIR considers not just the numerator p_T but also the denominator p_R. For A, 0.30/0.60 gives w=0.5; for B, 0.20/0.10 gives w=2. B has the lower target score but is much more characteristic of the target relative to the raw corpus. After normalization, B is therefore resampled more often without being selected deterministically every time.",
+        "DSIR considers not just the numerator p_T but also the denominator p_R. For A, 0.30/0.60 gives w=0.5; for B, 0.20/0.10 gives w=2. B has the lower target score but is much more characteristic of the target relative to the raw corpus. After normalization, every single B document is therefore resampled more often than an A document, without being selected deterministically every time. Because A is six times as frequent in the raw corpus, the selection still contains A and B in the target ratio of 0.30 to 0.20.",
         "I would separately examine at least short texts, Low-Resource Languages, closely related languages, dialects, Code-Switching, different domains, and different writing systems. These are precisely the cases where training support is often weak or a short excerpt contains too little evidence. Each group needs manual labels, a Confusion Matrix, score distributions, and retained token volume at several thresholds."
       ]
     },
@@ -4458,9 +4458,9 @@ window.CS336_EN = Object.freeze({
       ],
       "intuition": "A target-like pattern receives especially high weight when it is relatively rare in the raw corpus.",
       "pitfall": "Missing or tiny raw support creates undefined or extreme weights, so Smoothing and Log-Space arithmetic are needed. Taking top k by w is not probabilistic resampling.",
-      "example": "A: .30/.60=.5; B: .20/.10=2, so B has four times the ratio despite lower p_T.",
-      "check": "Why can DSIR select B more often even when p_T(B)&lt;p_T(A)?",
-      "answer": "DSIR compares target density with raw density rather than using target density alone. For A, w_A = 0.30/0.60 = 0.5; for B, w_B = 0.20/0.10 = 2. B's ratio is four times as large, because B is more strongly represented in the target relative to its frequency in the raw corpus. Normalized over these two candidates alone, the selection weights would be 0.2 and 0.8."
+      "example": "Three document types with p_T=[0.30, 0.20, 0.50] and p_R=[0.60, 0.10, 0.30] for A, B, C. Weights: w_A=0.30/0.60=0.5, w_B=0.20/0.10=2, w_C=0.50/0.30=5/3. A raw pool of 10 documents drawn from p_R: 6×A, 1×B, 3×C. The normalizer sums over documents, not over types: Σⱼw(xⱼ)=6·0.5+1·2+3·5/3=3+2+5=10. Per document: w̃_A=0.05, w̃_B=0.2, w̃_C≈0.167 – a single B document is drawn four times as often as an A document. Per type: A 6·0.05=0.30, B 1·0.2=0.20, C 3·1/6=0.50 – exactly p_T. The selection therefore contains more A than B: the ratio corrects the raw frequency, it does not favor B beyond the target.",
+      "check": "Why does DSIR draw a single B document more often than an A document even though p_T(B)&lt;p_T(A) – and why does the selection still contain more A than B?",
+      "answer": "The weight divides by the raw density: w_A=0.30/0.60=0.5 and w_B=0.20/0.10=2, so every single B document is four times as likely as every A document. The normalization, however, runs over all documents in the pool, and A stands there six times as often as B: 6·0.5=3 against 1·2=2, giving the type shares 0.30 and 0.20. A type's share of the selection is p_R·w=p_T – resampling reproduces the target distribution, it does not tip it toward B. Normalizing over the two candidates A and B alone (0.2 and 0.8) calculates as if each type stood exactly once in the pool."
     },
     "bloom-filter": {
       "cat": "Data",
