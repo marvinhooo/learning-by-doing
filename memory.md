@@ -339,3 +339,24 @@
   bleibt damit korrekt; es zeigt nur die Dokument-, nicht die Typ-Sicht.
 - Ein geplanter Lauf kann seine Arbeit uncommitted liegen lassen (v126 am 28.09.): vor dem Start
   auch `git status` der juengsten Deep-Review-Worktrees pruefen, nicht nur die Branch-Spitzen.
+
+## Zwei Eigenschaften, die im Beispiel zusammenfallen (v127)
+
+- **Ein Beispiel, in dem zwei Ursachen zusammenfallen, kann keine davon lehren.** `cascade-yield`
+  stellte die mildeste Regel ans Ende; ihr kleiner Anteil war damit Milde und Position zugleich,
+  und der Schlusssatz verwechselte beides ("keineswegs die mildeste"). Beim Nachrechnen neben dem
+  Leerlauf-Operator (v124) deshalb auch fragen: **faellt der Effekt, den der Satz erklaert, hier mit
+  einem zweiten zusammen?** Dann die Variante rechnen, die sie trennt (hier: dieselben Quoten,
+  andere Reihenfolge).
+- **Ein Guard kann die Zahl pruefen und die Prosa dazu das Gegenteil sagen.** `corpus arithmetic`
+  verlangte seit v118, dass die mildeste Regel am wenigsten entfernt; der Satz daneben bestritt,
+  dass sie die mildeste sei. Die tragende Behauptung eines Satzes gehoert als Satz in den Guard,
+  mit dem falschen Satz als Fixture.
+- **Produktentscheidung: Karten rechnen mit den Zahlen der Vorlesung, wo die Vorlesung selbst
+  rechnet.** `decode-bandwidth` nutzt jetzt Lecture 10s Llama 2 13B auf H100 (B=1/64/256, GQA
+  H_kv=8) statt eines erfundenen Modells; die Konfiguration steht mit Trace-Zeile im Guard
+  `card lecture decode`. Ein erfundenes Beispiel kann den Punkt der Vorlesung verstecken (hier:
+  fixer M_KV statt mit B wachsendem Cache).
+- **Einsprachige Mutationen belegen den neuen Block nicht** - `content numerals` faengt jeden
+  Zifferndrift zwischen den Sprachen zuerst. Zahl-Mutationen symmetrisch in beiden Sprachen setzen.
+

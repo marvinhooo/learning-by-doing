@@ -1,6 +1,44 @@
 # Activity
 
-Iteration Counter: 7
+Iteration Counter: 8
+
+## v127 - 2026-09-30 - die Stufe, die zugleich die mildeste und die letzte war
+
+- Status: abgeschlossen. Branch `claude/deep-review-v127`, gebaut auf dem Kettenkopf v126
+  (`aa77e25`) per `git switch -c`. Der zugewiesene Worktree stand auf v99 (`2ed21e7`); die
+  Ahnenpruefung ueber alle Branch-Spitzen fand keinen verlorenen Zweig. `git status` der
+  Worktrees: `xenodochial-jones-725f8d` (in v126 geborgen) und `frosty-swirles-966e50`
+  (uncommittetes `stability-edge` vom 17.08., laengst als v76 in der Kette) - nichts zu bergen.
+- **Hebel 1 (Beispiele an Handout-/Vorlesungstabellen), zwei Karten:**
+  - **`cascade-yield` (A4 `filter_data`):** der Schlusssatz behauptete, die 0,90-Stufe trage
+    "keineswegs die mildeste Regel" - sie ist die mildeste, und der Guard `corpus arithmetic`
+    pruefte seit v118 genau das Gegenteil der Prosa, ohne die Prosa zu lesen. Tiefer: in der
+    Beispielreihenfolge ist die mildeste Regel zugleich die letzte, also kann das Beispiel nicht
+    zeigen, ob ihre 3,06 % von Milde oder von Position kommen - obwohl Pitfall, Check und
+    Antwort genau die Reihenfolgeabhaengigkeit lehren. Neu Schritt (4): dieselben Quoten, die
+    mildeste zuerst - 12,76 %, 45,92 %, 34,44 %, 6,89 %; die mildeste Regel steigt mehr als
+    vierfach und rechnet sich fast doppelt so viel zu wie die strengere 0,80-Regel.
+  - **`decode-bandwidth` (Lecture 10):** rechnete ein erfundenes Modell (P=2,5 Mrd., M_KV fest
+    0,38 GB, B=16), waehrend Lecture 10 (`throughput_and_latency`, `reduce_kv_cache_size`) dieselbe
+    Grenze fuer Llama 2 13B auf einer H100 rechnet - davon stand nichts in der App. Neu: die
+    Vorlesungskonfiguration, P=13.015.449.600 (26,03 GB), 0,839 GB Cache je Sequenz; B=1: 8,02 ms,
+    125 Tok/s; B=64: 79,72 GB, 2.689 Tok/s (21,6x Durchsatz fuer knapp 3x Latenz); B=256: 240,78 GB,
+    passt nicht in 80 GB; mit GQA H_kv=8: 65,63 GB, passt, 13.068 Tok/s. Der fixe M_KV hatte genau
+    das versteckt, was die Vorlesung zeigt: der Cache waechst mit B, die Gewichte nicht.
+- **Guards:** `corpus arithmetic` erweitert (Schritt 4 nachgerechnet, Positionsbehauptung muss an
+  der alten Reihenfolge scheitern und an der neuen halten, Anteile als Liste, der Mildeste-und-
+  Letzte-Satz mit dem v126-Satz als Fixture); neuer Block **`card lecture decode`** (Suite 81 -> 82):
+  Konfiguration aus dem Trace (Z. 262-263), alle Zahlen nachgerechnet und in Reihenfolge mit
+  Fundstellenzahl 1 in beiden Sprachen, drei Speicherurteile gegen 80 GB gerechnet, Fixture: das
+  v126-Beispiel muss gefangen werden.
+- **Mutationstest:** Kaskade 11 Mutationen (5 Zahlen symmetrisch, 4 Prosa EN, 2 Prosa nur DE),
+  decode 10 Mutationen - **21/21 vom jeweils neuen Code gefangen, 0 inert**, drei Kontrollen gruen.
+  Erste Runde einsprachig: alle fing `content numerals` zuerst, das belegt den neuen Block nicht -
+  deshalb symmetrisch wiederholt.
+- **Kein Browsertest** (geplanter Lauf). Volle Suite gruen, rendert beide Karten in
+  `accordion route`, `card numerals`, `card comma lists`.
+- Cache-Bump auf **v104** (sw.js zweimal, index.html, README).
+- Der Iteration Counter wurde erhoeht, da der Run ueber einen Scheduled Task startete.
 
 ## v126 - 2026-09-29 - der Normierer, der ueber Dokumente summiert, nicht ueber Typen
 

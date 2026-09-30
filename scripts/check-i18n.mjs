@@ -13770,12 +13770,78 @@ ${sliceDeclaration(source, "piiCountTrap")}
   if (!(product > 0.2 && product < 0.25))
     throw new Error(`corpus arithmetic: the yield ${product} is not "a good fifth"`);
   caChecks += 2;
-  // The last stage keeps the most and must still not be the one that removes the most -- that is
-  // the whole point of the closing sentence, and it is checked rather than asserted.
+  // The mildest rule removes the fewest in the given order. Until v127 the card denied that it was
+  // the mildest at all, and nothing read the sentence; step (4) exists because in this order the
+  // mildest rule is also the last one, so mildness and position cannot be told apart here.
   const gentlest = keepRates.indexOf(Math.max(...keepRates));
   if (removedPerStage[gentlest] !== Math.min(...removedPerStage))
     throw new Error("corpus arithmetic: the mildest rule is not the one removing the fewest, so the closing sentence misreads the table");
-  caChecks++;
+  if (gentlest !== keepRates.length - 1)
+    throw new Error("corpus arithmetic: the mildest rule is no longer last, so the card's reason for step (4) is gone");
+  caChecks += 2;
+  // The prose that states it. Exactly one sentence per locale names the mildest rate together with
+  // "mildest", before step (4); its claim has to call the rule last as well and deny nothing. This is a
+  // word test bounded to one sentence -- it cannot judge a rewording, only fail on it -- and the
+  // sentence v126 shipped ("by no means carries the mildest rule") is the fixture it must reject.
+  const mildLabel = { en: keepRates[gentlest].toFixed(2), de: de(keepRates[gentlest].toFixed(2)) };
+  const mildWords = { en: /\bmildest\b/u, de: /\bmildeste\b/u };
+  const lastWords = { en: /\blast\b/u, de: /\bletzte\b/u };
+  const denial = { en: /\b(?:not|no|by no means|never)\b/u, de: /\b(?:nicht|kein\w*|keineswegs|nie)\b/u };
+  const mildSentenceOk = (locale, text) => {
+    const head = text.split("(4)")[0];
+    const sentences = head.split(/(?<=[.!?])\s+(?=[A-ZÄÖÜ(])/u).filter(sentence => sentence.includes(mildLabel[locale]) && mildWords[locale].test(sentence));
+    // Only the clause that makes the claim: the card's sentence goes on to say what this order
+    // "cannot tell" / "nicht sagen" kann, which is a denial about the table, not about the rule.
+    const claim = sentences.length === 1 ? sentences[0].split(";")[0] : "";
+    return sentences.length === 1 && lastWords[locale].test(claim) && !denial[locale].test(claim);
+  };
+  const v126 = {
+    en: "together 100 %, although the fourth stage with 0.90 by no means carries the mildest rule, but simply has the fewest documents left for it to act on. (4)",
+    de: "zusammen 100 %, obwohl die vierte Stufe mit 0,90 keineswegs die mildeste Regel trägt, sondern nur die wenigsten Dokumente übrig hat, an denen sie greifen kann. (4)"
+  };
+  for (const locale of ["en", "de"]) {
+    if (mildSentenceOk(locale, v126[locale]))
+      throw new Error(`corpus arithmetic: the ${locale} mildness check accepts the v126 sentence that denied the mildest rule was the mildest`);
+    const text = locale === "de" ? germanOf("cascade-yield").example : englishOf("cascade-yield").example;
+    if (!mildSentenceOk(locale, text))
+      throw new Error(`corpus arithmetic: ${locale}.formulas.cascade-yield does not say, in one sentence and without denying it, that the ${mildLabel[locale]} rule is both the mildest and the last`);
+    caChecks += 2;
+  }
+
+  // ---- 4b. the same rates, mildest first ----
+  // Step (4) claims the share measures position: moved to the front, the mildest rule gains more
+  // than fourfold and overtakes the stricter 0.80 rule. Both claims are recomputed, and the check
+  // that decides them must fail on the original order -- otherwise it could not see anything.
+  const walk = order => {
+    let left = documents;
+    return order.map(keep => { const removed = Math.round(left * (1 - keep)); const seen = Math.round(left); left *= keep; return { keep, seen, removed }; });
+  };
+  const positionClaim = order => {
+    const stages = walk(order);
+    const share = keep => 100 * stages.find(stage => stage.keep === keep).removed / discarded;
+    const mild = share(Math.max(...order)), stricter = share(0.8);
+    return mild / shares[gentlest] > 4 && mild > stricter && mild / stricter < 2;
+  };
+  if (positionClaim(keepRates))
+    throw new Error("corpus arithmetic: the position claim already holds in the original order, so it measures nothing");
+  const mildFirst = [keepRates[gentlest], ...keepRates.filter((_, index) => index !== gentlest)];
+  if (!positionClaim(mildFirst))
+    throw new Error("corpus arithmetic: with the mildest rule first it does not overtake the 0.80 rule more than fourfold, as step (4) claims");
+  const reordered = walk(mildFirst);
+  if (reordered.reduce((total, stage) => total + stage.removed, 0) !== discarded)
+    throw new Error("corpus arithmetic: the reordered cascade does not discard the same documents");
+  for (const stage of reordered) {
+    const share = 100 * stage.removed / discarded;
+    requireFigure("cascade-yield", `${stage.keep.toFixed(2)} stage sees ${stage.seen} and removes ${stage.removed}`, `${de(stage.keep.toFixed(2))}-Stufe sieht ${stage.seen} und entfernt ${stage.removed}`);
+    requireFigure("cascade-yield", `${share.toFixed(2)} %`);
+    caChecks += 2;
+  }
+  const risen = (100 * reordered[0].removed / discarded).toFixed(2);
+  requireFigure("cascade-yield", `from ${shares[gentlest].toFixed(2)} % to ${risen} %`, `von ${de(shares[gentlest].toFixed(2))} % auf ${de(risen)} %`);
+  // The listed shares, as one list in the walked order, so two swapped shares cannot pass.
+  const listed = reordered.map(stage => (100 * stage.removed / discarded).toFixed(2) + " %");
+  requireFigure("cascade-yield", `${listed.slice(0, 3).join(", ")}, and ${listed[3]}`, `${listed.slice(0, 3).map(de).join(", ")} und ${de(listed[3])}`);
+  caChecks += 2;
 
   // ---- 5. order dependence, in both directions ----
   // The pitfall claims the final set is order-free while the attribution is not. One corpus with
@@ -13850,7 +13916,7 @@ ${sliceDeclaration(source, "piiCountTrap")}
   if (unreachableLabs.length)
     throw new Error(`corpus arithmetic: ${unreachableLabs.length} lab(s) left the Tafelwerk's reach -- ${unreachableLabs.join(", ")}`);
 
-  console.log(`corpus arithmetic OK: ${caChecks} checks -- the three cards that gave Lecture 1 and the data lecture their first formulas recomputed from their own definitions: Lecture 1's own string is re-encoded in the checker (${numBytes} bytes against ${numChars} characters, so the byte tokenizer lands on exactly ${rByte.toFixed(4)} where the character tokenizer reaches ${rChar.toFixed(4)}, and the same encoder puts the character ratio at 1.0000 on ASCII against 3.0000 on Chinese); the uint16 claim is held by scanning 4000 values of r across the threshold in both directions rather than on one example (${grew} grow, ${shrank} shrink, ${equal} lands exactly on it); the Pile extrapolation is rebuilt from a measured rate (${seconds} seconds, ${days.toFixed(3)} days, ${parallelDays.toFixed(3)} on ${workers} workers) and the dedup answer's blow-up is recomputed as ${volumeFactor}x in volume against ${volumeFactor ** 2}x in pairs; and the cascade is walked one stage at a time where the card closes the product (${kept} of ${documents} kept, the ${removedPerStage.length} removals summing exactly to the ${discarded} discards and their shares to 100 %), with the order claim proven in both directions over all ${orders.length} permutations of a corpus whose multiple coverage is measured at ${excess} rather than assumed -- one surviving set, ${attributions.size} different attributions. All ${base.labs.length} labs stay reachable from some card.`);
+  console.log(`corpus arithmetic OK: ${caChecks} checks -- the three cards that gave Lecture 1 and the data lecture their first formulas recomputed from their own definitions: Lecture 1's own string is re-encoded in the checker (${numBytes} bytes against ${numChars} characters, so the byte tokenizer lands on exactly ${rByte.toFixed(4)} where the character tokenizer reaches ${rChar.toFixed(4)}, and the same encoder puts the character ratio at 1.0000 on ASCII against 3.0000 on Chinese); the uint16 claim is held by scanning 4000 values of r across the threshold in both directions rather than on one example (${grew} grow, ${shrank} shrink, ${equal} lands exactly on it); the Pile extrapolation is rebuilt from a measured rate (${seconds} seconds, ${days.toFixed(3)} days, ${parallelDays.toFixed(3)} on ${workers} workers) and the dedup answer's blow-up is recomputed as ${volumeFactor}x in volume against ${volumeFactor ** 2}x in pairs; and the cascade is walked one stage at a time where the card closes the product (${kept} of ${documents} kept, the ${removedPerStage.length} removals summing exactly to the ${discarded} discards and their shares to 100 %), with the order claim proven in both directions over all ${orders.length} permutations of a corpus whose multiple coverage is measured at ${excess} rather than assumed -- one surviving set, ${attributions.size} different attributions. Until v127 the card's closing sentence denied that the 0.90 stage was the mildest rule, while this block checked that it removes the fewest, and in the card's order the mildest rule is also the last, so its 3.06 % could be read as mildness or as position; step (4) moves it to the front with the same rates, recomputed here, and its share rises to ${(100 * reordered[0].removed / discarded).toFixed(2)} %, more than fourfold and ahead of the stricter 0.80 rule -- a claim this block must reject on the original order and accept on the new one, with every arrival, removal and share read back in both locales and the sentence that names the rule mildest and last held against the v126 sentence as a fixture it must reject. All ${base.labs.length} labs stay reachable from some card.`);
 }
 // --- ffn-backward ------------------------------------------------------------
 // Lecture 2 walks the chain rule for x --w1--> h1 --w2--> h2 in its own trace, counts the backward
@@ -17595,4 +17661,89 @@ console.log(`ffn-backward OK: ${fbValues} values, all four gradients match A2's 
   }
   for (const [locale, text] of cirTexts) cirHold(locale, text);
   console.log(`card importance resampling OK: ${cirChecks} checks -- v125 named importance-resampling as the next lever: its example stopped at w_A=0.5 and w_B=2 and concluded that B "has four times the ratio", while the second half of its own equation, the normalizer w̃ᵢ=w(xᵢ)/Σⱼw(xⱼ), stood idle. Over two candidates standing once each that normalizer gives 0.2 and 0.8, which reads as "DSIR picks B four times as often"; over a pool drawn from p_R it gives each type the share p_R·w=p_T, so the selection holds more A than B, and the l14 quiz answer said the opposite. The example now works a pool of 10 (6×A, 1×B, 3×C), recomputed from the p_T and p_R it states in both locales with every step in order and a pinned count: a B document is drawn four times as often as an A document, and the selection is exactly p_T. The check answers and the l14 quiz answer must carry both halves, and a fixture restoring the v125 example must be caught while the untouched card stays green`);
+}
+
+// ---- card lecture decode: the bound Lecture 10 computes, on the model it computes it for (v127) ----
+// decode-bandwidth worked an invented model (P=2.5 billion, M_KV=0.38 GB fixed, B=16) while
+// Lecture 10's throughput_and_latency computes the very same bound on Llama 2 13B on an H100 at
+// B=1, 64 and 256, and reduce_kv_cache_size repeats it with GQA. None of those numbers stood
+// anywhere in the app, and the invented M_KV hid the one thing the lecture's version shows: the
+// cache grows with B, the weights do not, so batching buys throughput until memory runs out.
+// The configuration is copied from the trace (llama2_13b_config, lecture_10 lines 262-263; the
+// formulas from compute_transformer_stats, lines 238-252), because a constant declared only here
+// would certify itself. Every figure is recomputed from it and required in order with a pinned count
+// in both locales, the three memory verdicts (fits / does not fit / fits with GQA) are computed
+// against the H100's 80 GB, and a fixture restoring the v126 example must be caught.
+{
+  const cldFail = message => { throw new Error(`card lecture decode: ${message}`); };
+  let cldChecks = 0;
+  const cfg = { S: 1024, D: 5120, F: 13824, N: 40, H: 128, L: 40, V: 32000, bw: 3.35e12, hbm: 80e9 };
+  const stats = (K, B) => {
+    const P = 2 * cfg.V * cfg.D + cfg.D * cfg.F * 3 * cfg.L + (2 * cfg.D * cfg.N * cfg.H + 2 * cfg.D * K * cfg.H) * cfg.L;
+    const kvPerSeq = cfg.S * (K * cfg.H) * cfg.L * 2 * 2;
+    const memory = B * kvPerSeq + P * 2, latency = memory / cfg.bw;
+    return { P, weights: P * 2, kvPerSeq, kv: B * kvPerSeq, memory, latency, throughput: B / latency };
+  };
+  const b1 = stats(40, 1), b64 = stats(40, 64), b256 = stats(40, 256), gqa = stats(8, 256);
+  if (b64.memory >= cfg.hbm) cldFail("B=64 no longer fits into 80 GB, so step (4) claims a batch the card's own H100 cannot hold");
+  if (b256.memory <= cfg.hbm) cldFail("B=256 fits into 80 GB, so step (5) says the lecture's 'doesn't fit into memory' about nothing");
+  if (gqa.memory >= cfg.hbm) cldFail("B=256 with GQA does not fit, so step (6) says 'it fits' about nothing");
+  const gain = b64.throughput / b1.throughput, slower = b64.latency / b1.latency;
+  if (!(slower > 2.5 && slower < 3)) cldFail(`the latency grows ${slower}x from B=1 to B=64, which is not "just under three times"`);
+  cldChecks += 4;
+  const num = (value, digits, locale) => value.toFixed(digits).replace(".", locale === "de" ? "," : ".");
+  const group = (value, locale) => String(Math.round(value)).replace(/\B(?=(\d{3})+(?!\d))/gu, locale === "de" ? "." : ",");
+  const gb = (bytes, digits, locale) => num(bytes / 1e9, digits, locale);
+  const ms = (seconds, locale) => num(seconds * 1e3, 2, locale);
+  const steps = locale => {
+    const de = locale === "de";
+    return [
+      `D=${cfg.D}`, `F=${cfg.F}`, `L=${cfg.L}`, de ? `${cfg.N} Heads mit d_head=${cfg.H}` : `${cfg.N} heads with d_head=${cfg.H}`,
+      `V=${cfg.V}`, `S=${cfg.S}`, "b_w=2", `BW_HBM=${num(cfg.bw / 1e12, 2, locale)} TB/s`,
+      `(2·${cfg.N}+2·${cfg.N})·${cfg.H}·D·L=${group(b1.P, locale)}`,
+      `P·b_w≈${gb(b1.weights, 2, locale)} GB`,
+      `≈${gb(b1.kvPerSeq, 3, locale)} GB`,
+      `B=1: M_step≈${gb(b1.memory, 2, locale)} GB, t_ideal≈${ms(b1.latency, locale)} ms, throughput_ideal≈${group(b1.throughput, locale)} Tokens/s`,
+      `B=64: M_KV≈${gb(b64.kv, 2, locale)} GB, M_step≈${gb(b64.memory, 2, locale)} GB, t_ideal≈${ms(b64.latency, locale)} ms, throughput_ideal≈${group(b64.throughput, locale)} Tokens/s`,
+      de ? `${num(gain, 1, locale)}-fache Durchsatz` : `${num(gain, 1, locale)} times the throughput`,
+      `B=256: M_step≈${gb(b256.memory, 2, locale)} GB`,
+      `${cfg.hbm / 1e9} GB`,
+      `≈${group(b256.throughput, locale)} Tokens/s`,
+      "H_kv=8",
+      `≈${gb(gqa.kvPerSeq, 3, locale)} GB`,
+      `≈${gb(gqa.weights, 2, locale)} GB`,
+      de ? `B=256 ist M_step≈${gb(gqa.memory, 2, locale)} GB` : `B=256, M_step≈${gb(gqa.memory, 2, locale)} GB`,
+      `t_ideal≈${ms(gqa.latency, locale)} ms`,
+      `≈${group(gqa.throughput, locale)} Tokens/s`
+    ];
+  };
+  const hold = (locale, text) => {
+    let cursor = -1;
+    for (const step of steps(locale)) {
+      const hits = text.split(step).length - 1;
+      if (hits !== 1) cldFail(`${locale}: the step ${step}, which Lecture 10's configuration produces, stands ${hits} time(s)`);
+      const at = text.indexOf(step, cursor + 1);
+      if (at < 0) cldFail(`${locale}: the step ${step} stands before a step the calculation produces earlier`);
+      cursor = at;
+    }
+    if (!(locale === "de" ? /Llama 2 13B auf einer H100/u : /Llama 2 13B on an H100/u).test(text))
+      cldFail(`${locale}: the example no longer names the model and GPU the lecture computes on`);
+    if (!(locale === "de" ? /M_KV wächst also mit B/u : /M_KV grows with B/u).test(text))
+      cldFail(`${locale}: the example no longer says that the cache, unlike the weights, grows with B`);
+    if (!(locale === "de" ? /das passt nicht/u : /does not fit/u).test(text) || !(locale === "de" ? /es passt,/u : /it fits,/u).test(text))
+      cldFail(`${locale}: the example no longer states the two memory verdicts`);
+  };
+  const card = base.formulas.find(formula => formula.id === "decode-bandwidth");
+  if (!card) cldFail("decode-bandwidth is gone");
+  const texts = [["de", card.example], ["en", pack.formulas["decode-bandwidth"]?.example]];
+  for (const [locale, text] of texts) { hold(locale, text); cldChecks += steps(locale).length * 2 + 3; }
+  // Fixture: the v126 example, an invented model with a cache that does not grow with B.
+  for (const [locale, stale] of [["de", "Nimm P=2,5 Milliarden Gewichte mit b_w=2 Bytes: P·b_w=5,00 GB. Zusammen mit M_KV=0,38 GB sind M_step=5,38 GB. Bei BW_HBM=3,35 TB/s gilt t_ideal=5,38/3.350 s≈0,0016 s=1,6 ms. Mit B=16 aktiven Sequenzen ist throughput_ideal≈16/0,0016=10.000 Tokens/s."],
+    ["en", "Let P=2.5 billion weights and b_w=2 Bytes, so P·b_w=5.00 GB. With M_KV=0.38 GB, M_step=5.38 GB. At BW_HBM=3.35 TB/s, t_ideal=5.38/3,350 s≈0.0016 s=1.6 ms. With B=16 active Sequences, throughput_ideal≈16/0.0016=10,000 Tokens/s."]]) {
+    let caught = false;
+    try { hold(locale, stale); } catch { caught = true; }
+    if (!caught) cldFail(`${locale}: the fixture restoring the v126 example was not caught, so this block cannot see`);
+    cldChecks++;
+  }
+  console.log(`card lecture decode OK: ${cldChecks} checks -- decode-bandwidth worked an invented model (P=2.5 billion, a fixed M_KV of 0.38 GB, B=16), while Lecture 10 computes the same bound on Llama 2 13B on an H100 and nothing of that calculation stood in the app. The example now works the lecture's own configuration, copied from the trace rather than typed from memory: P=${b1.P} (${(b1.weights / 1e9).toFixed(2)} GB in bf16), ${(b1.kvPerSeq / 1e9).toFixed(3)} GB of cache per sequence, ${(b1.latency * 1e3).toFixed(2)} ms and ${Math.round(b1.throughput)} tokens/s at B=1, ${Math.round(b64.throughput)} tokens/s at B=64 (${gain.toFixed(1)}x the throughput for ${slower.toFixed(2)}x the latency), ${(b256.memory / 1e9).toFixed(2)} GB at B=256, which exceeds the H100's 80 GB, and ${(gqa.memory / 1e9).toFixed(2)} GB with the lecture's GQA at H_kv=8, which fits and reaches ${Math.round(gqa.throughput)} tokens/s. Every figure is recomputed from the configuration and required in order with a pinned count in both locales, the three memory verdicts are computed rather than read, and a fixture restoring the invented example must be caught`);
 }
