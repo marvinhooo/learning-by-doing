@@ -1,6 +1,35 @@
 # Activity
 
-Iteration Counter: 8
+Iteration Counter: 9
+
+## v128 - 2026-10-01 - fuenf Zweien, die das Beispiel nicht unterscheiden konnte
+
+- Status: abgeschlossen. Branch `claude/deep-review-v128`, gebaut auf dem Kettenkopf v127
+  (`47302e6`) per `git switch -c`. Der zugewiesene Worktree stand auf v99 (`2ed21e7`); die
+  Ahnenpruefung ueber alle Branch-Spitzen fand keinen verlorenen Zweig, `git status` der
+  juengsten Deep-Review-Worktrees nichts Neues zu bergen.
+- **Hebel 1 aus v127 (Karten gegen Rechnungen der Vorlesung), zwei Karten:**
+  - `kv-cache` rechnete ein Toy, in dem fuenf der sieben Faktoren 2 waren (K/V-Faktor, L, H_kv,
+    d_head, b_KV): kein Faktor war vom anderen zu unterscheiden, und H_q - genau die Groesse, vor
+    der die Pitfall warnt - kam nicht vor. Neu nach Lecture 10 (`compute_transformer_stats`,
+    Llama 2 13B): 838.860.800 Bytes≈0,839 GB je Sequenz ohne GQA, 53,69 GB bei B=64 (mehr als die
+    26,03 GB Gewichte), mit H_kv=8 0,168 GB bzw. 10,74 GB, Faktor H_q/H_kv=5. Die beiden Zweien
+    der Formel werden ausdruecklich auseinandergehalten (K+V gegen Bytes; in fp32 wird nur die
+    zweite zu 4).
+  - `inference-params-gqa` rechnete ebenfalls ein Toy. Neu Lecture 10s `num_params` fuer
+    Llama 2 13B: Vokabularteil 327.680.000 (c_tie=2, kein Tying), pro Layer 317.194.240,
+    P=13.015.449.600; mit GQA H_kv=8 nur der KV-Term kleiner, P=11.337.728.000. Dazu die Pitfall
+    am Beispiel: 12LD² liegt ohne GQA nur 0,8 % unter den Layerparametern (F≈8/3·D), mit GQA 14 %
+    zu hoch.
+- **Guard `card lecture kv`** (Suite 82 -> 83): Konfiguration aus dem Trace (Zeilen 238, 245,
+  262-263), jede Zahl nachgerechnet und in Reihenfolge in beiden Sprachen verlangt, die
+  Vergleiche (Cache ueber Gewichten, Faktor 5, KV-Term = Q+O ohne GQA, 12LD²-Abweichungen)
+  gerechnet statt gelesen, Fixtures mit beiden alten Toys muessen gefangen werden.
+- **Mutationstest:** 32 Mutationen (Schlankfassung), **0 entkommen, 0 inert**, Kontrolle vor und
+  nach gruen. Volle Suite gruen.
+- **Kein Browsertest** (geplanter Lauf); die volle Suite rendert beide Karten.
+- Cache-Bump auf **v105** (sw.js zweimal, index.html, README).
+- Der Iteration Counter wurde erhoeht, da der Run ueber einen Scheduled Task startete.
 
 ## v127 - 2026-09-30 - die Stufe, die zugleich die mildeste und die letzte war
 

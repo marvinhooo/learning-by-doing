@@ -360,3 +360,11 @@
 - **Einsprachige Mutationen belegen den neuen Block nicht** - `content numerals` faengt jeden
   Zifferndrift zwischen den Sprachen zuerst. Zahl-Mutationen symmetrisch in beiden Sprachen setzen.
 
+## Ein Toy aus lauter gleichen Zahlen (v128)
+
+- **Gleich grosse Faktoren sind ein Leerlauf der Zuordnung.** `kv-cache` rechnete mit fuenf
+  Faktoren gleich 2: jede Verwechslung (H_q statt H_kv, b_KV vergessen, K/V-Faktor doppelt) gab
+  dieselbe Zahl. Beim Nachrechnen neben Leerlauf-Operator (v124) und zusammenfallendem Effekt
+  (v127) auch fragen: **haben zwei Faktoren denselben Wert, sodass ein Tausch unsichtbar bleibt?**
+  Die Vorlesung selbst hat zwei solche Zweien (K+V und bf16) - dann gehoert die Unterscheidung
+  in den Text.

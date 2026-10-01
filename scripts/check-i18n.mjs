@@ -17747,3 +17747,118 @@ console.log(`ffn-backward OK: ${fbValues} values, all four gradients match A2's 
   }
   console.log(`card lecture decode OK: ${cldChecks} checks -- decode-bandwidth worked an invented model (P=2.5 billion, a fixed M_KV of 0.38 GB, B=16), while Lecture 10 computes the same bound on Llama 2 13B on an H100 and nothing of that calculation stood in the app. The example now works the lecture's own configuration, copied from the trace rather than typed from memory: P=${b1.P} (${(b1.weights / 1e9).toFixed(2)} GB in bf16), ${(b1.kvPerSeq / 1e9).toFixed(3)} GB of cache per sequence, ${(b1.latency * 1e3).toFixed(2)} ms and ${Math.round(b1.throughput)} tokens/s at B=1, ${Math.round(b64.throughput)} tokens/s at B=64 (${gain.toFixed(1)}x the throughput for ${slower.toFixed(2)}x the latency), ${(b256.memory / 1e9).toFixed(2)} GB at B=256, which exceeds the H100's 80 GB, and ${(gqa.memory / 1e9).toFixed(2)} GB with the lecture's GQA at H_kv=8, which fits and reaches ${Math.round(gqa.throughput)} tokens/s. Every figure is recomputed from the configuration and required in order with a pinned count in both locales, the three memory verdicts are computed rather than read, and a fixture restoring the invented example must be caught`);
 }
+
+// ---- card lecture kv: the cache and the parameter count on the model Lecture 10 counts (v128) ----
+// kv-cache worked a toy in which five of the seven factors were 2 (the K/V factor, L, H_kv, d_head
+// and b_KV), so the example could not tell one factor from another, and H_q -- the quantity the
+// pitfall warns against plugging in -- did not occur in it at all. inference-params-gqa worked a
+// toy as well, while Lecture 10's compute_transformer_stats counts both quantities on Llama 2 13B
+// and reduce_kv_cache_size repeats them at K=8. Both examples now work that configuration, copied
+// from the trace (llama2_13b_config, lecture_10 lines 262-263; num_params and kv_cache_size,
+// lines 238 and 245). Every figure is recomputed from it and required in order, once, in both
+// locales; the claims hanging on a comparison (cache above the weights at B=64, the factor
+// H_q/H_kv, the two KV-term equalities, the 12LD² deviations) are computed, not read; and a
+// fixture restoring each toy must be caught.
+{
+  const clkFail = message => { throw new Error(`card lecture kv: ${message}`); };
+  let clkChecks = 0;
+  const cfg = { S: 1024, D: 5120, F: 13824, N: 40, H: 128, L: 40, V: 32000 };
+  const kvPerSeq = K => cfg.S * (K * cfg.H) * cfg.L * 2 * 2;
+  const layer = K => 3 * cfg.D * cfg.F + 2 * cfg.D * cfg.D + 2 * cfg.D * K * cfg.H;
+  const params = K => 2 * cfg.V * cfg.D + layer(K) * cfg.L;
+  const P40 = params(40), P8 = params(8), rule = 12 * cfg.L * cfg.D * cfg.D;
+  if (P40 !== 2 * cfg.V * cfg.D + cfg.D * cfg.F * 3 * cfg.L + (2 * cfg.D * cfg.N * cfg.H + 2 * cfg.D * 40 * cfg.H) * cfg.L)
+    clkFail("the per-layer decomposition no longer equals the trace's num_params");
+  if (!(64 * kvPerSeq(40) > P40 * 2)) clkFail("at B=64 the cache is not above the weights, so step (2) compares the wrong way");
+  if (kvPerSeq(40) / kvPerSeq(8) !== cfg.N / 8) clkFail("the cache does not shrink by H_q/H_kv");
+  if (2 * cfg.D * 40 * cfg.H !== 2 * cfg.D * cfg.D) clkFail("without GQA the KV term is no longer exactly Query plus Output");
+  const below = 1 - rule / (layer(40) * cfg.L), above = rule / (layer(8) * cfg.L) - 1;
+  if (!(below > 0 && above > 0)) clkFail("12LD² no longer lies below the MHA layers and above the GQA layers");
+  clkChecks += 5;
+  const num = (value, digits, locale) => value.toFixed(digits).replace(".", locale === "de" ? "," : ".");
+  const group = (value, locale) => String(Math.round(value)).replace(/\B(?=(\d{3})+(?!\d))/gu, locale === "de" ? "." : ",");
+  const gb = (bytes, digits, locale) => num(bytes / 1e9, digits, locale);
+  const pct = (value, digits, locale) => num(value * 100, digits, locale) + (locale === "de" ? " %" : "%");
+  const kvSteps = locale => {
+    const de = locale === "de";
+    return [
+      `L=${cfg.L}`, `S=${cfg.S}`, `H_q=${cfg.N}`, `d_head=${cfg.H}`, "b_KV=2",
+      `H_kv=H_q=${cfg.N}`,
+      `M_KV=2·${cfg.L}·1·${cfg.S}·40·${cfg.H}·2=${group(kvPerSeq(40), locale)} Bytes≈${gb(kvPerSeq(40), 3, locale)} GB`,
+      `B=64`, `M_KV≈${gb(64 * kvPerSeq(40), 2, locale)} GB`, `${gb(P40 * 2, 2, locale)} GB`,
+      "H_kv=8",
+      `2·${cfg.L}·1·${cfg.S}·8·${cfg.H}·2=${group(kvPerSeq(8), locale)} Bytes≈${gb(kvPerSeq(8), 3, locale)} GB`,
+      `M_KV≈${gb(64 * kvPerSeq(8), 2, locale)} GB`,
+      `H_q/H_kv=${kvPerSeq(40) / kvPerSeq(8)}`,
+      de ? "fünffachen Cache" : "five times the Cache"
+    ];
+  };
+  const paramSteps = locale => {
+    const de = locale === "de";
+    return [
+      `V=${cfg.V}`, `D=${cfg.D}`, `L=${cfg.L}`, `F=${cfg.F}`, `H_q=${cfg.N}`, `d_head=${cfg.H}`, "c_tie=2",
+      `2·${cfg.V}·${cfg.D}=${group(2 * cfg.V * cfg.D, locale)}`,
+      `3·${cfg.D}·${cfg.F}=${group(3 * cfg.D * cfg.F, locale)}`,
+      `2·${cfg.D}²=${group(2 * cfg.D * cfg.D, locale)}`,
+      `2·${cfg.D}·40·${cfg.H}=${group(2 * cfg.D * 40 * cfg.H, locale)}`,
+      group(layer(40), locale), group(layer(40) * cfg.L, locale),
+      `P=${group(P40, locale)}`,
+      "H_kv=8",
+      `2·${cfg.D}·8·${cfg.H}=${group(2 * cfg.D * 8 * cfg.H, locale)}`,
+      `P=${group(P8, locale)}`,
+      `12LD²=${group(rule, locale)}`, pct(below, 1, locale), de ? "8/3·D" : "8/3·D",
+      group(layer(8) * cfg.L, locale), pct(above, 0, locale)
+    ];
+  };
+  const hold = (locale, text, steps, label) => {
+    let cursor = -1;
+    for (const step of steps) {
+      const at = text.indexOf(step, cursor + 1);
+      if (at < 0) clkFail(`${locale}.${label}: the step ${step}, which Lecture 10's configuration produces, is missing or stands before a step the calculation produces earlier`);
+      cursor = at + step.length - 1;
+    }
+    if (!/Llama 2 13B/u.test(text)) clkFail(`${locale}.${label}: the example no longer names the model the lecture counts`);
+  };
+  // Figures that must stand exactly once: the ones a reader could otherwise meet twice and confuse.
+  const once = (locale, text, figures, label) => {
+    for (const figure of figures) {
+      const hits = text.split(figure).length - 1;
+      if (hits !== 1) clkFail(`${locale}.${label}: ${figure} stands ${hits} time(s)`);
+    }
+  };
+  const cards = { "kv-cache": kvSteps, "inference-params-gqa": paramSteps };
+  for (const [id, steps] of Object.entries(cards)) {
+    const card = base.formulas.find(formula => formula.id === id);
+    if (!card) clkFail(`${id} is gone`);
+    for (const [locale, text] of [["de", card.example], ["en", pack.formulas[id]?.example]]) {
+      if (typeof text !== "string") clkFail(`${locale}.${id}: no example`);
+      hold(locale, text, steps(locale), id);
+      clkChecks += steps(locale).length + 1;
+      if (id === "kv-cache") {
+        once(locale, text, [group(kvPerSeq(40), locale), group(kvPerSeq(8), locale)], id);
+        if (!(locale === "de" ? /die erste zählt Keys und Values, die zweite die Bytes/u : /the first counts Keys and Values, the second the Bytes/u).test(text))
+          clkFail(`${locale}.kv-cache: the example no longer tells the formula's two twos apart`);
+        clkChecks += 3;
+      } else {
+        once(locale, text, [group(P40, locale), group(P8, locale), group(rule, locale)], id);
+        const kvTerm = group(2 * cfg.D * cfg.D, locale);
+        if (text.split(kvTerm).length - 1 !== 3) clkFail(`${locale}.inference-params-gqa: ${kvTerm} must stand three times (Query plus Output, the MHA KV term, and Query plus Output again under GQA)`);
+        clkChecks += 4;
+      }
+    }
+  }
+  // Fixture: the v127 toys, whose figures a corrupted example could fall back to.
+  const toys = [
+    ["kv-cache", "de", "Toy-Fall: L=2 Layer, B=3 Sequenzen, S=4 gespeicherte Positionen, H_kv=2 Heads, d_head=2 Features und b_KV=2 Bytes. Zuerst zählen Keys und Values mit Faktor 2. Dann M_KV=2·2·3·4·2·2·2=384 Bytes."],
+    ["kv-cache", "en", "Toy case: L=2 Layers, B=3 Sequences, S=4 stored positions, H_kv=2 Heads, d_head=2 Features, and b_KV=2 Bytes. Keys and Values first contribute factor 2. Then M_KV=2·2·3·4·2·2·2=384 Bytes."],
+    ["inference-params-gqa", "de", "Toy-Modell: V=100, D=8, L=2, F=32, H_q=4, H_kv=2, d_head=2 und Weight Tying, also c_tie=1. Vokabularteil: 1·100·8=800. Pro Layer: 3·8·32=768, 2·8²=128 und 2·8·2·2=64; zusammen 960. Zwei Layer liefern 1.920. Insgesamt P=800+1.920=2.720 Parameter."],
+    ["inference-params-gqa", "en", "Toy model: V=100, D=8, L=2, F=32, H_q=4, H_kv=2, d_head=2, with Weight Tying so c_tie=1. Vocabulary part: 1·100·8=800. Per Layer: 3·8·32=768, 2·8²=128, and 2·8·2·2=64; total 960. Two Layers give 1,920. Overall P=800+1,920=2,720 parameters."]
+  ];
+  for (const [id, locale, stale] of toys) {
+    let caught = false;
+    try { hold(locale, stale, cards[id](locale), id); } catch { caught = true; }
+    if (!caught) clkFail(`${locale}.${id}: the fixture restoring the v127 toy was not caught, so this block cannot see`);
+    clkChecks++;
+  }
+  console.log(`card lecture kv OK: ${clkChecks} checks -- kv-cache worked a toy in which five of seven factors were 2 (the K/V factor, L, H_kv, d_head and b_KV), so its example could not tell one factor from another and never showed H_q, the quantity its pitfall warns about; inference-params-gqa worked a toy too, while Lecture 10 counts both on Llama 2 13B. Both now work the trace's configuration: ${kvPerSeq(40)} Bytes of cache per sequence without GQA and ${kvPerSeq(8)} at H_kv=8 (a factor ${kvPerSeq(40) / kvPerSeq(8)} = H_q/H_kv), ${(64 * kvPerSeq(40) / 1e9).toFixed(2)} GB at B=64 against ${(P40 * 2 / 1e9).toFixed(2)} GB of weights, P=${P40} and ${P8} with GQA, and the 12LD² rule ${(below * 100).toFixed(1)}% below the MHA layers but ${(above * 100).toFixed(0)}% above the GQA layers. Every figure is recomputed and required in order in both locales, the comparisons are computed rather than read, and fixtures restoring both toys must be caught`);
+}
