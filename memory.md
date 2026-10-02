@@ -368,3 +368,12 @@
   (v127) auch fragen: **haben zwei Faktoren denselben Wert, sodass ein Tausch unsichtbar bleibt?**
   Die Vorlesung selbst hat zwei solche Zweien (K+V und bf16) - dann gehoert die Unterscheidung
   in den Text.
+
+## Eine symmetrische Probe sieht keinen Tausch (v129)
+
+- **Eine Konsistenzprobe, die symmetrisch in den vertauschbaren Groessen ist, kann den Tausch
+  nicht fangen.** a+b=1 (aus C=6ND) bestehen a=0,6/b=0,4 und a=0,4/b=0,6 gleichermassen - das
+  vertauschte Paar sagt ein 6,31-mal kleineres Modell voraus. Gleiches Muster: Precision und
+  Recall bei FP=FN, c·tanh(z/c) bei c=z, Acc(1−Acc) bei Acc=0,5. Beim Beispielbau den Tausch
+  ausrechnen und daneben drucken; ist er gleich, sind die Eingaben falsch gewaehlt.
+

@@ -3398,7 +3398,7 @@ window.CS336_EN = Object.freeze({
       ],
       "intuition": "Near zero, tanh(z/c) is approximately z/c, so multiplication returns z. At very large magnitude, tanh approaches the sign ±1 and the result approaches ±c.",
       "pitfall": "Soft-capping is not normalization. It replaces neither separate Query-Key normalization nor numerically stable Softmax.",
-      "example": "Set c=2 and z=2. Then z/c=1, tanh(1)≈0.762, and cap₂(2)=2·0.762=1.523. For z=10, tanh(5)≈0.99991 and cap₂(10)≈1.9998: the value approaches 2 without exceeding the bound.",
+      "example": "Set c=2 and z=3. Then z/c=1.5, tanh(1.5)≈0.905, and cap₂(3)=2·0.905≈1.810, below z because z lies above c. Swapping c and z would give 3·tanh(2/3)≈1.748. For z=0.2, tanh(0.1)≈0.0997 and cap₂(0.2)≈0.199: almost unchanged. For z=10, tanh(5)≈0.99991 and cap₂(10)≈1.9998: the value approaches 2 without exceeding the bound.",
       "check": "What happens when |z|≪c and when |z|≫c?",
       "answer": "For |z| much smaller than c, tanh(z/c)≈z/c and cap_c(z)≈z. For |z| much larger than c, tanh approaches the sign ±1 and the result smoothly saturates at ±c."
     },
@@ -4308,7 +4308,7 @@ window.CS336_EN = Object.freeze({
       "vars": [["N_opt","predicted Compute-optimal parameter count"],["D_opt","predicted Compute-optimal number of training Tokens"],["L_opt","predicted Loss of the Compute-optimal configuration"],["C","new training-Compute budget in the same unit used during fitting"],["A_N","prefactor for N_opt fitted from measurements"],["A_D","prefactor for D_opt fitted from measurements"],["A_L","prefactor for the still-scalable Loss contribution"],["a","positive exponent for growth of optimal model size"],["b","positive exponent for growth of optimal Token count"],["γ","positive exponent for decline of Loss above E"],["E","fitted or assumed limiting Loss"]],
       "intuition": "With a larger budget, optimal model size and data volume may grow while the still-improvable Loss contribution falls. All three trends must come from the same reliable Compute tiers.",
       "pitfall": "Do not set E to zero without evidence. a+b≈1 is a useful consistency check only when D was derived from the same C≈6ND relationship.",
-      "example": "Toy Fit with normalized C=4: A_N=10 million and a=0.5 give N_opt=10·√4=20 million. A_D=100 million and b=0.5 give D_opt=100·√4=200 million. With E=1.5, A_L=0.4, and γ=0.5, L_opt=1.5+0.4/√4=1.7.",
+      "example": "Invented fit, not the A3 data: anchored at the smallest budget C₀=6·10¹⁸ FLOPs with N₀=10⁸ parameters; C=6ND gives D₀=6·10¹⁸/(6·10⁸)=10¹⁰ tokens. With a=0.6 and b=0.4, A_N=N₀/C₀ᵃ, so N_opt=N₀·(C/C₀)ᵃ. (1) New budget C=6·10²², so C/C₀=10⁴. (2) N_opt=10⁸·10^(4·0.6)=10⁸·10^2.4≈2.51·10¹⁰ parameters. (3) D_opt=10¹⁰·10^(4·0.4)=10¹⁰·10^1.6≈3.98·10¹¹ tokens. (4) Check: 6·2.51·10¹⁰·3.98·10¹¹≈6·10²²=C, because a+b=1. Swapped exponents pass the same check and predict N_opt≈3.98·10⁹, a model 6.31 times smaller — so the sum does not test which exponent goes where. (5) Loss with E=1.7, remainder 1.2 at C₀ and γ=0.2: L_opt=1.7+1.2·10^(−4·0.2)=1.7+1.2·0.158≈1.890. Chinchilla found a≈b≈0.5; here they differ on purpose so every exponent stays visible.",
       "check": "Why does an unknown offset E require a sensitivity analysis?",
       "aliases": "n opt d opt l opt offset scaling predictions exponent sum",
       "answer": "Different plausible values of E change the positive residual L_opt−E and therefore its logarithms, the fitted slope γ, and the extrapolated Loss curve. Because E and γ can be strongly coupled, E must be constrained or varied across a reported sensitivity range."
@@ -4579,7 +4579,7 @@ window.CS336_EN = Object.freeze({
       ],
       "intuition": "Precision examines the quality of the returned list; Recall examines its completeness. Both use TP, but their denominators answer different questions.",
       "pitfall": "Define the positive class before calculating. In a data filter, either ‘remove’ or ‘keep’ may be positive; without that choice, the meaning of every error reverses.",
-      "example": "Define ‘PII is present’ as positive; PII means Personally Identifiable Information. Among 10 PII documents, the filter detects 8 and misses 2: TP=8 and FN=2. It also flags 2 clean documents incorrectly: FP=2. Precision=8/(8+2)=0.8 and Recall=8/(8+2)=0.8.",
+      "example": "Define ‘PII is present’ as positive; PII means Personally Identifiable Information. Among 10 PII documents, the filter detects 8 and misses 2: TP=8 and FN=2. It also flags 4 clean documents incorrectly: FP=4. Precision=8/(8+4)≈0.667 and Recall=8/(8+2)=0.8. Swapping FP and FN would give Precision 0.8 and Recall ≈0.667: only unequal error counts show which error lowers which metric.",
       "check": "Which error is riskier for PII?",
       "answer": "If \"positive\" means personally identifiable information (PII) is detected and removed, a False Negative is more critical for security: the PII remains undetected in the dataset. A False Positive removes non-problematic data, primarily harming data quantity or quality."
     },
@@ -4675,7 +4675,7 @@ window.CS336_EN = Object.freeze({
       ],
       "intuition": "Accuracy from finitely many tasks is one sample and would change somewhat on a new task set. More independent tasks make this random fluctuation smaller.",
       "pitfall": "SE is not a guarantee and does not include shared topic dependencies, Prompt changes, or Sampling variance. With very small n or extreme hit rates, this simple approximation is especially rough.",
-      "example": "Out of n=100 tasks, k=50 are correct, so Acc=50/100=0.5. For Standard Error: Acc·(1−Acc)=0.5·0.5=0.25; 0.25/100=0.0025; its square root is SE=0.05, or about 5 percentage points.",
+      "example": "Out of n=100 tasks, k=80 are correct, so Acc=80/100=0.8. For Standard Error: Acc·(1−Acc)=0.8·0.2=0.16; 0.16/100=0.0016; its square root is SE=0.04, or about 4 percentage points. Computing Acc·Acc instead of Acc·(1−Acc) would give √(0.64/100)=0.08; at Acc=0.5 the two would coincide.",
       "check": "How does quadrupling n affect the SE?",
       "answer": "If n is quadrupled, √n grows by a factor of two. The standard error, which is approximately proportional to 1/√n, therefore halves."
     },
@@ -4890,7 +4890,7 @@ window.CS336_EN = Object.freeze({
       "vars": [["R","Reward of one response"],["b","Baseline: group mean or zero"],["c","Advantage normalizer: group std, another mean normalizer, or one"],["ε","Small protection term preventing division by zero"],["A","Response weight computed from Reward, Baseline, and normalizer"],["mask","Zero for Prompt/Padding and one for valid response Tokens"],["logπ","Log Probability of the stored response Token under the trained Policy"],["Σ","Add the valid Token contributions"],["Z","Loss denominator: sequence length, global Token count, or fixed constant"],["loss","Negative Advantage-weighted Log-Probability Loss to minimize"]],
       "intuition": "Baseline determines the comparison, c determines the weight of Prompt groups with different spread, and Z determines the total weight of different response lengths.",
       "pitfall": "A variant comparison is interpretable only with identical Rollouts, Masks, Sampling, Batch, Token, and update budgets. Rejection Fine-Tuning (RFT) also selects only accepted samples; the name alone does not specify the algebra.",
-      "example": "Toy response: R=1, b=0.5, c=0.5, and ε≈0, so A=1. Two valid Tokens have logπ −0.2 and −0.4. (1) Masked sum: 1·(−0.2−0.4)=−0.6. (2) With sequence denominator Z=2, Loss is −(−0.6)/2=0.3. (3) With fixed Z=4, it is 0.15. A response with twice as many similar Token terms would be averaged again by a sequence mean, while an unchanged fixed denominator leaves the extra terms in its total weight.",
+      "example": "Toy response: R=1, b=0.2, c=0.4, and ε≈0, so A=(1−0.2)/0.4=2; swapping b and c would give (1−0.4)/0.2=3. Two valid Tokens have logπ −0.2 and −0.4. (1) Masked sum: 2·(−0.2−0.4)=−1.2. (2) With sequence denominator Z=2, Loss is −(−1.2)/2=0.6. (3) With fixed Z=4, it is 0.3. A response with twice as many similar Token terms would be averaged again by a sequence mean, while an unchanged fixed denominator leaves the extra terms in its total weight.",
       "check": "Which design axis does a fixed denominator change relative to a sequence mean?",
       "aliases": "dr grpo rft maxrl constant denominator advantage normalization variants",
       "answer": "A sequence mean sets Z to the number of valid response tokens and therefore gives each response a similar outer weight regardless of length. A fixed denominator leaves the number of contributing tokens in the total weight, so longer responses exert more influence when token contributions are otherwise equal."

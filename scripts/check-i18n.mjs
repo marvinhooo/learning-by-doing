@@ -17862,3 +17862,128 @@ console.log(`ffn-backward OK: ${fbValues} values, all four gradients match A2's 
   }
   console.log(`card lecture kv OK: ${clkChecks} checks -- kv-cache worked a toy in which five of seven factors were 2 (the K/V factor, L, H_kv, d_head and b_KV), so its example could not tell one factor from another and never showed H_q, the quantity its pitfall warns about; inference-params-gqa worked a toy too, while Lecture 10 counts both on Llama 2 13B. Both now work the trace's configuration: ${kvPerSeq(40)} Bytes of cache per sequence without GQA and ${kvPerSeq(8)} at H_kv=8 (a factor ${kvPerSeq(40) / kvPerSeq(8)} = H_q/H_kv), ${(64 * kvPerSeq(40) / 1e9).toFixed(2)} GB at B=64 against ${(P40 * 2 / 1e9).toFixed(2)} GB of weights, P=${P40} and ${P8} with GQA, and the 12LD² rule ${(below * 100).toFixed(1)}% below the MHA layers but ${(above * 100).toFixed(0)}% above the GQA layers. Every figure is recomputed and required in order in both locales, the comparisons are computed rather than read, and fixtures restoring both toys must be caught`);
 }
+
+// ---- card distinct exponents: compute-optimal-predictions on real FLOPs (v129) ----
+// The example set a=b=γ=0.5 on a normalized C=4, so every exponent produced the same √4: a
+// reader who put b where a belongs, or γ where b belongs, got the same numbers, and the pitfall's
+// a+b≈1 check (which needs C≈6ND) could not apply to a normalized C. The example now works an
+// invented fit anchored at the handout's smallest budget 6e18 FLOPs with D₀ from C=6ND, three
+// different exponents, the A3-sized budget 6e22, and the swap that passes the a+b=1 check.
+{
+  const cdeFail = message => { throw new Error(`card distinct exponents: ${message}`); };
+  let cdeChecks = 0;
+  const f = { C0: 6e18, N0: 1e8, a: 0.6, b: 0.4, E: 1.7, R: 1.2, g: 0.2, C: 6e22 };
+  const D0 = f.C0 / (6 * f.N0), ratio = f.C / f.C0;
+  const N = f.N0 * ratio ** f.a, D = D0 * ratio ** f.b, L = f.E + f.R * ratio ** -f.g;
+  const Nswap = f.N0 * ratio ** f.b;
+  if (new Set([f.a, f.b, f.g]).size !== 3) cdeFail("two exponents are equal again, so a swap is invisible");
+  if (Math.abs(f.a + f.b - 1) > 1e-12) cdeFail("a+b is no longer 1, so step (4) claims a check that fails");
+  if (Math.abs(6 * N * D / f.C - 1) > 1e-9) cdeFail("6·N_opt·D_opt no longer equals C");
+  if (D0 !== 1e10 || ratio !== 1e4) cdeFail("the anchor no longer gives D₀=10¹⁰ and C/C₀=10⁴");
+  cdeChecks += 4;
+  const num = (value, digits, locale) => value.toFixed(digits).replace(".", locale === "de" ? "," : ".");
+  const mant = (value, locale) => num(value / 10 ** Math.floor(Math.log10(value)), 2, locale);
+  const steps = locale => [
+    "C₀=6·10¹⁸", "N₀=10⁸", "D₀=6·10¹⁸/(6·10⁸)=10¹⁰",
+    `a=${num(f.a, 1, locale)}`, `b=${num(f.b, 1, locale)}`,
+    "C=6·10²²", "C/C₀=10⁴",
+    `10^(4·${num(f.a, 1, locale)})=10⁸·10^${num(4 * f.a, 1, locale)}≈${mant(N, locale)}·10¹⁰`,
+    `10^(4·${num(f.b, 1, locale)})=10¹⁰·10^${num(4 * f.b, 1, locale)}≈${mant(D, locale)}·10¹¹`,
+    `6·${mant(N, locale)}·10¹⁰·${mant(D, locale)}·10¹¹≈6·10²²=C`, "a+b=1",
+    `N_opt≈${mant(Nswap, locale)}·10⁹`, `${num(N / Nswap, 2, locale)}`,
+    `E=${num(f.E, 1, locale)}`, `${num(f.R, 1, locale)}`, `γ=${num(f.g, 1, locale)}`,
+    `10^(−4·${num(f.g, 1, locale)})`, `${num(f.R, 1, locale)}·${num(ratio ** -f.g, 3, locale)}`,
+    `≈${num(L, 3, locale)}`, locale === "de" ? "a≈b≈0,5" : "a≈b≈0.5"
+  ];
+  const hold = (locale, text) => {
+    let cursor = -1;
+    for (const step of steps(locale)) {
+      const at = text.indexOf(step, cursor + 1);
+      if (at < 0) cdeFail(`${locale}: the step ${step}, which the fit produces, is missing or out of order`);
+      cursor = at + step.length - 1;
+    }
+  };
+  const card = base.formulas.find(formula => formula.id === "compute-optimal-predictions");
+  if (!card) cdeFail("compute-optimal-predictions is gone");
+  for (const [locale, text] of [["de", card.example], ["en", pack.formulas["compute-optimal-predictions"]?.example]]) {
+    if (typeof text !== "string") cdeFail(`${locale}: no example`);
+    hold(locale, text);
+    cdeChecks += steps(locale).length;
+    if (!(locale === "de" ? /nicht die A3-Daten/u : /not the A3 data/u).test(text)) cdeFail(`${locale}: the example no longer says its fit is invented`);
+    if (/√4/u.test(text)) cdeFail(`${locale}: the normalized √4 toy is back`);
+    cdeChecks += 2;
+  }
+  // Fixture: the v128 toy must be caught.
+  const toys = [
+    ["de", "Toy-Fit mit normiertem C=4: A_N=10 Millionen, a=0,5 ergibt N_opt=10·√4=20 Millionen. A_D=100 Millionen, b=0,5 ergibt D_opt=100·√4=200 Millionen. Mit E=1,5, A_L=0,4 und γ=0,5 gilt L_opt=1,5+0,4/√4=1,7."],
+    ["en", "Toy Fit with normalized C=4: A_N=10 million and a=0.5 give N_opt=10·√4=20 million. A_D=100 million and b=0.5 give D_opt=100·√4=200 million. With E=1.5, A_L=0.4, and γ=0.5, L_opt=1.5+0.4/√4=1.7."]
+  ];
+  for (const [locale, stale] of toys) {
+    let caught = false;
+    try { hold(locale, stale); } catch { caught = true; }
+    if (!caught) cdeFail(`${locale}: the fixture restoring the v128 toy was not caught, so this block cannot see`);
+    cdeChecks++;
+  }
+  console.log(`card distinct exponents OK: ${cdeChecks} checks -- compute-optimal-predictions set a=b=γ=0.5 on a normalized C=4, so every exponent gave the same √4 and a swap was invisible. It now works an invented fit on real FLOPs: C₀=6e18, N₀=1e8, D₀=${D0} from C=6ND, a=${f.a}, b=${f.b}, γ=${f.g}; at C=6e22 N_opt=${N.toExponential(3)}, D_opt=${D.toExponential(3)}, L_opt=${L.toFixed(3)}, and the swapped exponents give N_opt=${Nswap.toExponential(3)} (${(N / Nswap).toFixed(2)}× smaller) while passing the same a+b=1 check`);
+}
+
+// ---- card equal factors: four examples whose two inputs had the same value (v129) ----
+// precision-recall had FP=FN=2, so Precision equalled Recall and the card could not show which
+// error lowers which metric -- the very question its check asks. logit-soft-cap set c=z=2, so
+// c·tanh(z/c) equalled z·tanh(c/z). grpo-variants set b=c=0.5, which made A=1 and hid both a swap
+// and the multiplication by A. accuracy-se used Acc=0.5, where Acc·Acc equals Acc·(1−Acc). Each
+// example now uses unequal inputs, and the swapped result is computed and printed beside it.
+{
+  const cefFail = message => { throw new Error(`card equal factors: ${message}`); };
+  let cefChecks = 0;
+  const num = (value, digits, locale) => value.toFixed(digits).replace(".", locale === "de" ? "," : ".").replace("-", "−");
+  const pr = { TP: 8, FN: 2, FP: 4 }, sc = { c: 2, z: 3, small: 0.2 }, gr = { R: 1, b: 0.2, c: 0.4, lp: [-0.2, -0.4] }, se = { n: 100, k: 80 };
+  if (pr.FN === pr.FP || sc.c === sc.z || gr.b === gr.c || se.k * 2 === se.n) cefFail("an example's two inputs are equal again");
+  const prec = pr.TP / (pr.TP + pr.FP), rec = pr.TP / (pr.TP + pr.FN);
+  const cap = z => sc.c * Math.tanh(z / sc.c), swapCap = sc.z * Math.tanh(sc.c / sc.z);
+  const A = (gr.R - gr.b) / gr.c, Aswap = (gr.R - gr.c) / gr.b, sum = A * (gr.lp[0] + gr.lp[1]);
+  const acc = se.k / se.n, seVal = Math.sqrt(acc * (1 - acc) / se.n), seWrong = Math.sqrt(acc * acc / se.n);
+  if (prec === rec || cap(sc.z) === swapCap || A === Aswap || A === 1 || seVal === seWrong) cefFail("a swap no longer changes the result");
+  cefChecks += 2;
+  const steps = {
+    "precision-recall": l => ["TP=8", "FN=2", "FP=4", `Precision=8/(8+4)≈${num(prec, 3, l)}`, `Recall=8/(8+2)=${num(rec, 1, l)}`, `${num(rec, 1, l)}`, `≈${num(prec, 3, l)}`],
+    "logit-soft-cap": l => ["c=2", "z=3", `z/c=${num(1.5, 1, l)}`, `tanh(${num(1.5, 1, l)})≈${num(Math.tanh(1.5), 3, l)}`, `cap₂(3)=2·${num(Math.tanh(1.5), 3, l)}≈${num(cap(3), 3, l)}`,
+      `3·tanh(2/3)≈${num(swapCap, 3, l)}`, `z=${num(sc.small, 1, l)}`, `tanh(${num(0.1, 1, l)})≈${num(Math.tanh(0.1), 4, l)}`, `cap₂(${num(sc.small, 1, l)})≈${num(cap(sc.small), 3, l)}`,
+      `tanh(5)≈${num(Math.tanh(5), 5, l)}`, `cap₂(10)≈${num(cap(10), 4, l)}`],
+    "grpo-variants": l => [`b=${num(gr.b, 1, l)}`, `c=${num(gr.c, 1, l)}`, `A=(1−${num(gr.b, 1, l)})/${num(gr.c, 1, l)}=${A}`, `(1−${num(gr.c, 1, l)})/${num(gr.b, 1, l)}=${Math.round(Aswap)}`,
+      `${A}·(−${num(0.2, 1, l)}−${num(0.4, 1, l)})=${num(sum, 1, l)}`, `−(${num(sum, 1, l)})/2=${num(-sum / 2, 1, l)}`, `Z=4`, `${num(-sum / 4, 1, l)}`],
+    "accuracy-se": l => ["n=100", "k=80", `Acc=80/100=${num(acc, 1, l)}`, `Acc·(1−Acc)=${num(acc, 1, l)}·${num(1 - acc, 1, l)}=${num(acc * (1 - acc), 2, l)}`,
+      `${num(acc * (1 - acc), 2, l)}/100=${num(acc * (1 - acc) / 100, 4, l)}`, `SE=${num(seVal, 2, l)}`, `√(${num(acc * acc, 2, l)}/100)=${num(seWrong, 2, l)}`, `Acc=${num(0.5, 1, l)}`]
+  };
+  const hold = (id, locale, text) => {
+    let cursor = -1;
+    for (const step of steps[id](locale)) {
+      const at = text.indexOf(step, cursor + 1);
+      if (at < 0) cefFail(`${locale}.${id}: the step ${step} is missing or out of order`);
+      cursor = at + step.length - 1;
+    }
+  };
+  for (const id of Object.keys(steps)) {
+    const card = base.formulas.find(formula => formula.id === id);
+    if (!card) cefFail(`${id} is gone`);
+    for (const [locale, text] of [["de", card.example], ["en", pack.formulas[id]?.example]]) {
+      if (typeof text !== "string") cefFail(`${locale}.${id}: no example`);
+      hold(id, locale, text);
+      cefChecks += steps[id](locale).length;
+    }
+  }
+  // Fixtures: the v128 examples, with their equal inputs, must be caught.
+  const stale = [
+    ["precision-recall", "de", "Von 10 PII-Dokumenten erkennt der Filter 8 und übersieht 2: TP=8, FN=2. Zusätzlich markiert er 2 saubere Dokumente falsch: FP=2. Precision=8/(8+2)=0,8 und Recall=8/(8+2)=0,8."],
+    ["logit-soft-cap", "en", "Set c=2 and z=2. Then z/c=1, tanh(1)≈0.762, and cap₂(2)=2·0.762=1.523. For z=10, tanh(5)≈0.99991 and cap₂(10)≈1.9998: the value approaches 2 without exceeding the bound."],
+    ["grpo-variants", "de", "Toy-Antwort: R=1, b=0,5, c=0,5 und ε≈0, also A=1. Zwei gültige Tokens haben logπ −0,2 und −0,4. (1) Maskierte Summe: 1·(−0,2−0,4)=−0,6. (2) Mit Sequenznenner Z=2 ist der Loss −(−0,6)/2=0,3. (3) Mit festem Z=4 ist er 0,15."],
+    ["accuracy-se", "en", "Out of n=100 tasks, k=50 are correct, so Acc=50/100=0.5. For Standard Error: Acc·(1−Acc)=0.5·0.5=0.25; 0.25/100=0.0025; its square root is SE=0.05, or about 5 percentage points."]
+  ];
+  for (const [id, locale, text] of stale) {
+    let caught = false;
+    try { hold(id, locale, text); } catch { caught = true; }
+    if (!caught) cefFail(`${locale}.${id}: the fixture restoring the v128 example was not caught, so this block cannot see`);
+    cefChecks++;
+  }
+  console.log(`card equal factors OK: ${cefChecks} checks -- four examples had two inputs of the same value, so a swap was invisible: precision-recall (FP=FN, now Precision ${prec.toFixed(3)} vs Recall ${rec}), logit-soft-cap (c=z, now ${cap(3).toFixed(3)} vs swapped ${swapCap.toFixed(3)}), grpo-variants (b=c and A=1, now A=${A} vs swapped ${Aswap.toFixed(0)}), accuracy-se (Acc=0.5, now SE ${seVal.toFixed(2)} vs Acc·Acc ${seWrong.toFixed(2)}). Every step is recomputed and required in order in both locales, and fixtures restoring the old examples must be caught`);
+}

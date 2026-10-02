@@ -1,6 +1,38 @@
 # Activity
 
-Iteration Counter: 9
+Iteration Counter: 10
+
+## v129 - 2026-10-02 - Exponenten und Fehler, die sich nicht unterscheiden liessen
+
+- Status: abgeschlossen. Branch `claude/deep-review-v129`, gebaut auf dem Kettenkopf v128
+  (`f25b99e`) per `git switch -c`. Der zugewiesene Worktree stand auf v99 (`2ed21e7`); die
+  Ahnenpruefung ueber alle Branch-Spitzen fand keinen verlorenen Zweig, `git status` der
+  juengsten Deep-Review-Worktrees nichts Neues zu bergen.
+- **Hebel 1 aus v128:** `mup-transfer` gegen Lecture 11 geprueft - die Rollentabelle (Readout
+  var 1/M², lr 1/M) stimmt mit der Folie "SP Unembedding 1/M (SP) vs 1/M^2 (muP)" ueberein; die
+  Vorlesung rechnet kein Zahlenbeispiel vor, die Karte bleibt unveraendert.
+  `compute-optimal-predictions` rechnete auf normiertem C=4 mit a=b=γ=0,5 - jeder Exponent gab
+  dasselbe √4, und die Pitfall-Probe a+b≈1 (braucht C≈6ND) war auf normiertem C nicht anwendbar.
+  Neu: erfundener Fit auf echten FLOPs, verankert an A3s kleinstem Budget 6·10¹⁸ mit D₀ aus
+  C=6ND, a=0,6, b=0,4, γ=0,2, Ziel C=6·10²² (N_opt≈2,51·10¹⁰, D_opt≈3,98·10¹¹, L_opt≈1,890).
+  Neu im Text: vertauschte Exponenten bestehen dieselbe Probe a+b=1 und sagen ein 6,31-mal
+  kleineres Modell voraus.
+- **Hebel 2 aus v128 (Sweep "gleich grosse Faktoren" ueber alle Karten):** vier echte Funde:
+  `precision-recall` (FP=FN=2, also Precision=Recall - die Karte konnte ihre eigene Pruefrage
+  "welcher Fehler ist riskanter?" nicht zeigen; neu FP=4: 0,667 gegen 0,8), `logit-soft-cap`
+  (c=z=2; neu z=3: 1,810, vertauscht 1,748, dazu z=0,2 fuer |z|≪c), `grpo-variants` (b=c=0,5,
+  dadurch auch A=1 als Leerlauf; neu b=0,2, c=0,4: A=2, vertauscht 3), `accuracy-se` (Acc=0,5,
+  wo Acc·Acc=Acc·(1−Acc); neu Acc=0,8: SE=0,04 gegen falsch 0,08). Die uebrigen Treffer des
+  Sweeps sind Ergebnis=Eingabe-Zufaelle oder Lecture-Konfigurationen (Llama 2 13B: L=H_q=40).
+- **Zwei Guard-Bloecke** (83 -> 85): `card distinct exponents` und `card equal factors`, jeweils
+  alle Schritte nachgerechnet und in Reihenfolge in beiden Sprachen verlangt, Ungleichheit der
+  Eingaben und Sichtbarkeit des Tauschs als berechnete Zusicherung, Fixtures der alten Beispiele
+  muessen gefangen werden.
+- **Mutationstest:** 19 + 24 Mutationen, **0 entkommen, 0 inert**, Kontrolle vor und nach gruen
+  (Schlankfassung). Volle Suite gruen.
+- **Kein Browsertest** (geplanter Lauf).
+- Cache-Bump auf **v106** (sw.js zweimal, index.html, README).
+- Der Iteration Counter wurde erhoeht, da der Run ueber einen Scheduled Task startete.
 
 ## v128 - 2026-10-01 - fuenf Zweien, die das Beispiel nicht unterscheiden konnte
 
