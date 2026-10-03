@@ -17987,3 +17987,81 @@ console.log(`ffn-backward OK: ${fbValues} values, all four gradients match A2's 
   }
   console.log(`card equal factors OK: ${cefChecks} checks -- four examples had two inputs of the same value, so a swap was invisible: precision-recall (FP=FN, now Precision ${prec.toFixed(3)} vs Recall ${rec}), logit-soft-cap (c=z, now ${cap(3).toFixed(3)} vs swapped ${swapCap.toFixed(3)}), grpo-variants (b=c and A=1, now A=${A} vs swapped ${Aswap.toFixed(0)}), accuracy-se (Acc=0.5, now SE ${seVal.toFixed(2)} vs Acc·Acc ${seWrong.toFixed(2)}). Every step is recomputed and required in order in both locales, and fixtures restoring the old examples must be caught`);
 }
+
+// ---- lab start values: baseline-variance opened on the one p where p = 1−p (v130) --------
+// The idle-operator and equal-factor sweeps of v124-v129 covered the 83 formula cards; the
+// start values of the 64 labs are the same kind of example and had never been asked. One lab
+// failed: baseline-variance opened at p = 0.5, the point where p and 1−p are equal. There the
+// five baselines collapse onto two variances (b = p, b = 1−p and b = 0.5 all onto zero, b = 0
+// and b = 1 onto the same number), so the lab's own lesson -- the minimum sits at 1−p, not at
+// the mean reward -- was invisible on its first screen, and part (a)'s classic swap
+// p(1−p)³ ↔ p³(1−p) printed the same value. Its observe text also told the reader that at
+// p = 0.9 the population mean is "the worst of the five choices"; b = 1 is worse (0.018225
+// against 0.0144 at n = 4). Var₁ = p(1−p)(1−p−b)², so the claim is read off the lab itself.
+{
+  const ldsFail = message => { throw new Error(`lab start values: ${message}`); };
+  let ldsChecks = 0;
+  const { BV_P_LADDER, BV_BASELINES, bvVar } = bvApi;
+  const variances = p => BV_BASELINES.map(entry => ({ key: entry.key, v: bvVar(p, entry.value(p), 4) }));
+  const distinctCount = list => list.reduce((groups, item) => groups.some(value => Math.abs(value - item.v) < 1e-12) ? groups : [...groups, item.v], []).length;
+  const startIndex = text => {
+    const hit = text.match(/id="bvP">\$\{BV_P_LADDER\.map\(\(value,index\)=>`<option value="\$\{value\}" \$\{index===(\d+)\?"selected"/u);
+    if (!hit) ldsFail("the selected index of bvP could not be read from the markup");
+    return Number(hit[1]);
+  };
+  // A start value passes when every baseline prints its own variance, part (a) and its swap
+  // differ, and b = p lowers the variance -- the textbook case first, the warning second.
+  const judgeStart = index => {
+    const p = BV_P_LADDER[index], list = variances(p), byKey = Object.fromEntries(list.map(item => [item.key, item.v]));
+    const problems = [];
+    if (distinctCount(list) !== BV_BASELINES.length) problems.push(`p = ${p} gives only ${distinctCount(list)} distinct variances for ${BV_BASELINES.length} baselines`);
+    if (Math.abs(p * (1 - p) ** 3 - p ** 3 * (1 - p)) < 1e-12) problems.push(`p = ${p} makes p(1−p)³ equal to p³(1−p)`);
+    if (!(byKey.mean < byKey.none)) problems.push(`b = p does not lower the variance at p = ${p}`);
+    return problems;
+  };
+  const start = startIndex(source), startP = BV_P_LADDER[start];
+  const startProblems = judgeStart(start);
+  if (startProblems.length) ldsFail(`baseline-variance opens at an indistinct p: ${startProblems.join("; ")}`);
+  const fallback = source.match(/p:bvPick\(BV_P_LADDER,read\("bvP"\),(\d+)\)/u);
+  if (!fallback || Number(fallback[1]) !== start) ldsFail("bvSelection falls back to a different p than the markup selects");
+  ldsChecks += 4;
+  // The observe text, computed rather than typed: the ranking at p = 0.9 and the collapse at 0.5.
+  const at09 = variances(0.9).sort((a, b) => b.v - a.v), at05 = distinctCount(variances(0.5));
+  const worst = at09[0].key, meanVsNone = variances(0.9).find(x => x.key === "mean").v > variances(0.9).find(x => x.key === "none").v;
+  const secondBest = at09[at09.length - 2].key;
+  if (worst !== "max" || !meanVsNone || secondBest !== "none" || at05 !== 2) ldsFail("the lab's arithmetic no longer matches what this block asserts about p = 0.9 and p = 0.5");
+  const word = { de: { 2: "zwei", 5: "fünf" }, en: { 2: "two", 5: "five" } };
+  const claims = locale => {
+    const pText = locale === "de" ? String(startP).replace(".", ",") : String(startP);
+    return locale === "de"
+      ? [`bei p = ${pText}`, `${word.de[5]} Baselines, ${word.de[5]} verschiedene Varianzen`, "Populationsmittel b = p senkt sie hier", "p = 0,9",
+        "Populationsmittel schlechter als gar keine Baseline", "keine Baseline ist die zweitbeste", "nur b = 1 streut noch stärker", "p = 0,5",
+        `auf ${word.de[at05]} Zahlen zusammen`, "b = p, b = 1 − p und b = 0,5 auf die Null", "b = 0 und b = 1 auf dieselbe Varianz", "p(1−p)³ = p³(1−p)"]
+      : [`at p = ${pText}`, `${word.en[5]} baselines, ${word.en[5]} different variances`, "population mean b = p lowers it here", "p = 0.9",
+        "population mean is worse than no baseline at all", "no baseline at all is the second best", "only b = 1 spreads further still", "p = 0.5",
+        `collapse onto ${word.en[at05]} numbers`, "b = p, b = 1 − p and b = 0.5 onto zero", "b = 0 and b = 1 onto the same variance", "p(1−p)³ = p³(1−p)"];
+  };
+  const forbidden = { de: "die schlechteste der fünf Wahlen", en: "the worst of the five choices" };
+  const holdObserve = (locale, text) => {
+    if (typeof text !== "string") ldsFail(`${locale}: baseline-variance has no observe text`);
+    if (text.includes(forbidden[locale])) ldsFail(`${locale}: observe calls the population mean the worst choice at p = 0.9, but b = 1 is worse`);
+    let cursor = -1;
+    for (const claim of claims(locale)) {
+      const at = text.indexOf(claim, cursor + 1);
+      if (at < 0) ldsFail(`${locale}: observe is missing "${claim}" or has it out of order`);
+      cursor = at + claim.length - 1;
+    }
+  };
+  const bvLab = base.labs.find(lab => lab.id === "baseline-variance");
+  for (const [locale, text] of [["de", bvLab?.observe], ["en", pack.labs["baseline-variance"]?.observe]]) { holdObserve(locale, text); ldsChecks += claims(locale).length + 1; }
+  // Fixtures: the v129 start value and the v129 observe sentence must both be caught.
+  if (!judgeStart(BV_P_LADDER.indexOf(0.5)).length) ldsFail("the fixture p = 0.5 was not caught, so this block cannot see");
+  let staleCaught = false;
+  try { holdObserve("en", "Stay in case mode at p = 0.5 first and step through the five baselines: the expectation reads the same number in every row, the variance does not. Then set p = 0.9 and repeat it – now the population mean is the worst of the five choices and no baseline at all is the second best."); } catch { staleCaught = true; }
+  if (!staleCaught) ldsFail("the fixture restoring the v129 observe text was not caught, so this block cannot see");
+  // Control: a ladder value that is indistinct for another reason (p = 0.25, where b = 0.5
+  // and b = 1 tie) must be caught too, and p = 0.9 -- distinct, but b = p hurts -- as well.
+  if (!judgeStart(BV_P_LADDER.indexOf(0.25)).length || !judgeStart(BV_P_LADDER.indexOf(0.9)).length) ldsFail("a control start value was not caught");
+  ldsChecks += 4;
+  console.log(`lab start values OK: ${ldsChecks} checks -- baseline-variance opened at p = 0.5, where p = 1−p: five baselines printed two variances and part (a)'s swap p(1−p)³ ↔ p³(1−p) was invisible. It now opens at p = ${startP}, the only ladder value where all five differ and b = p still helps; its observe text no longer calls the population mean the worst choice at p = 0.9 (b = 1 is: ${at09[0].v.toFixed(6)} against ${variances(0.9).find(x => x.key === "mean").v.toFixed(6)})`);
+}

@@ -1,6 +1,42 @@
 # Activity
 
-Iteration Counter: 10
+Iteration Counter: 11
+
+## v130 - 2026-10-03 - der Startwert, an dem p und 1−p gleich sind
+
+- Status: abgeschlossen. Branch `claude/deep-review-v130`, gebaut auf dem Kettenkopf v129
+  (`77524a2`) per `git switch -c`. Der zugewiesene Worktree stand auf v99 (`2ed21e7`); die
+  Ahnenpruefung ueber alle Branch-Spitzen fand keinen verlorenen Zweig, `git status` der
+  juengsten Deep-Review-Worktrees nichts zu bergen. Haupt-Checkout seit 29. Juli unberuehrt.
+- **Hebel 1 aus v129 (Leerlauf- und Gleiche-Faktoren-Sweep auf die Lab-Startwerte):** alle 64 Labs
+  headless gerendert und die Startwerte jedes Reglers inventarisiert. Ein echter Fund:
+  `baseline-variance` (A5 `baseline_calcs`, 5 Punkte) startete bei p = 0,5. Das Handout legt kein
+  p fest, und p = 0,5 ist der Symmetriepunkt: wegen Var₁ = p(1−p)(1−p−b)² fielen die fuenf
+  Baselines auf zwei Varianzen (b = p, 1−p, 0,5 auf null; b = 0 und b = 1 gleich), die Kernaussage
+  "das Minimum liegt bei 1−p, nicht beim Mittel" war im ersten Bild unsichtbar, und Teil (a)
+  p(1−p)³ war von seinem Tausch p³(1−p) nicht zu unterscheiden. Neu: Start bei p = 0,1, dem
+  einzigen Leiterwert, an dem alle fuenf Baselines verschieden sind und b = p noch hilft
+  (Fallback in `bvSelection` mitgezogen).
+- **Falscher Satz im `observe`-Text (DE und EN):** "bei p = 0,9 ist das Populationsmittel die
+  schlechteste der fuenf Wahlen" - b = 1 ist schlechter (0,018225 gegen 0,0144 bei n = 4).
+  Neu formuliert, dazu der p = 0,5-Vergleich als ausdruecklicher Schritt.
+- Geprueft und bewusst belassen: die Testfall-Labs, die absichtlich im blinden Fall starten
+  (rope-rotation, norm-and-ffn, microbatch-denominator, offpolicy-clip); natuerliche Bezugszustaende
+  (attention τ = 1, moe-routing c = 1); `lsh-bands` b = r = 10 (Lecture-14-Einstellung, der Tausch
+  b = 2/r = 50 gegen b = 50/r = 2 steht im Kurzcheck); `distributed-runtime` d = 2 (bei d = 2 sind
+  algbw und busbw gleich, aber Modus B und `desc` zitieren die 2-GPU-Konfiguration des Handouts,
+  und die Rankzahl-Tabelle zeigt den Ringfaktor auf demselben Bildschirm).
+- **Guard `lab start values`** (85 -> 86, 34 Pruefungen): Startindex aus dem Markup gelesen, alle
+  fuenf Varianzen paarweise verschieden, Tausch sichtbar, b = p hilft, Fallback gleich Markup;
+  die Behauptungen des `observe`-Textes aus den Lab-Funktionen gerechnet und in Reihenfolge in
+  beiden Sprachen verlangt. Fixtures: p = 0,5 und der alte Satz muessen gefangen werden,
+  Kontrollen p = 0,25 und p = 0,9 ebenso.
+- **Mutationstest:** 25 Mutationen, **0 entkommen, 0 inert**, jeder Fang aus dem neuen Block,
+  Kontrolle gruen (Schlankfassung 0,36 s). Volle Suite gruen.
+- **Kein Browsertest** (geplanter Lauf); der `lab render sweep` rendert den neuen Startzustand in
+  beiden Sprachen.
+- Cache-Bump auf **v107** (sw.js zweimal, index.html, README).
+- Der Iteration Counter wurde erhoeht, da der Run ueber einen Scheduled Task startete.
 
 ## v129 - 2026-10-02 - Exponenten und Fehler, die sich nicht unterscheiden liessen
 

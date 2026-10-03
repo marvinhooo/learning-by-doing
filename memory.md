@@ -377,3 +377,17 @@
   Recall bei FP=FN, c·tanh(z/c) bei c=z, Acc(1−Acc) bei Acc=0,5. Beim Beispielbau den Tausch
   ausrechnen und daneben drucken; ist er gleich, sind die Eingaben falsch gewaehlt.
 
+
+## Ein Lab-Startwert auf dem Symmetriepunkt (v130)
+
+- **Die Startwerte der 64 Labs sind dieselbe Art Beispiel wie die Formelkarten.** Inventar per
+  headless Render (Sandbox des `lab render sweep`, erste `selected`-Option bzw. `value=` je Regler).
+  Ein echter Fund: `baseline-variance` startete bei p = 0,5, wo p = 1−p - fuenf Baselines gaben
+  zwei Varianzen, und der Tausch p(1−p)³ ↔ p³(1−p) war unsichtbar. Var₁ = p(1−p)(1−p−b)²; auf der
+  Leiter sind nur p = 0,1 und 0,9 voll unterscheidbar. Dabei fiel ein **falscher Satz** im
+  `observe`-Text auf (bei p = 0,9 sei b = p die schlechteste Wahl - b = 1 ist schlechter).
+- **Nicht jeder entartete Startwert ist ein Fehler.** Die Testfall-Labs (`rope-rotation` Position 0,
+  `norm-and-ffn` Gain 1 und x = [1, 1], `microbatch-denominator` k = 1, `offpolicy-clip` ein Schritt)
+  starten absichtlich im blinden Fall und fragen, wie viele Fehler er sieht. Natuerliche Bezugs-
+  zustaende (τ = 1, c = 1) und Handout-Konfigurationen, die ein anderer Modus zitiert
+  (`distributed-runtime` d = 2), bleiben ebenfalls.
