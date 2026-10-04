@@ -391,3 +391,13 @@
   starten absichtlich im blinden Fall und fragen, wie viele Fehler er sieht. Natuerliche Bezugs-
   zustaende (τ = 1, c = 1) und Handout-Konfigurationen, die ein anderer Modus zitiert
   (`distributed-runtime` d = 2), bleiben ebenfalls.
+
+## Eine Lecture-Lücke findet nur der Folienabgleich (v131)
+
+- Die Guard-Sweeps v122-v130 prüften, was die App enthält; das Matrix-Rätsel aus Lecture 5
+  (Folien 41-44, Tile- und Wave-Quantization) fehlte, und kein Guard konnte das sehen. Gefunden
+  durch `pdftotext` + Folientitel je Seite gegen `LECTURE_GUIDES.l05`. Ein Begriff in einer
+  Termliste ist keine Abdeckung, wenn die Lecture mit Zahlen rechnet.
+- Neue Formelkarte `tile-wave-quantization`; Guard `card wave quantization`. Bei einer neuen
+  Formelkarte ziehen mit: Reihenfolge im EN-Pack wie in `FORMULAS` (sonst "locale IDs do not
+  match"), README-Zähler, Quellkommentar der Accordion-Route (fünf Zahlen).

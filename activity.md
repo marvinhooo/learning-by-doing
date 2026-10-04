@@ -1,6 +1,41 @@
 # Activity
 
-Iteration Counter: 11
+Iteration Counter: 12
+
+## v131 - 2026-10-04 - das Matrix-Raetsel, in dem zwei Verluste zusammenfallen
+
+- Status: abgeschlossen. Branch `claude/deep-review-v131`, gebaut auf dem Kettenkopf v130
+  (`f92f60e`) per `git switch -c`. Der zugewiesene Worktree stand auf v99 (`2ed21e7`); die
+  Ahnenpruefung ueber alle Branch-Spitzen fand keinen verlorenen Zweig, `git status` der
+  juengsten Deep-Review-Worktrees nichts Neues zu bergen. Haupt-Checkout seit 29. Juli unberuehrt.
+- **Statt Hebel 1 (weiterer Guard-Ausbau) ein Inhaltsabgleich gegen die PRD-Luecke "GPU ...
+  Coalescing und Wave Quantization":** Lecture 5 (52 Folien) seitenweise gegen den l05-Guide
+  gehalten. Low Precision, Fusion, Recomputation, Tiling und FlashAttention sind abgedeckt; das
+  "Matrix-Raetsel" (Folien 41-44), mit dem die Lecture ihren Teil 2 abschliesst, stand nur als
+  Begriff in einer Termliste - keine Karte rechnete es.
+- **Neue Formelkarte `tile-wave-quantization`** (DE/EN, Antwortschluessel, Quelle l05): n_tile =
+  ⌈M/T_M⌉·⌈N/T_N⌉, n_wave = ⌈n_tile/S⌉, U = Tile-Fuellgrad · Wellen-Fuellgrad. Beispiel mit den
+  Zahlen der Lecture (A100, 108 SMs, Tiles 256×128): 1792 -> 98 Tiles, eine Welle, U = 0,9074;
+  1793 -> 120 Tiles, zwei Wellen, U = 0,4542 bei nur 0,17 % mehr Arbeit. Weil im 1793-Fall
+  Rand-Tiles und leere zweite Welle zusammenfallen, zerlegt das Beispiel U in beide Faktoren
+  (0,8176 · 0,5556): der groessere Verlust ist die Welle. Selbstcheck: Auffuellen auf 2048 heilt
+  die Tile-, nicht die Wave-Quantization (U = 0,5926), und 1792 ist die groesste quadratische
+  Groesse mit einer Welle - die Kante der Lecture ist die Wellenkante selbst.
+- Verknuepft: Lecture 5 kuratiert die Karte (4. Formel), `fusion-tiling` fuehrt sie am Ende
+  seiner Formelliste (erste Karte bleibt `arithmetic-intensity`).
+- Zaehler nachgezogen: README 84 Formeln, Quellkommentar der Accordion-Route (84/268/76/108/273).
+- **Guard `card wave quantization`** (86 -> 87, 82 Pruefungen): alle Zahlen aus dem Tile-Modell
+  nachgerechnet, in Reihenfolge, beide Sprachen, jede vierstellige Dezimalzahl gezaehlt; die
+  Behauptungen "groesste Ein-Wellen-Groesse = 1792", "Welle ist der groessere Verlust", "rund
+  halb so viel" am Modell bewiesen; Verknuepfung und Reihenfolge gehalten; zwei eingebaute
+  Fixtures (floor statt ceil, Wellen-Fuellgrad mit falscher Tilezahl) und eine Kontrolle.
+- **Mutationstest:** 26 Mutationen, **0 entkommen, 0 inert**, jeder Fang nachweislich vom neuen
+  Block; zwei gruene Kontrollmutationen, Kontrolle vor und nach gruen. Eine erste Kontrolle
+  (Groessenlabel "M = N = 1794" bei gerechneten 1793) blieb gruen und wurde zur Pruefung gemacht.
+- **Kein Browsertest** (geplanter Lauf); die volle Suite rendert die Karte in `accordion route`,
+  `formula field fallthrough`, `card numerals`, `card comma lists` - alle gruen.
+- Cache-Bump auf **v108** (sw.js zweimal, index.html, README).
+- Der Iteration Counter wurde erhoeht, da der Run ueber einen Scheduled Task startete.
 
 ## v130 - 2026-10-03 - der Startwert, an dem p und 1−p gleich sind
 

@@ -18065,3 +18065,98 @@ console.log(`ffn-backward OK: ${fbValues} values, all four gradients match A2's 
   ldsChecks += 4;
   console.log(`lab start values OK: ${ldsChecks} checks -- baseline-variance opened at p = 0.5, where p = 1−p: five baselines printed two variances and part (a)'s swap p(1−p)³ ↔ p³(1−p) was invisible. It now opens at p = ${startP}, the only ladder value where all five differ and b = p still helps; its observe text no longer calls the population mean the worst choice at p = 0.9 (b = 1 is: ${at09[0].v.toFixed(6)} against ${variances(0.9).find(x => x.key === "mean").v.toFixed(6)})`);
 }
+
+// ---- card wave quantization: lecture 5's matrix mystery as a formula card (v131) ---------
+// Lecture 5 closes its part 2 with a "matrix mystery" (slides 41-44): matmul throughput over
+// matrix size drops periodically, and the lecture resolves one drop by counting tiles -- at
+// 1792 a 256 x 128 tiling gives 7 x 14 = 98 tiles, at 1793 it gives 8 x 15 = 120, more than
+// the 108 SMs of an A100. The app named wave quantization only in a term list; no card worked
+// the numbers, and the two losses inside the 1793 case (partly empty edge tiles and an almost
+// empty second wave) coincide there, so the example has to separate them as two factors. The
+// card's numbers are recomputed here from the model rather than typed, in both languages and
+// in the order of the calculation, and every four-decimal figure is counted, so an extra or
+// a missing one fails as well as a wrong one.
+{
+  const twFail = message => { throw new Error(`card wave quantization: ${message}`); };
+  let twChecks = 0;
+  // The lecture's constants (slide 44): A100 SM count, tile shape, the two sizes either side.
+  const S = 108, TM = 256, TN = 128, A = 1792, B = 1793, PAD = 2048;
+  const ceil = Math.ceil;
+  const tiles = m => ceil(m / TM) * ceil(m / TN);
+  const waves = m => ceil(tiles(m) / S);
+  const tileFill = m => m * m / (tiles(m) * TM * TN);
+  const waveFill = m => tiles(m) / (waves(m) * S);
+  const util = m => m * m / (waves(m) * S * TM * TN);
+  const fmt = (locale, x, digits = 4) => { const s = x.toFixed(digits); return locale === "de" ? s.replace(".", ",") : s; };
+  // The model's own claims, before any text is read.
+  if (waves(A) !== 1 || waves(B) !== 2 || tileFill(A) !== 1 || tileFill(PAD) !== 1 || waves(PAD) !== 2) twFail("the tile model no longer reproduces lecture 5's case");
+  let largest = 0;
+  for (let m = 1; m <= 4096; m++) if (waves(m) === 1) largest = m;
+  if (largest !== A) twFail(`the largest one-wave square size is ${largest}, not ${A} as the answer key states`);
+  if (!(waveFill(B) < tileFill(B))) twFail("at 1793 the wave loss is no longer the larger one, as the example states");
+  const ratio = util(B) / util(A);
+  if (!(ratio > 0.45 && ratio < 0.55)) twFail(`1793 reaches ${ratio.toFixed(3)} of 1792's utilization, which is not "about half"`);
+  twChecks += 5;
+  const extraWork = (B / A) ** 3;
+  const exampleTokens = locale => {
+    const [then, wait] = locale === "de" ? ["dann", "SMs warten"] : ["then", "SMs wait"];
+    return [`S = ${S}`, `${TM} × ${TN}`, `M = N = ${A}:`,
+      `⌈${A}/${TM}⌉ = ${ceil(A / TM)}`, `⌈${A}/${TN}⌉ = ${ceil(A / TN)}`, `${ceil(A / TM)} · ${ceil(A / TN)} = ${tiles(A)}`, `${tiles(A)} ≤ ${S}`,
+      `U = ${tiles(A)}/${S} = ${fmt(locale, util(A))}`,
+      `M = N = ${B},`, `⌈${B}/${TM}⌉ = ${ceil(B / TM)}`, `⌈${B}/${TN}⌉ = ${ceil(B / TN)}`, `${ceil(B / TM)} · ${ceil(B / TN)} = ${tiles(B)}`, `${tiles(B)} > ${S}`,
+      `⌈${tiles(B)}/${S}⌉ = ${waves(B)}`, `${S} `, `${then} ${tiles(B) - S}`, `${waves(B) * S - tiles(B)} ${wait}`,
+      `(${B}/${A})³ = ${fmt(locale, extraWork)}`,
+      `${B}²/(${tiles(B)} · ${TM} · ${TN}) = ${fmt(locale, tileFill(B))}`, `${tiles(B)}/(${waves(B)} · ${S}) = ${fmt(locale, waveFill(B))}`,
+      `${B}²/(${waves(B)} · ${S} · ${TM} · ${TN}) = ${fmt(locale, util(B))}`];
+  };
+  const answerTokens = locale => {
+    const exactly = locale === "de" ? "genau" : "exactly";
+    return [`${PAD}/${TM} = ${PAD / TM}`, `${PAD}/${TN} = ${PAD / TN}`, `${PAD / TM} · ${PAD / TN} = ${tiles(PAD)}`,
+      `⌈${tiles(PAD)}/${S}⌉ = ${waves(PAD)}`, ` ${tiles(PAD) - S} `, `U = ${tiles(PAD)}/(${waves(PAD)} · ${S}) = ${fmt(locale, util(PAD))}`,
+      fmt(locale, util(B)), fmt(locale, util(A)), `${exactly} ${largest}`, ` ${tiles(A)} `,
+      `${ceil(B / TM)} · ${ceil(B / TN)} = ${tiles(B)} > ${S}`];
+  };
+  const decimals = (locale, list) => list.filter(t => /\d[.,]\d{4}$/u.test(t)).map(t => t.match(/\d+[.,]\d{4}$/u)[0]);
+  const hold = (where, locale, text, tokens) => {
+    if (typeof text !== "string") twFail(`${locale}: ${where} is missing`);
+    let cursor = -1;
+    for (const token of tokens) {
+      const at = text.indexOf(token, cursor + 1);
+      if (at < 0) twFail(`${locale}: ${where} is missing "${token}" or has it out of order`);
+      cursor = at + token.length - 1;
+    }
+    const printed = text.match(/\d+[.,]\d{4}(?!\d)/gu) || [];
+    const expected = decimals(locale, tokens);
+    if (JSON.stringify(printed) !== JSON.stringify(expected)) twFail(`${locale}: ${where} prints the four-decimal figures ${printed.join(" ")} where the model gives ${expected.join(" ")}`);
+    return tokens.length + 1;
+  };
+  const card = base.formulas.find(f => f.id === "tile-wave-quantization");
+  const english = pack.formulas["tile-wave-quantization"];
+  if (!card || !english) twFail("the card is missing in one of the two languages");
+  for (const [locale, example, answer, purpose] of [
+    ["de", card.example, formulaAnswers["tile-wave-quantization"], card.purpose],
+    ["en", english.example, english.answer, english.purpose]]) {
+    twChecks += hold("the example", locale, example, exampleTokens(locale));
+    twChecks += hold("the answer key", locale, answer, answerTokens(locale));
+    const pct = `${fmt(locale, (extraWork - 1) * 100, 2)}${locale === "de" ? " %" : "%"}`;
+    if (!purpose.includes(pct) || !purpose.includes(String(A)) || !purpose.includes(String(B))) twFail(`${locale}: the purpose no longer states the extra work ${pct} between ${A} and ${B}`);
+    twChecks++;
+  }
+  if (JSON.stringify(card.sources) !== JSON.stringify(["l05"])) twFail("the card's sources are no longer lecture 5 alone");
+  if (!(base.lectureGuides.l05.formulas || []).includes("tile-wave-quantization")) twFail("lecture 5 no longer curates the card, although slides 41-44 are where the mystery is solved");
+  const ft = base.concepts.find(c => c.id === "fusion-tiling");
+  if (!(ft.formulas || []).includes("tile-wave-quantization")) twFail("fusion-tiling no longer links the card");
+  if (ft.formulas[0] !== "arithmetic-intensity") twFail(`fusion-tiling's first formula is ${ft.formulas[0]} -- a lecture that curates none of its cards prints only the first, so a new card belongs at the end`);
+  twChecks += 4;
+  // Fixtures: floor instead of ceil (the 1793 case collapses onto 7 x 14 = 98 tiles and one
+  // wave) and a wave fill typed with the tile count of 1792 must both be caught.
+  let floorCaught = false;
+  try { hold("fixture", "en", english.example.replace("⌈1793/256⌉ = 8", "⌊1793/256⌋ = 7"), exampleTokens("en")); } catch { floorCaught = true; }
+  let fillCaught = false;
+  try { hold("fixture", "de", card.example.replace("120/(2 · 108) = 0,5556", "98/(2 · 108) = 0,4537"), exampleTokens("de")); } catch { fillCaught = true; }
+  if (!floorCaught || !fillCaught) twFail("a fixture was not caught, so this block cannot see");
+  // Control: the unchanged texts must pass the same function the fixtures went through.
+  hold("control", "en", english.example, exampleTokens("en"));
+  twChecks += 3;
+  console.log(`card wave quantization OK: ${twChecks} checks -- lecture 5's matrix mystery worked as a card: at ${A} a ${TM} x ${TN} tiling gives ${tiles(A)} tiles in one wave on ${S} SMs (U ${util(A).toFixed(4)}), at ${B} it gives ${tiles(B)} tiles in ${waves(B)} waves (U ${util(B).toFixed(4)} = tile fill ${tileFill(B).toFixed(4)} x wave fill ${waveFill(B).toFixed(4)}); padding to ${PAD} fixes the tiles and keeps the wave (U ${util(PAD).toFixed(4)}), and ${largest} is the largest square size that fits one wave`);
+}
