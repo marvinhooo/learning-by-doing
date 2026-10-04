@@ -423,3 +423,9 @@
   32 Bytes je Burst in "32 Bursts liefern 32 · 32"), kann **kein** Guard den Tausch sehen: Die
   Mutation ist der Originalstring. Dann schreibt das Beispiel die Koinzidenz selbst aus, und der
   Guard verlangt diesen Satz.
+- **Eine Schranke, die ihre Quelle per Muster liest, verfaellt still (v132).** `cache version`
+  nahm die hoechste in `activity.md` genannte Version als Monotonie-Schranke, mit einem Muster
+  auf nacktem `v`. Seit v90 schreibt jeder Eintrag sie fett - die Schranke stand zwanzig
+  Versionen lang auf v89, und ein Ruecksetzen auf v90 lief gruen durch. Wer eine Schranke aus
+  einer Textdatei liest, muss verlangen, dass sie den aktuellen Stand auch wirklich erreicht;
+  sonst macht jede Formatierungsaenderung die Pruefung schwaecher, ohne es zu sagen.

@@ -10706,8 +10706,14 @@ console.log(`english render OK: ${englishStates} states across ${englishLabs} la
   // The bump has to be monotone against what is published, or a returning visitor keeps the
   // cached shell. origin/main is not readable here, so the floor is the one thing this file
   // can know: the version never goes back below the highest one this repo has ever named.
-  const everNamed = [...(await readFile(path.join(root, "activity.md"), "utf8")).matchAll(/Cache-Bump auf v(\d+)/g)].map(hit => Number(hit[1]));
+  // The entries are prose, and from v90 on every one of them sets the version in bold. A
+  // pattern anchored on a bare "v" stopped matching there, so the floor silently froze at v89
+  // for twenty versions and would have let a bump back to v90 through. The separators are
+  // optional here, and the floor is required to have kept up with sw.js: a pattern that stops
+  // matching the file it reads has to fail loudly rather than return a smaller maximum.
+  const everNamed = [...(await readFile(path.join(root, "activity.md"), "utf8")).matchAll(/Cache-Bump auf \*{0,2}v(\d+)/g)].map(hit => Number(hit[1]));
   const highest = Math.max(0, ...everNamed);
+  if (highest < Number(version)) throw new Error(`cache version: activity.md records no bump to v${version} -- the floor this check rests on is read out of that file, so an entry it cannot parse makes the check weaker without saying so (highest parsed: v${highest})`);
   if (Number(version) < highest) throw new Error(`cache version: sw.js is at v${version} while activity.md already records a bump to v${highest} -- a version that goes backwards leaves the old shell cached`);
   console.log(`cache version OK: v${version} named identically in ${pinned + 2} places (the shell cache name, ${pinned} bundle queries and the README sentence), and never below the v${highest} activity.md already records`);
 }

@@ -55,6 +55,16 @@ Iteration Counter: 13
   Exitcode 0.
 - Cache-Bump auf **v109** (sw.js zweimal, index.html, README).
 - PRD: Die P1-Luecke "Coalescing" ist geschlossen; offen bleiben dort Tensor Cores.
+- **Nebenbefund, beim Nachpruefen der eigenen Aenderung gefunden: der Guard `cache version` war
+  seit v90 halb blind.** Seine Monotonie-Schranke liest die hoechste je in `activity.md` genannte
+  Cacheversion, mit einem Muster, das auf ein nacktes `v` ankert. Seit v90 setzt jeder Eintrag die
+  Version fett, also fand das Muster seit zwanzig Versionen nur noch v89 - und der Guard meldete
+  das sogar in seiner eigenen Erfolgszeile ("never below the v89"), ohne dass jemand hinsah.
+  Gegenprobe gegen den unveraenderten Guard: ein Ruecksetzen von v109 auf **v90** (sw.js zweimal,
+  index.html, README konsistent) lief **gruen** durch. Muster um optionale Sternchen erweitert;
+  zusaetzlich faellt der Guard jetzt aus, wenn die Schranke nicht bis zur aktuellen sw.js-Version
+  reicht - ein Muster, das seine eigene Quelle nicht mehr liest, soll laut scheitern statt ein
+  kleineres Maximum zurueckzugeben. Mutationstest: beide Faelle gefangen, zwei Kontrollen gruen.
 - Der Iteration Counter wurde erhoeht, da der Run ueber einen Scheduled Task startete.
 
 ## v131 - 2026-10-04 - das Matrix-Raetsel, in dem zwei Verluste zusammenfallen

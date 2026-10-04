@@ -61,6 +61,19 @@ selbst noch trägt. Verschärft auf eine geordnete Tokenliste beider Hälften, d
 
 Volle Suite grün (88 Blöcke, Exitcode 0). Cache v109. Kein Browsertest (geplanter Lauf).
 
+## Nebenbefund: ein Guard, der seit zwanzig Versionen halb blind war
+
+`cache version` hält die Cacheversion monoton, indem es die höchste je in `activity.md` genannte
+liest — mit einem Muster, das auf ein nacktes `v` ankert. Seit v90 setzt jeder Eintrag die Version
+**fett**, also fand das Muster seit zwanzig Versionen nur noch v89. Der Guard sagte es in seiner
+eigenen Erfolgszeile („never below the v89"), und niemand las sie.
+
+Gegenprobe gegen den unveränderten Guard: ein Rücksetzen von v109 auf **v90**, in allen vier
+Stellen konsistent, lief **grün** durch. Muster um optionale Sternchen erweitert; zusätzlich fällt
+der Guard jetzt aus, wenn die Schranke die aktuelle sw.js-Version nicht erreicht — ein Muster, das
+seine eigene Quelle nicht mehr liest, soll laut scheitern statt ein kleineres Maximum
+zurückzugeben. Beide Fälle im Mutationstest gefangen, zwei Kontrollen grün.
+
 ## Nächste Hebel
 
 1. Derselbe Folienabgleich für die übrigen PDF-Lectures (3, 4, 7, 9, 11, 15, 16): Welche
