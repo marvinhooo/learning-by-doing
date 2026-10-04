@@ -18160,3 +18160,158 @@ console.log(`ffn-backward OK: ${fbValues} values, all four gradients match A2's 
   twChecks += 3;
   console.log(`card wave quantization OK: ${twChecks} checks -- lecture 5's matrix mystery worked as a card: at ${A} a ${TM} x ${TN} tiling gives ${tiles(A)} tiles in one wave on ${S} SMs (U ${util(A).toFixed(4)}), at ${B} it gives ${tiles(B)} tiles in ${waves(B)} waves (U ${util(B).toFixed(4)} = tile fill ${tileFill(B).toFixed(4)} x wave fill ${waveFill(B).toFixed(4)}); padding to ${PAD} fixes the tiles and keeps the wave (U ${util(PAD).toFixed(4)}), and ${largest} is the largest square size that fits one wave`);
 }
+
+// ---- card memory traffic: the second factor slide 37 names and slide 38 does not count (v132) ----
+// Lecture 5 gives tiling two advantages in one breath (slide 37): repeated reads move from
+// global memory to shared memory, AND the accesses can be coalesced. Slide 38 then quantifies
+// only the first one, with its factor of T. The app had the same asymmetry: fusion-tiling
+// described tiling and coalescing in prose, "burst" did not occur in the whole markup, and no
+// card put a number on either. The new card multiplies both factors, so the guard has to prove
+// that they really are two -- that T moves the read count and nothing else, and that alpha
+// moves the bytes per read and nothing else. The card's own trap is that alpha is widely
+// remembered as 32: at 128-byte bursts and FP32 it equals the warp width for an unrelated
+// reason, which is why the example is worked at 32-byte bursts (alpha = 8) and the self-check
+// is the one that produces the 32. Every figure is recomputed from the model here, required in
+// order in both languages, and the grouped-thousand figures are counted, so an extra or a
+// missing one fails as well as a wrong one.
+{
+  const mtFail = message => { throw new Error(`card memory traffic: ${message}`); };
+  let mtChecks = 0;
+  // The example's configuration. N and T are the slide's matmul; b and B are the element and
+  // burst sizes the lecture leaves open (it says only "many bytes"), W the warp of slide 34.
+  const N = 1024, T = 64, b = 4, B = 32, W = 32, BIG = 128;
+  const reads = tiled => 2 * N ** 3 / (tiled ? T : 1);
+  const nBurst = strided => strided ? W : Math.ceil(W * b / B);
+  const alphaAt = (burst, strided) => (strided ? W : Math.ceil(W * b / burst)) * burst / (W * b);
+  const alpha = strided => alphaAt(B, strided);
+  const traffic = (tiled, strided) => reads(tiled) * b * alpha(strided);
+  const gib = x => x / 2 ** 30, mib = x => x / 2 ** 20;
+
+  // --- the model's own claims, before a single character of the card is read -----------------
+  // 1. Tiling is exactly the read-count factor the slide states, and it touches nothing else.
+  if (reads(false) / reads(true) !== T) mtFail(`tiling changes the read count by ${reads(false) / reads(true)}, not by the slide's factor T = ${T}`);
+  if (N / T !== reads(true) / (2 * N ** 2)) mtFail("the per-element read count no longer follows N/T");
+  // 2. Coalescing is exactly the byte factor, and it is B/b -- NOT the warp width. The card's
+  //    pitfall and the second half of its self-check both rest on this distinction, so it is
+  //    proved in both directions: at the example's burst the two differ, at 128 bytes they meet.
+  if (alpha(false) !== 1) mtFail(`a coalesced warp amplifies by ${alpha(false)}, so the example's best case is not 1`);
+  if (alpha(true) !== B / b) mtFail(`the strided amplification is ${alpha(true)}, not B/b = ${B / b} as the answer key derives`);
+  if (alpha(true) === W) mtFail(`the example is worked at an amplification of ${alpha(true)}, which is the warp width -- the coincidence the self-check exists to break`);
+  if (alphaAt(BIG, true) !== W) mtFail(`at ${BIG}-byte bursts the amplification is ${alphaAt(BIG, true)}, so the self-check's answer "${W}" is wrong`);
+  if (alphaAt(BIG, false) !== 1) mtFail("at 128-byte bursts a coalesced FP32 warp no longer amplifies by 1");
+  // 3. The two factors are independent: each one moves its own half and leaves the other alone.
+  if (traffic(true, true) / traffic(true, false) !== alpha(true)) mtFail("coalescing no longer acts as a pure factor on the tiled kernel");
+  if (traffic(false, true) / traffic(true, true) !== T) mtFail("tiling no longer acts as a pure factor on the strided kernel");
+  if (traffic(false, false) / traffic(true, true) !== T / alpha(true)) mtFail("the card's punchline comparison no longer holds");
+  // 4. The punchline itself: tiling alone is worth T, but against a coalesced naive kernel the
+  //    tiled-but-strided one is only T/alpha ahead, and that has to be a real loss of ground.
+  if (!(T / alpha(true) > 1 && T / alpha(true) < T)) mtFail("the tiled strided kernel is no longer strictly between the naive coalesced one and a clean win");
+  // 5. No two of the quantities the reader has to keep apart may share a value, except the one
+  //    coincidence the example names out loud (W lanes and B bytes).
+  for (const [an, av, bn, bv] of [["T", T, "alpha", alpha(true)], ["T", T, "W", W], ["alpha", alpha(true), "W", W],
+    ["alpha", alpha(true), "b", b], ["T", T, "b", b], ["N", N, "T", T]])
+    if (av === bv) mtFail(`${an} and ${bn} are both ${av}, so a swap between them would be invisible in the example`);
+  if (B !== W) mtFail("the burst size and the warp width no longer coincide, so the example's clause naming that coincidence is now false");
+  mtChecks += 16;
+
+  const fmt = (locale, x, digits) => { const s = x.toFixed(digits); return locale === "de" ? s.replace(".", ",") : s; };
+  const group = (locale, x) => x.toLocaleString(locale === "de" ? "de-DE" : "en-US");
+  const bytes = locale => locale === "de" ? "Bytes" : "bytes";
+
+  const exampleTokens = locale => {
+    const de = locale === "de";
+    return [`N = ${N}`, `T = ${T}`, `b = ${b} ${bytes(locale)}`, `B = ${B} ${bytes(locale)}`,
+      `${W} ${de ? "Lanes" : "lanes"}`, `${B} ${bytes(locale)}`,
+      `q = N = ${N}`, `2 · ${N}³ = ${group(locale, reads(false))}`, `${b} ${bytes(locale)} ${group(locale, reads(false) * b)} ${bytes(locale)} = ${gib(reads(false) * b)} GiB`,
+      `${T} × ${T}`, `q = ${N}/${T} = ${N / T}`, `2 · ${N}³/${T} = ${group(locale, reads(true))} `, `= ${group(locale, reads(true) * b)} ${bytes(locale)} = ${mib(reads(true) * b)} MiB`,
+      `T = ${T}`,
+      `${W} ${de ? "Lanes" : "lanes"} · ${b} ${bytes(locale)} = ${W * b}`,
+      `⌈${W * b}/${B}⌉ = ${nBurst(false)}`, `${nBurst(false)} · ${B} = ${nBurst(false) * B} ${bytes(locale)}`, `α = ${W * b}/${nBurst(false) * B} = ${alpha(false)}`,
+      `${N} · ${b} = ${N * b} ${bytes(locale)}`,
+      `${nBurst(true)} ${de ? "Bursts" : "bursts"}`, `${nBurst(true)} · ${B} = ${nBurst(true) * B} ${bytes(locale)}`, `${W * b} `,
+      `α = ${nBurst(true) * B}/${W * b} = ${alpha(true)}`, `1/${alpha(true)} = ${fmt(locale, 100 / alpha(true), 1)}${de ? " %" : "%"}`,
+      `${gib(traffic(false, false))} GiB · ${alpha(true)} = ${gib(traffic(false, true))} GiB`,
+      `${gib(traffic(false, false))} GiB`,
+      `${mib(traffic(true, false))} MiB · ${alpha(true)} = ${gib(traffic(true, true))} GiB`,
+      `${mib(traffic(true, false))} MiB`,
+      `${gib(traffic(false, true))} GiB/${mib(traffic(true, false))} MiB = ${T * alpha(true)} = ${T} · ${alpha(true)}`];
+  };
+  const answerTokens = locale => {
+    const de = locale === "de";
+    return [`${nBurst(true)} ${de ? "auf" : "to"} ⌈${W * b}/${B}⌉ = ${nBurst(false)}`,
+      `α ${de ? "von" : "from"} ${alpha(true)} ${de ? "auf" : "to"} ${alpha(false)}`,
+      de ? `statt ${gib(traffic(true, true))} GiB wieder ${mib(traffic(true, false))} MiB` : `${mib(traffic(true, false))} MiB instead of ${gib(traffic(true, true))} GiB`,
+      `q = ${N}/${T} = ${N / T}`,
+      de ? `Faktor ${T} bleibt, der Faktor ${alpha(true)} geht` : `factor of ${T} stays, the factor of ${alpha(true)} goes`,
+      `α = ${W} · B/(${W} · b) = B/b`,
+      `B = ${B} ${bytes(locale)}`, `b = ${b} ${bytes(locale)}`, ` ${alpha(true)}.`,
+      `B = ${BIG} ${bytes(locale)}`, `B/b = ${alphaAt(BIG, true)},`];
+  };
+  // Grouped thousands are the figures the ordered list leaves most room to drift in, so they
+  // are counted as a sequence too: an extra one, a missing one or a reordered one fails.
+  const grouped = text => (String(text).match(/\d{1,3}(?:[.,]\d{3})+/gu) || []).map(s => s.replace(/[.,]/gu, ""));
+  const hold = (where, locale, text, tokens, expectGrouped) => {
+    if (typeof text !== "string") mtFail(`${locale}: ${where} is missing`);
+    let cursor = -1;
+    for (const token of tokens) {
+      const at = text.indexOf(token, cursor + 1);
+      if (at < 0) mtFail(`${locale}: ${where} is missing "${token}" or has it out of order`);
+      cursor = at + token.length - 1;
+    }
+    const printed = grouped(text);
+    if (JSON.stringify(printed) !== JSON.stringify(expectGrouped)) mtFail(`${locale}: ${where} prints the grouped figures ${printed.join(" ")} where the model gives ${expectGrouped.join(" ")}`);
+    return tokens.length + 1;
+  };
+
+  const card = base.formulas.find(f => f.id === "global-memory-traffic");
+  const english = pack.formulas["global-memory-traffic"];
+  if (!card || !english) mtFail("the card is missing in one of the two languages");
+  const exampleGrouped = [reads(false), reads(false) * b, reads(true), reads(true) * b].map(String);
+  for (const [locale, example, answer, pitfall, check] of [
+    ["de", card.example, formulaAnswers["global-memory-traffic"], card.pitfall, card.check],
+    ["en", english.example, english.answer, english.pitfall, english.check]]) {
+    mtChecks += hold("the example", locale, example, exampleTokens(locale), exampleGrouped);
+    mtChecks += hold("the answer key", locale, answer, answerTokens(locale), []);
+    // The example has to say out loud that its two 32s are unrelated, because no guard can
+    // catch a reader who swaps them: "32 Bursts liefern 32 · 32" is its own transposition.
+    if (!/\b32\b[^.]*\b32\b/u.test(example.slice(0, 400))) mtFail(`${locale}: the example no longer names the coincidence between the ${W} lanes and the ${B}-byte burst in its opening`);
+    // The pitfall carries the loss of ground as figures, not as an adjective.
+    const deLocale = locale === "de";
+    for (const needed of [`${deLocale ? "Faktor" : "factor of"} ${T}`,
+      `${gib(traffic(true, true))} GiB`, `${gib(traffic(false, false))} GiB`,
+      deLocale ? `nur Faktor ${alpha(true)} Unterschied, von ${T} \u00fcbrig` : `a factor of ${alpha(true)} apart, out of ${T}`,
+      `\u03b1 = B/b`, `${BIG}`])
+      if (!pitfall.includes(needed)) mtFail(`${locale}: the pitfall no longer states "${needed}", so its claim that tiling alone is not the answer is unquantified`);
+    // The self-check is where the card breaks the coincidence it was worked around, so both
+    // halves are pinned: the transpose that separates the two factors, and the contrast
+    // between the example's amplification and the warp width. A bare "32" is not enough --
+    // the question's own tail carries one.
+    mtChecks += hold("the self-check", locale, check, deLocale
+      ? [`transponierst B vorher`, `α = ${alpha(true)} und nicht ${W},`, `obwohl ein Warp ${W} Lanes hat`, `wirklich ${W}?`]
+      : [`transpose B beforehand`, `α = ${alpha(true)} and not ${W},`, `although a warp has ${W} lanes`, `really be ${W}?`], []);
+    mtChecks += 6;
+  }
+  if (JSON.stringify(card.sources) !== JSON.stringify(["l05"])) mtFail("the card's sources are no longer lecture 5 alone");
+  if (!(base.lectureGuides.l05.formulas || []).includes("global-memory-traffic")) mtFail("lecture 5 no longer curates the card, although slides 33-38 are where both factors are named");
+  const mtFt = base.concepts.find(c => c.id === "fusion-tiling");
+  if (!(mtFt.formulas || []).includes("global-memory-traffic")) mtFail("fusion-tiling no longer links the card");
+  if (mtFt.formulas[0] !== "arithmetic-intensity") mtFail(`fusion-tiling's first formula is ${mtFt.formulas[0]} -- a lecture that curates none of its cards prints only the first, so a new card belongs at the end`);
+  mtChecks += 4;
+
+  // Fixtures: the two mistakes the card exists to prevent must both be caught -- alpha typed as
+  // the warp width, and the tiled traffic quoted without its amplification.
+  let warpCaught = false;
+  try { hold("fixture", "de", card.example.replace(`α = ${nBurst(true) * B}/${W * b} = ${alpha(true)}`, `α = ${nBurst(true) * B}/${W * b} = ${W}`), exampleTokens("de"), exampleGrouped); } catch { warpCaught = true; }
+  let amplifyCaught = false;
+  try { hold("fixture", "en", english.example.replace(`${mib(traffic(true, false))} MiB · ${alpha(true)} = ${gib(traffic(true, true))} GiB`, `${mib(traffic(true, false))} MiB · ${alpha(true)} = ${mib(traffic(true, false))} MiB`), exampleTokens("en"), exampleGrouped); } catch { amplifyCaught = true; }
+  // A third fixture on the grouped sequence alone: the two byte totals swapped reads correctly
+  // as a set and wrongly as a calculation.
+  let orderCaught = false;
+  try { hold("fixture", "de", card.example.replace(group("de", reads(false) * b), group("de", reads(true) * b)), exampleTokens("de"), exampleGrouped); } catch { orderCaught = true; }
+  if (!warpCaught || !amplifyCaught || !orderCaught) mtFail("a fixture was not caught, so this block cannot see");
+  // Control: the untouched texts go through the same function the fixtures went through.
+  hold("control", "de", card.example, exampleTokens("de"), exampleGrouped);
+  hold("control", "en", english.example, exampleTokens("en"), exampleGrouped);
+  mtChecks += 5;
+  console.log(`card memory traffic OK: ${mtChecks} checks -- slide 37 names two advantages of tiling and slide 38 counts one: at N = ${N}, T = ${T}, FP32 and ${B}-byte bursts, tiling cuts the reads by ${T} (${gib(reads(false) * b)} GiB -> ${mib(reads(true) * b)} MiB) and coalescing cuts the bytes per read by ${alpha(true)} = B/b, so a tiled kernel still reading across the layout fetches ${gib(traffic(true, true))} GiB against the naive coalesced ${gib(traffic(false, false))} GiB -- ${T / alpha(true)}x, out of ${T}. The amplification is proved to be B/b and not the warp's ${W} lanes, which it only becomes at ${BIG}-byte bursts`);
+}

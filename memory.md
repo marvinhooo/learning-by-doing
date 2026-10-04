@@ -401,3 +401,25 @@
 - Neue Formelkarte `tile-wave-quantization`; Guard `card wave quantization`. Bei einer neuen
   Formelkarte ziehen mit: Reihenfolge im EN-Pack wie in `FORMULAS` (sonst "locale IDs do not
   match"), README-Zähler, Quellkommentar der Accordion-Route (fünf Zahlen).
+
+## Der Faktor, den die Faustregel verdeckt (v132)
+
+- Die Strafe für einen unkoaleszierten Warp-Zugriff ist **nicht** die Warpbreite 32, sondern
+  α = B/b, die Zahl der Elemente je Burst. Bei den üblichen 128-Byte-Bursts und FP32 ist
+  B/b = 32 und fällt mit den 32 Lanes zusammen - daher die zählebige Faustregel "kostet das
+  32-Fache". Bei 32-Byte-Bursts sind es 8, bei BF16 und 128 Byte 64. Ein Beispiel, das auf
+  dieser Koinzidenz steht, kann seine eigene Regel nicht lehren.
+- Tiling und Coalescing sind zwei unabhängige Faktoren auf demselben Verkehr
+  (Q = 2·N³/T · b · α): Folie 37 nennt beide, Folie 38 beziffert nur T. Gemessen bei N = 1024,
+  T = 64, FP32, 32-Byte-Bursts: Tiling 64x, Coalescing 8x; der gekachelte, aber quer lesende
+  Kernel holt 1 GiB gegen 8 GiB des naiven, aber koaleszierten - von 64 bleibt 8. Karte
+  `global-memory-traffic`, Guard `card memory traffic`.
+- **Blindstelle, im Mutationstest gefunden:** Eine Pruefung auf eine nackte Zahl (`includes("32")`)
+  ist blind, wenn derselbe String die Zahl noch an anderer Stelle traegt - hier trug der
+  Fragesatz des Selbstchecks sie selbst. Eine Zahl, deren Rolle zaehlt, gehoert mit ihrem
+  Traegersatz in eine geordnete Tokenliste, nicht als Ziffernfolge geprueft. Siehe
+  [[cs336-mutation-test-blind-spots]].
+- Wo zwei Groessen desselben Beispiels denselben Wert tragen muessen (hier 32 Lanes und
+  32 Bytes je Burst in "32 Bursts liefern 32 · 32"), kann **kein** Guard den Tausch sehen: Die
+  Mutation ist der Originalstring. Dann schreibt das Beispiel die Koinzidenz selbst aus, und der
+  Guard verlangt diesen Satz.

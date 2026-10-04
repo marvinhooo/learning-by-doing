@@ -3907,6 +3907,59 @@ window.CS336_EN = Object.freeze({
       "answer": "The edge tiles disappear: 2048/256 = 8 and 2048/128 = 16 divide evenly, all 8 · 16 = 128 tiles are full, the tile fill is 1. The wave stays: 128 tiles on 108 SMs need ⌈128/108⌉ = 2 waves, the second with only 20 tiles, so U = 128/(2 · 108) = 0.5926. That is better than 0.4542 at 1793, but far below 0.9074 at 1792 – padding cures tile quantization and leaves wave quantization standing. The largest square size with one wave is exactly 1792: there it is 98 tiles, and every larger size needs at least 8 · 15 = 120 > 108. Lecture 5's edge between 1792 and 1793 is therefore the wave edge itself. For a benchmark this means: a size just above such an edge measures the split into tiles and waves, not the quality of the kernel.",
       "aliases": "wave quantization tile quantization matrix mystery streaming multiprocessor sm a100 108 tile size padding alignment thread block wave throughput drop"
     },
+    "global-memory-traffic": {
+      "cat": "GPU",
+      "title": "Global memory traffic: tiling and coalescing",
+      "expr": "q = N/T   ·   α = n_burst · B / (32 · b)   ·   Q = 2 · N³/T · b · α",
+      "latex": "q=\\frac{N}{T},\\quad \\alpha=\\frac{n_{\\text{burst}}\\,B}{32\\,b},\\quad Q=\\underbrace{\\frac{2N^{3}}{T}}_{\\text{reads}}\\cdot b\\cdot\\underbrace{\\alpha}_{\\text{burst amplification}}",
+      "read": "First count how often each input element is fetched from global memory at all – tiling divides that count by the tile size –, convert it to bytes, and finally multiply by α, the factor by which DRAM delivers more than the warp can use.",
+      "purpose": "Why does tiling alone not deliver the gain lecture 5 computes for it? Slide 37 names two advantages in one breath – repeated reads go to shared memory instead of global memory, and the accesses can be coalesced, i.e. merged into one burst – and slide 38 quantifies only the first one, with the factor T. But these are two independent factors on the same wire: tiling lowers how often you read, coalescing lowers how many bytes actually cross the bus per read request. This formula multiplies both, so that what a kernel leaves on the table by serving only one of them becomes visible.",
+      "dims": "N, T and q count matrix elements and reads respectively, b and B are bytes, 32 and n_burst are counts, α is dimensionless and at least 1, Q is bytes. Q counts the traffic to global memory for the two input matrices; the output is written once and is not included here.",
+      "vars": [
+        [
+          "N",
+          "edge length of the square matrices in C = A · B, the same size lecture 5 writes its tiling math for."
+        ],
+        [
+          "T",
+          "tile size: one thread block holds a T × T block in shared memory, the fast memory on the streaming multiprocessor (SM; the GPU's independent compute unit)."
+        ],
+        [
+          "q = N/T",
+          "how often each input element is fetched from global memory. Without tiling q = N (slide 38): every element of A is read again for each of the N result columns. With tiling q = N/T remains, because the other T accesses to the same element happen in shared memory."
+        ],
+        [
+          "b",
+          "bytes per element: 4 for 32-bit floating point (FP32), 2 for BFloat16 (BF16)."
+        ],
+        [
+          "B",
+          "burst size: DRAM never delivers single bytes, always a whole burst. It comes from a whole memory row being copied into the sense amplifiers on a read (slide 33)."
+        ],
+        [
+          "32",
+          "the lanes of a warp – the 32 consecutively numbered threads that issue their memory accesses together (slide 34). Coalesced means: they fall into as few bursts as possible."
+        ],
+        [
+          "n_burst",
+          "how many distinct bursts one warp access touches. For contiguous addresses ⌈32 · b/B⌉, the minimum; for a stride of at least one burst length – a column of a row-major matrix, say – exactly 32, one per lane."
+        ],
+        [
+          "α",
+          "the amplification: bytes delivered per useful byte, i.e. n_burst · B divided by the 32 · b bytes the warp actually needs. Coalesced α = 1, in the worst case α = B/b."
+        ],
+        [
+          "Q",
+          "the bytes that flow out of global memory in total."
+        ]
+      ],
+      "intuition": "Two dials on the same wire. Tiling sets how often you order from the distant warehouse; coalescing sets how much useless freight each delivery brings along. Because they sit at different places in the same calculation, they multiply – which is why a kernel that turns only one dial can be almost entirely caught up by the other.",
+      "pitfall": "The most common mistake is to take tiling for the whole answer. In the example tiling is worth a factor of 64, yet a tiled kernel that still loads its tiles across the memory layout fetches 1 GiB, while the naive but coalesced kernel fetches 8 GiB – a factor of 8 apart, out of 64. The second mistake is to read an α of 32 as the warp width: from a stride of one burst length onwards α = B/b, the number of elements per burst, and only at 128-byte bursts and FP32 does it coincide with the 32 lanes. The model's boundary: it assumes no cache catches anything between two warps, that the stride is at least one burst length, and that the output, written once, does not matter. Real GPUs have an L2 cache and finer sectors and therefore measure less traffic. The model explains why the two factors multiply; it does not replace the profiler.",
+      "example": "Lecture 5's tiling math with concrete numbers: N = 1024, tiles of T = 64, FP32 with b = 4 bytes, bursts of B = 32 bytes (the 32 lanes of a warp and the 32 bytes of a burst are the same number here by coincidence – they have nothing to do with each other). (1) Reads: without tiling every input element is fetched q = N = 1024 times from global memory, so 2 · 1024³ = 2,147,483,648 element reads across both inputs, at 4 bytes 8,589,934,592 bytes = 8 GiB. With 64 × 64 tiles q = 1024/64 = 16, which is 2 · 1024³/64 = 33,554,432 reads = 134,217,728 bytes = 128 MiB – exactly the slide's factor T = 64. (2) Coalescing, on a single warp access: 32 lanes · 4 bytes = 128 useful bytes. If they are contiguous, the warp touches ⌈128/32⌉ = 4 bursts delivering 4 · 32 = 128 bytes, so α = 128/128 = 1. If the same warp instead reads a column of the row-major matrix, the lanes are 1024 · 4 = 4096 bytes apart, each in its own burst: 32 bursts deliver 32 · 32 = 1024 bytes for 128 useful ones, so α = 1024/128 = 8 and an efficiency of 1/8 = 12.5%. (3) Both factors in Q = 2 · N³/T · b · α: naive and read across 8 GiB · 8 = 64 GiB, naive but coalesced 8 GiB, tiled but read across 128 MiB · 8 = 1 GiB, both together 128 MiB. From the worst to the best case that is 64 GiB/128 MiB = 512 = 64 · 8 – the product of the two factors, not either one of them.",
+      "check": "(a) You transpose B beforehand, so that the kernel reads the second matrix row-wise too. Which of the two factors disappears, which one stays, and how much does the tiled kernel fetch afterwards? (b) Why does the example read α = 8 and not 32, although a warp has 32 lanes – and at which burst size would it really be 32?",
+      "answer": "(a) The transpose removes α only. The lanes read contiguous addresses again, n_burst drops from 32 to ⌈128/32⌉ = 4 and α from 8 to 1; the tiled kernel fetches 128 MiB instead of 1 GiB. It does not touch the read count: how often an element is fetched from global memory at all is decided by T alone, and q = 1024/64 = 16 stands exactly as it did – the factor of 64 stays, the factor of 8 goes. That is precisely why these are two factors and not one: slide 37 names both advantages, slide 38 quantifies only the first. (b) From a stride of one burst length onwards every lane touches its own burst, so α = 32 · B/(32 · b) = B/b – the number of elements per burst, not the number of lanes. At B = 32 bytes and b = 4 bytes that is 8. Only at B = 128 bytes is B/b = 32, the same number as the warp width and for an entirely different reason; that coincidence is what keeps the rule of thumb \"an uncoalesced access costs 32x\" alive. For A2 this means: a kernel that does not get faster after tiling is often not under-tiled, it is still reading its tiles across the memory layout.",
+      "aliases": "coalescing memory coalescing burst dram sector global memory tiling shared memory reads traffic row-major column stride warp lane transpose arithmetic intensity"
+    },
     "memory-state": {
       "cat": "Systems",
       "title": "Training State per Parameter",

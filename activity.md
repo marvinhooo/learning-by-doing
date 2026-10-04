@@ -1,6 +1,61 @@
 # Activity
 
-Iteration Counter: 12
+Iteration Counter: 13
+
+## v132 - 2026-10-05 - der zweite Faktor, den Folie 37 nennt und Folie 38 nicht zaehlt
+
+- Status: abgeschlossen. Branch `claude/deep-review-v132`, gebaut auf dem Kettenkopf v131
+  (`69a9f94`). Der zugewiesene Worktree stand auf v99 (`2ed21e7`); die Ahnenpruefung ueber alle
+  Branch-Spitzen fand keinen verlorenen Zweig. Haupt-Checkout seit 29. Juli unberuehrt, kein
+  Codex aktiv. Weil `git switch`/`git reset` in diesem Worktree gesperrt waren, wurde der
+  Kettenkopf additiv per `git worktree add` ausgecheckt - der zugewiesene Worktree blieb unberuehrt.
+- **Hebel 1 aus v131 geschlossen:** Lecture 5s Folien 33-38 (Memory Coalescing, DRAM-Bursts,
+  Tiling-Rechnung) waren in der App rein qualitativ. "Burst" kam im ganzen Markup kein einziges
+  Mal vor, "koalesziert" zweimal und nie mit einer Zahl, und die Tiling-Rechnung der Folie 38
+  (ohne Tiling wird jedes Eingabeelement N-mal gelesen, mit Tiling N/T-mal, also Faktor T) stand
+  nirgends. Folie 37 nennt beide Vorteile des Tilings in einem Atemzug, Folie 38 beziffert nur
+  den ersten - die App hatte dieselbe Asymmetrie.
+- **Neue Formelkarte `global-memory-traffic`** (DE/EN, Antwortschluessel, Quelle l05):
+  q = N/T, α = n_burst · B/(32 · b), Q = 2 · N³/T · b · α. Beispiel bei N = 1024, T = 64, FP32
+  (b = 4 Bytes) und 32-Byte-Bursts: Tiling senkt die Lesungen von 2.147.483.648 (8 GiB) auf
+  33.554.432 (128 MiB), Faktor 64; Coalescing senkt die gelieferten Bytes je Warp-Zugriff um
+  α = 8 (32 Bursts a 32 Bytes fuer 128 nuetzliche, Effizienz 12,5 %). **Pointe:** Die Faktoren
+  sind unabhaengig und multiplizieren sich. Der gekachelte, aber quer lesende Kernel holt 1 GiB,
+  der naive, aber koaleszierte 8 GiB - nur Faktor 8 Unterschied, von 64 uebrig. Schlechtester zu
+  bestem Fall 64 GiB zu 128 MiB = 512 = 64 · 8.
+- **Die Koinzidenz, um die das Beispiel herumgebaut ist:** α ist bei Schrittweiten ab einer
+  Burstlaenge nicht die Warpbreite, sondern B/b - die Zahl der Elemente je Burst. Bei den
+  ueblichen 128-Byte-Bursts und FP32 ist B/b = 32 und faellt mit den 32 Lanes zusammen, woher die
+  Faustregel "ein unkoaleszierter Zugriff kostet das 32-Fache" stammt. Das Beispiel rechnet
+  deshalb bei 32-Byte-Bursts (α = 8), und der Selbstcheck erzeugt die 32 erst und benennt ihren
+  anderen Grund. Die verbleibende Zahlenkollision (32 Lanes, 32 Bytes je Burst) schreibt das
+  Beispiel im ersten Satz selbst aus, weil kein Guard sie sehen kann: "32 Bursts liefern 32 · 32"
+  ist die eigene Vertauschung.
+- Verknuepft: Lecture 5 kuratiert die Karte (5. Formel), `fusion-tiling` fuehrt sie am Ende seiner
+  Formelliste (erste Karte bleibt `arithmetic-intensity`).
+- Zaehler nachgezogen: README 85 Formeln, Quellkommentar der Accordion-Route (85/271/77/109/276).
+- **Guard `card memory traffic`** (87 -> 88, 131 Pruefungen): 16 Modellzusicherungen vor dem
+  ersten gelesenen Zeichen - Tiling bewegt genau die Lesezahl, α genau die Bytes je Lesung, beide
+  als reine Faktoren in beide Richtungen; α = B/b statt Warpbreite, in beide Richtungen geprueft
+  (beim Beispielburst verschieden, bei 128 Byte gleich); und eine paarweise Pruefung, dass keine
+  zwei der Groessen T, α, W, b, N denselben Wert tragen - ausser der einen Koinzidenz, die das
+  Beispiel ausschreibt und die der Guard deshalb ausdruecklich verlangt. Dazu Beispiel,
+  Antwortschluessel und Selbstcheck tokenweise in Reihenfolge in beiden Sprachen, die
+  gruppierten Tausender als gezaehlte Folge, und die Fallstrick-Zahlen. Drei eingebaute Fixtures
+  (α als Warpbreite, fehlende Verstaerkung, vertauschte Byte-Summen) und zwei Kontrollen.
+- **Mutationstest:** 41 Mutationen, **0 entkommen, 0 inert**, jeder Fang mit gemessenem Grund und
+  nachweislich aus dem neuen Block (Schlankfassung Setup + neuer Block, 0,25 s statt 86 s).
+  5 Kontrollmutationen blieben gruen, Kontrolle vor und nach jedem Durchgang gruen. Ein erster
+  Durchgang liess eine Mutation entkommen (der englische Selbstcheck durfte "obwohl ein Warp
+  32 Lanes hat" verlieren, weil die Pruefung nur auf die nackte "32" sah, die der Fragesatz
+  selbst noch traegt); die Pruefung wurde auf eine geordnete Tokenliste beider Haelften
+  verschaerft, danach gefangen.
+- **Kein Browsertest** (geplanter Lauf); die volle Suite rendert die Karte in `accordion route`,
+  `formula field fallthrough`, `card numerals`, `card comma lists` - alle gruen, 88 Bloecke,
+  Exitcode 0.
+- Cache-Bump auf **v109** (sw.js zweimal, index.html, README).
+- PRD: Die P1-Luecke "Coalescing" ist geschlossen; offen bleiben dort Tensor Cores.
+- Der Iteration Counter wurde erhoeht, da der Run ueber einen Scheduled Task startete.
 
 ## v131 - 2026-10-04 - das Matrix-Raetsel, in dem zwei Verluste zusammenfallen
 
