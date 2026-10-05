@@ -429,3 +429,35 @@
   Versionen lang auf v89, und ein Ruecksetzen auf v90 lief gruen durch. Wer eine Schranke aus
   einer Textdatei liest, muss verlangen, dass sie den aktuellen Stand auch wirklich erreicht;
   sonst macht jede Formatierungsaenderung die Pruefung schwaecher, ohne es zu sagen.
+- **Ein Vorteil, der nur einen von zwei Summanden trifft, liefert nie seinen eigenen Faktor
+  (v133).** Lecture 3 schreibt die Decode-Intensitaet als AI = (n·H_kv/(d·h) + 1/b)^-1. MQA teilt
+  den ersten Summanden durch die Kopfzahl, nicht die Summe, also ist der Deckel b·n/d + 1 - bei
+  d = 2.048, h = 32, n = 4.096, b = 5 sind das 11 gegen eine Kopfzahl von 32. Geliefert werden
+  8,381. Die Lehre fuer jede weitere Karte dieser Art: Wenn ein Mechanismus an genau einem Term
+  einer Summe zieht, ist die interessante Zahl nicht sein Faktor, sondern der Punkt, an dem der
+  andere Term uebernimmt (hier H_kv = d·h/(n·b) = 3,2, zwischen zwei Teilern von h). Und der
+  Deckel gehoert als Ungleichung in den Guard: `ceilFactor < h` ist die Pointe und muss
+  scheitern, wenn jemand die Zahlen so waehlt, dass sie verschwindet.
+- **Die Grenze eines Modells gehoert aus dem anderen Modell gelesen, nicht abgeschrieben.** Der
+  Fallstrick der neuen Karte behauptet, dass die aeltere Lecture-10-Karte
+  `attention-arithmetic-intensity` (AI_attn = S·T_q/(S+T_q)) H_kv nicht enthaelt und MQA deshalb
+  prinzipiell nicht unterscheiden kann. Der Guard liest expr, latex, read, dims und vars *jener*
+  Karte in beiden Sprachen; schreibt jemand dort H_kv hinein, faellt er aus. Eine Grenze, die nur
+  in der Prosa der einen Karte steht, veraltet still, wenn die andere sich aendert.
+  Siehe [[cs336-mutation-test-blind-spots]].
+- **`expr` ist das einzige Formelfeld, das ohne Escaping ins Markup fliesst (v133).**
+  `formulaMarkup` ist `String(f.expr).replace(/ /g," ")` und landet in
+  `<div class="formula-display">`. Ein nacktes `<` vor einem Buchstaben oeffnet ein Tag: Ein
+  Parser nimmt alles bis zum naechsten `>` als Bogus-Element und schluckt dabei auch das
+  `</div>`. `cascade-yield` brach dadurch sichtbar bei `(∏_{j` ab. Konvention ist `&lt;`
+  (autoregressive, perplexity, triton-grid-mask, sft-loss) - sie war tragend und unerzwungen.
+  Guard `expr markup safety` prueft die Klasse und verlangt zusaetzlich, dass die Karten mit
+  echtem Vergleich die Entity behalten, sonst wacht die Regel ueber einer leeren Menge.
+- **Eine separator-blinde Zahlenpruefung wird falsch, sobald eine Karte mehr Nachkommastellen
+  bekommt.** Die Tausender-Folge aus v132 (`\d{1,3}(?:[.,]\d{3})+`) las das deutsche `0,0625`
+  als gruppierte Zahl `0,062` mit uebriger 5 und meldete Zahlen, die die Karte nie druckte. Eine
+  solche Pruefung muss je Sprache nur deren Gruppentrenner kennen und eine Fundstelle am
+  Dezimaltrenner abweisen. Umgekehrt gilt: exakte Gleichheit ist das falsche Instrument fuer
+  Summen wie `2 + 0,2`; eine korrekte Modellzusicherung scheitert sonst an ihrer eigenen
+  Binaerrundung. Toleranz 1e-12 relativ, aber belegen, dass sie enger ist als der kleinste
+  Unterschied, den die Karte behauptet. Siehe [[cs336-guard-verification-lessons]].

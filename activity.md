@@ -1,6 +1,98 @@
 # Activity
 
-Iteration Counter: 13
+Iteration Counter: 14
+
+## v133 - 2026-10-05 - der Faktor, den die Kopfzahl verspricht und der Batch behaelt
+
+- Status: abgeschlossen. Branch `claude/deep-review-v133`, gebaut auf dem Kettenkopf v132
+  (`6bc305b`). Der zugewiesene Worktree stand auf v99 (`2ed21e7`); `git switch` war diesmal
+  nicht gesperrt, der Kettenkopf wurde direkt ausgecheckt. Die Ahnenpruefung ueber alle
+  Branch-Spitzen fand keinen verlorenen Zweig - `6bc305b` enthaelt jede Spitze. Haupt-Checkout
+  seit 29. Juli unberuehrt, kein Codex aktiv.
+- **Fortsetzung des Folienabgleichs aus v131/v132, jetzt Lecture 3 (68 Folien):** Pre-/Post-Norm,
+  RMSNorm, Bias-Terme, Aktivierungen und GLU, serielle gegen parallele Bloecke, Positions-
+  Embeddings und RoPE, die Hyperparameter-Konsense (d_ff/d_model, Kopfverhaeltnis, Aspect Ratio,
+  Vokabular, Dropout/Weight Decay) und die Stabilitaetstricks (z-loss, QK-Norm, Soft-Capping)
+  sind abgedeckt - teils bis auf die Zahl, etwa die Parametergleichheit 3 x 768 x 2048 =
+  2 x 768 x 3072 fuer SwiGLU gegen dichtes MLP. **Die Luecke lag am Ende der Lecture, Folien 59
+  bis 62.**
+- **Der Befund:** Lecture 3 begruendet MQA und GQA nicht mit der Cachegroesse, sondern mit der
+  Arithmetic Intensity des Decodings, und schreibt sie als **zwei Summanden** - den mit der
+  Sequenz wachsenden KV-Cache und die bei jedem Schritt erneut gelesenen, aber ueber den Batch
+  geteilten Gewichte. Weniger KV-Heads teilen nur den ersten. Die App argumentierte die Varianten
+  ausschliesslich in Bytes: `attention-variants` bezifferte den Cache in Megabyte (128 MB gegen
+  32 MB) und nannte den Rest `Speicherbandbreite`. `n/d` kam im ganzen Markup nicht vor.
+- **Neue Formelkarte `decode-intensity-heads`** (DE/EN, Antwortschluessel, Quellen l03 + l10):
+  AI(H_kv) = (n·H_kv/(d·h) + 1/b)^-1 < b. Beispiel bei d = 2.048, h = 32 (d_head = 64),
+  n = 4.096, b = 5: Grundbaustein n/(d·h) = 0,0625, Gewichtsterm 1/b = 0,2. MHA (H_kv = 32)
+  2 + 0,2 = 2,2 -> AI = 0,4545 (die 2 ist genau das n/d der Folie 61); GQA (H_kv = 4, Gruppen
+  von 8) 0,25 + 0,2 = 0,45 -> AI = 2,2222; MQA 0,0625 + 0,2 = 0,2625 -> AI = 3,8095.
+- **Pointe:** Der versprochene Faktor kommt nicht an, und zwar nicht knapp. MHA -> GQA liefert
+  4,8889 statt der Gruppengroesse 8, GQA -> MQA nur noch 1,7143 statt 4, insgesamt **8,381 statt
+  32**. Der Grund ist, dass MQA den ersten Summanden durch h teilt, nicht die Summe: Der
+  Gewichtsterm deckelt den gesamten Gewinn auf b·n/d + 1 = **11**. Die 32 war nie zu haben, die
+  11 schon, und MQA holt davon 76,19 %. Gleich gross sind die beiden Kosten bei
+  H_kv = d·h/(n·b) = 3,2 - zwischen den erreichbaren Teilern 2 und 4, weshalb GQA mit H_kv = 4
+  schon knapp hinter dem Knick liegt und der letzte Schritt so wenig bringt.
+- **Der Selbstcheck erzeugt Zahlen, die im Beispiel nicht stehen:** Batch auf b = 10 verdoppelt,
+  MHA bewegt sich um 4,76 % (0,4545 -> 0,4762), MQA springt von 3,8095 auf 6,1538 und der Faktor
+  von 8,381 auf 12,923, der Deckel von 11 auf 21. Batching und MQA sind also Ergaenzungen und
+  keine Alternativen - der Batch verkleinert genau den Summanden, der MQAs Gewinn deckelt.
+- Verknuepft: Lecture 3 kuratiert die Karte (10. Formel), `attention-variants` fuehrt sie am Ende
+  seiner Formelliste (erste Karte bleibt `kv-cache`).
+- Zaehler nachgezogen: README 86 Formeln, Quellkommentar der Accordion-Route (86/274/86/78/110/278).
+- **Guard `card decode intensity`** (88 -> 89, 186 Pruefungen): 22 Modellzusicherungen vor dem
+  ersten gelesenen Zeichen - bei H_kv = h ist der Cache-Term genau n/d; der Cache-Term ist ein
+  reiner Faktor in H_kv und der Gewichtsterm von H_kv unabhaengig, beides paarweise in beide
+  Richtungen; jeder gelieferte Faktor liegt echt unter dem versprochenen und echt ueber 1; der
+  Deckel b·n/d + 1 liegt echt unter h (das ist die Pointe und wird als Ungleichung gefuehrt, nicht
+  als Satz); der Umschlagpunkt 3,2 ist nachweislich keine ganze Zahl und faellt zwischen zwei
+  Teiler von h; und keine zwei Groessen tragen denselben Wert ausser den drei Koinzidenzen, die
+  die Karte selbst ausschreibt. Dazu Beispiel, Antwortschluessel, Fallstrick und Selbstcheck
+  tokenweise in Reihenfolge in beiden Sprachen, die gruppierten Tausender als gezaehlte Folge,
+  vier eingebaute Fixtures und zwei Kontrollen.
+- **Die Modellgrenze steht als Pruefung, nicht als Behauptung:** Der Fallstrick sagt, dass die
+  Lecture-10-Karte `attention-arithmetic-intensity` (AI_attn = S·T_q/(S+T_q)) H_kv gar nicht
+  enthaelt und MQA deshalb prinzipiell nicht sehen kann. Der Guard liest das aus *jener* Karte
+  (expr, latex, read, dims, vars, beide Sprachen) statt es hier abzuschreiben; eine Mutation, die
+  H_kv in ihr englisches `read` schreibt, wird gefangen.
+- **Mutationstest:** 68 Mutationen, **0 entkommen, 0 inert**, jeder Fang nachweislich aus dem
+  neuen Block (Schlankfassung Setup + neuer Block, 0,26 s statt 92 s), 4 Kontrollmutationen in
+  den bewusst nicht gebundenen Feldern (read, dims, intuition, aliases) blieben gruen, Kontrolle
+  vor und nach jedem Durchgang gruen. Zwei eigene Mutationen waren zunaechst falsch gebaut (ein
+  Anker traf das `check`-Feld statt `sources`, ein zweiter existierte nicht) - beide praezisiert
+  und danach gefangen, keine Guard-Luecke.
+- Zwei eigene Messinstrumente waren zuerst falsch, nicht der Code: Die Modellzusicherungen
+  verglichen `2 + 0,2` exakt und scheiterten an der eigenen Binaerrundung (jetzt 1e-12 relativ,
+  acht Groessenordnungen enger als der kleinste Unterschied der Karte, 0,25 gegen 0,2). Und die
+  Tausender-Folge von v132 ist separator-blind: Ihr Muster liest das deutsche `0,0625` als
+  gruppierte Zahl `0,062` mit einer uebrigen 5. Die Pruefung ist jetzt lokalebewusst - je Sprache
+  nur deren Gruppentrenner, und eine Fundstelle am Dezimaltrenner wird abgewiesen.
+- **Kein Browsertest** (geplanter Lauf). Ersatz: die Karte durch `formulaLearningSequence`,
+  `formulaPrimerMarkup`, `formulaNotationMarkup`, `answerDisclosure` und `selfCheckMarkup` der App
+  selbst headless gerendert, in beiden Sprachen, 7.792 und 7.380 Zeichen, alle 13 Tagarten
+  ausbalanciert, 4 Primer-Begriffe, aufklappbare Musterloesung vorhanden, alle fuenf gerechneten
+  Zahlen erreichen den Leser, kein `undefined`, kein NaN, kein uninterpoliertes Template. Die
+  volle Suite rendert die Karte zusaetzlich in `accordion route` (274 Instanzen) und prueft sie in
+  `formula field fallthrough`, `card numerals`, `card comma lists`.
+- Cache-Bump auf **v110** (sw.js zweimal, index.html, README).
+- **Nebenbefund, beim Pruefen der eigenen Schreibweise gefunden: `cascade-yield` rendert seit
+  immer verstuemmelt.** `formulaMarkup` ist `String(f.expr).replace(/\u00a0/g," ")` - ohne
+  Escaping - und wird in `<div class="formula-display">` interpoliert. Vier Karten schreiben
+  deshalb `&lt;` in `expr` (autoregressive, perplexity, triton-grid-mask, sft-loss); diese
+  Konvention ist tragend, aber nichts erzwang sie. `cascade-yield` trug im Index seines dritten
+  Teils ein nacktes `<i`, und `<` vor einem Buchstaben oeffnet ein Tag: Ein echter HTML-Parser
+  (Pythons `html.parser` gegen den tatsaechlichen Wrapper) nimmt `<i} y_j) · (1 − yᵢ)</div` als
+  ein einziges Bogus-Element - der Leser sah die Gleichung bei `(∏_{j` abbrechen, und das
+  `</div>` wurde mitgeschluckt, sodass das Element nie schloss. Ein Zeichen geaendert.
+- **Neuer Guard `expr markup safety`** (89 -> 90, 90 Pruefungen): kein `expr` darf in einer der
+  beiden Sprachen ein nacktes `<` oder `>` tragen - die Klasse, nicht der Einzelfall. Damit die
+  Regel nicht ueber einer leeren Menge wacht, verlangt sie zusaetzlich, dass die fuenf Karten mit
+  echtem Vergleich ihn weiter als Entity schreiben, und sie traegt eine eingebaute Fixture, die
+  `cascade-yield`s nacktes `<` zuruecksetzt und gefangen werden muss. Mutationstest: 5 Mutationen
+  (nacktes `<` in cascade-yield, perplexity und triton-grid-mask, ein nacktes `>` in der neuen
+  Karte, Entity in sft-loss entfernt), alle 5 gefangen, 0 entkommen, Kontrolle gruen.
+- Der Iteration Counter wurde erhoeht, da der Run ueber einen Scheduled Task startete.
 
 ## v132 - 2026-10-05 - der zweite Faktor, den Folie 37 nennt und Folie 38 nicht zaehlt
 

@@ -18321,3 +18321,270 @@ console.log(`ffn-backward OK: ${fbValues} values, all four gradients match A2's 
   mtChecks += 5;
   console.log(`card memory traffic OK: ${mtChecks} checks -- slide 37 names two advantages of tiling and slide 38 counts one: at N = ${N}, T = ${T}, FP32 and ${B}-byte bursts, tiling cuts the reads by ${T} (${gib(reads(false) * b)} GiB -> ${mib(reads(true) * b)} MiB) and coalescing cuts the bytes per read by ${alpha(true)} = B/b, so a tiled kernel still reading across the layout fetches ${gib(traffic(true, true))} GiB against the naive coalesced ${gib(traffic(false, false))} GiB -- ${T / alpha(true)}x, out of ${T}. The amplification is proved to be B/b and not the warp's ${W} lanes, which it only becomes at ${BIG}-byte bursts`);
 }
+
+// ---- card decode intensity: the factor the head count promises and the batch keeps (v133) ----
+// Lecture 3 does not argue MQA/GQA from cache size. On slides 59-62 it argues them from
+// arithmetic intensity, and it writes the decode case as two summands: the KV cache, which
+// grows with the sequence, and the weights, which are re-read at every step and shared across
+// the batch. Fewer KV heads divide only the first summand. The app argued the variants purely
+// in bytes -- `attention-variants` quantified the cache in megabytes and called the rest
+// "memory bandwidth" -- so the one number the lecture puts on the table was missing, and with
+// it the reason the promised factor does not arrive.
+//
+// The card's trap is that h looks like the speed-up. It is not, and the limit is not a near
+// miss: the weight term caps the whole gain at b*n/d + 1, which at the example's numbers is 11
+// against a head count of 32. So the guard proves the ceiling BEFORE reading the card, proves
+// the two summands really are two (each a pure factor in its own variable and flat in the
+// other), and proves the claim the pitfall makes about the OTHER card -- that Lecture 10's
+// AI_attn = S*T_q/(S+T_q) contains no H_kv and therefore cannot see MQA at all -- by reading
+// that card instead of trusting the sentence. The model's limit is a claim like any other.
+{
+  const diFail = message => { throw new Error(`card decode intensity: ${message}`); };
+  let diChecks = 0;
+  // Exact equality is the wrong instrument for 2 + 0.2: the sums the model forms are not
+  // representable in binary, so a correct model would fail on its own rounding. The tolerance
+  // is 1e-12 relative, which is still eight orders tighter than the smallest distinction the
+  // card makes (the 0.25 against the 0.2 at the break-even).
+  const near = (x, y) => Math.abs(x - y) <= 1e-12 * Math.max(1, Math.abs(x), Math.abs(y));
+  // The example's configuration: slide 61's n, d and b, plus the head counts the card walks.
+  const n = 4096, d = 2048, h = 32, b = 5, HKV = [32, 4, 1];
+  const [MHA, GQA, MQA] = HKV;
+  const unit = n / (d * h);               // the building block, one KV head's share
+  const cache = hkv => hkv * unit;        // first summand: reading the KV cache
+  const weight = 1 / b;                   // second summand: reading the weights
+  const ai = hkv => 1 / (cache(hkv) + weight);
+  const factor = (from, to) => ai(to) / ai(from);
+  const ceiling = b;                      // AI as H_kv -> 0
+  const ceilFactor = b * (n / d) + 1;     // the whole headroom above MHA
+  const balance = (d * h) / (n * b);      // the H_kv where the two summands meet
+  const divisors = [32, 16, 8, 4, 2, 1];
+
+  // --- the model's own claims, before a single character of the card is read -----------------
+  // 1. Under MHA the first summand is exactly slide 61's n/d, and the group size is 1.
+  if (!near(cache(MHA), n / d)) diFail(`at H_kv = h the cache term is ${cache(MHA)}, not slide 61's n/d = ${n / d}`);
+  if (h / MHA !== 1) diFail("the MHA row no longer has a group size of one, so it is not the baseline the slide starts from");
+  if (h / MQA !== h) diFail("the MQA row no longer shares all heads into one group");
+  // 2. The two summands really are two: each is a pure factor in its own variable and flat in
+  //    the other. Both directions, because an invariant has two and only one is usually checked.
+  for (const [x, y] of [[MHA, GQA], [GQA, MQA], [MHA, MQA]]) {
+    if (!near(cache(x) / cache(y), x / y)) diFail(`the cache term is not a pure factor in H_kv between ${x} and ${y}`);
+    if (ai(x) >= ai(y)) diFail(`lowering H_kv from ${x} to ${y} does not raise the intensity, so the card's ordering is wrong`);
+  }
+  for (const hkv of HKV) if (!near(1 / ai(hkv) - cache(hkv), weight)) diFail(`the weight term moves with H_kv at H_kv = ${hkv}, so no attention variant could leave it alone`);
+  if (!(weight > 0)) diFail("the weight term vanished, and with it the whole point of the card");
+  // 3. The punchline: every delivered factor is strictly below the head/group factor it
+  //    promises, and the reason is the ceiling -- which is itself strictly below h. The 32 was
+  //    never on offer. Both directions: delivered < promised, and delivered > 1.
+  for (const [from, to, promised] of [[MHA, GQA, MHA / GQA], [GQA, MQA, GQA / MQA], [MHA, MQA, MHA / MQA]]) {
+    if (!(factor(from, to) < promised * (1 - 1e-12))) diFail(`H_kv ${from} -> ${to} delivers ${factor(from, to)}, which is not below the promised ${promised}`);
+    if (!(factor(from, to) > 1)) diFail(`H_kv ${from} -> ${to} delivers ${factor(from, to)}, so the step buys nothing at all`);
+  }
+  if (!(ceilFactor < h)) diFail(`the ceiling allows a factor of ${ceilFactor}, which is not below the head count ${h} -- then the card's claim that h was never available is false`);
+  if (!(factor(MHA, MQA) < ceilFactor)) diFail(`MQA delivers ${factor(MHA, MQA)}, above the ceiling factor ${ceilFactor}`);
+  if (!near(ceiling / ai(MHA), ceilFactor)) diFail(`the headroom above MHA is ${ceiling / ai(MHA)}, not b*n/d + 1 = ${ceilFactor}`);
+  for (const hkv of HKV) if (!(ai(hkv) < ceiling)) diFail(`at H_kv = ${hkv} the intensity reaches ${ai(hkv)}, which is not strictly below the ceiling b = ${ceiling}`);
+  if (!near(1 / weight, ceiling)) diFail("the ceiling is no longer the reciprocal of the weight term, so the card's limit argument has lost its basis");
+  // 4. The break-even is where the card says the curve bends, and it has to fall strictly
+  //    between two reachable head counts -- otherwise the self-check's answer is wrong.
+  if (!near(cache(balance), weight)) diFail(`at H_kv = ${balance} the two summands are ${cache(balance)} and ${weight}, so it is not the break-even`);
+  if (Number.isInteger(balance)) diFail(`the break-even ${balance} is an integer, so the self-check cannot ask why it is not one`);
+  if (!(balance > 2 && balance < 4)) diFail(`the break-even ${balance} no longer falls between two divisors of h, so "between 2 and 4" is wrong`);
+  if (!divisors.every(x => h % x === 0) || divisors.length !== 6) diFail("the reachable head counts are no longer the six divisors of h the answer key lists");
+  if (!(cache(GQA) > weight && cache(MQA) < weight)) diFail("GQA is no longer above and MQA below the break-even, so the card's explanation of the small last step is wrong");
+  // 5. No two quantities the reader must keep apart may share a value, except the coincidences
+  //    the card states itself (H_kv = h at MHA, group = h at MQA, cache term = n/d at MHA).
+  for (const [an, av, bn, bv] of [["n/d", n / d, "b", b], ["n/d", n / d, "h/GQA group", h / GQA], ["b", b, "h/GQA group", h / GQA],
+    ["GQA's H_kv", GQA, "b", b], ["GQA's H_kv", GQA, "n/d", n / d], ["h", h, "b", b], ["unit", unit, "weight", weight],
+    ["cache(GQA)", cache(GQA), "weight", weight], ["ceilFactor", ceilFactor, "b", b]])
+    if (av === bv) diFail(`${an} and ${bn} are both ${av}, so a swap between them would be invisible in the example`);
+  if (GQA !== h / (h / GQA)) diFail("the GQA row's head count and group size no longer multiply to h");
+  // 6. The model's limit, as the pitfall states it: Lecture 10's AI_attn has no H_kv in it, so
+  //    it cannot distinguish the three variants. Read out of that card, not typed here.
+  const other = base.formulas.find(f => f.id === "attention-arithmetic-intensity");
+  const otherEn = pack.formulas["attention-arithmetic-intensity"];
+  if (!other || !otherEn) diFail("the Lecture 10 card the pitfall contrasts with is missing in one of the two languages");
+  for (const [locale, surface] of [["de", other], ["en", otherEn]]) {
+    const text = [surface.expr, surface.latex, surface.read, surface.dims, ...(surface.vars || []).flat()].join(" ");
+    if (/H_?\{?kv/iu.test(text)) diFail(`${locale}: the Lecture 10 card now mentions H_kv, so the pitfall's claim that it cannot see MQA is no longer true`);
+  }
+  if (!/S\s*·\s*T_q\s*\/\s*\(\s*S\s*\+\s*T_q\s*\)/u.test(other.expr)) diFail(`the Lecture 10 card no longer reads S·T_q/(S+T_q), so the pitfall quotes a formula that is not there`);
+  diChecks += 22;
+
+  const fmt = (locale, x, digits) => { const s = x.toFixed(digits); return locale === "de" ? s.replace(".", ",") : s; };
+  const group = (locale, x) => x.toLocaleString(locale === "de" ? "de-DE" : "en-US");
+  const f4 = (locale, x) => fmt(locale, x, 4).replace(/0+$/u, "").replace(/[.,]$/u, m => m);
+
+  const exampleTokens = locale => {
+    const de = locale === "de";
+    return [
+      `d = ${group(locale, d)}`, `h = ${h}`, `d_head = ${d / h}`, `n = ${group(locale, n)}`, `b = ${b}`,
+      `n/(d·h) = ${group(locale, n)}/${group(locale, d * h)} = ${fmt(locale, unit, 4)}`,
+      `1/b = 1/${b} = ${fmt(locale, weight, 1)}`,
+      `H_kv = ${MHA}`, `${MHA}·${fmt(locale, unit, 4)} = ${cache(MHA)}`,
+      `n/d = ${group(locale, n)}/${group(locale, d)} = ${n / d}`,
+      `${cache(MHA)} + ${fmt(locale, weight, 1)} = ${fmt(locale, cache(MHA) + weight, 1)}`,
+      `1/${fmt(locale, cache(MHA) + weight, 1)} = ${fmt(locale, ai(MHA), 4)}`,
+      `H_kv = ${GQA}`, `h/H_kv = ${h / GQA}`, `${GQA}·${fmt(locale, unit, 4)} = ${fmt(locale, cache(GQA), 2)}`,
+      `${fmt(locale, cache(GQA), 2)} + ${fmt(locale, weight, 1)} = ${fmt(locale, cache(GQA) + weight, 2)}`,
+      `1/${fmt(locale, cache(GQA) + weight, 2)} = ${fmt(locale, ai(GQA), 4)}`,
+      `${fmt(locale, cache(MHA) + weight, 1)}/${fmt(locale, cache(GQA) + weight, 2)} = ${fmt(locale, factor(MHA, GQA), 4)}`,
+      de ? `Gruppengröße ${h / GQA}` : `group size had promised ${h / GQA}`,
+      `H_kv = ${MQA}`, `${fmt(locale, cache(MQA), 4)}`,
+      `${fmt(locale, cache(MQA), 4)} + ${fmt(locale, weight, 1)} = ${fmt(locale, cache(MQA) + weight, 4)}`,
+      `1/${fmt(locale, cache(MQA) + weight, 4)} = ${fmt(locale, ai(MQA), 4)}`,
+      `${fmt(locale, cache(GQA) + weight, 2)}/${fmt(locale, cache(MQA) + weight, 4)} = ${fmt(locale, factor(GQA, MQA), 4)}`,
+      de ? `durch ${GQA / MQA} geteilt` : `divided by ${GQA / MQA}`,
+      `${fmt(locale, cache(MHA) + weight, 1)}/${fmt(locale, cache(MQA) + weight, 4)} = ${fmt(locale, factor(MHA, MQA), 3)}`,
+      de ? `versprochenen ${h}` : `promised ${h}`,
+      `${fmt(locale, cache(GQA), 2)}`, `${fmt(locale, weight, 1)}`,
+      `H_kv = d·h/(n·b) = ${group(locale, d * h)}/${group(locale, n * b)} = ${fmt(locale, balance, 1)}`,
+      de ? `AI = b = ${b}` : `AI would be b = ${b}`, `${b}/${fmt(locale, ai(MHA), 4)} = ${ceilFactor}`,
+      `${fmt(locale, ai(MQA), 4)}`, `${fmt(locale, ai(MQA) / ceiling * 100, 2)} %`];
+  };
+  const answerTokens = locale => {
+    const de = locale === "de";
+    const b2 = 10, w2 = 1 / b2;
+    const ai2 = hkv => 1 / (cache(hkv) + w2);
+    return [
+      `1/b = ${fmt(locale, weight, 1)}`, ` ${fmt(locale, w2, 1)}`,
+      `${cache(MHA)} + ${fmt(locale, w2, 1)} = ${fmt(locale, cache(MHA) + w2, 1)}`,
+      `AI = ${fmt(locale, ai2(MHA), 4)}`, `${fmt(locale, ai(MHA), 4)}`,
+      `${fmt(locale, (ai2(MHA) / ai(MHA) - 1) * 100, 2)}`,
+      `${fmt(locale, ai(MQA), 4)}`, `1/${fmt(locale, cache(MQA) + w2, 4)} = ${fmt(locale, ai2(MQA), 4)}`,
+      `${fmt(locale, factor(MHA, MQA), 3)}`,
+      `${fmt(locale, cache(MHA) + w2, 1)}/${fmt(locale, cache(MQA) + w2, 4)} = ${fmt(locale, ai2(MQA) / ai2(MHA), 3)}`,
+      `b·n/d + 1 = ${ceilFactor}`, ` ${b2 * (n / d) + 1}`,
+      `b = ${MQA}`, ` ${h}`,
+      `${fmt(locale, balance, 1)} = d·h/(n·b)`,
+      de ? `Teiler von h = ${h}` : `divide h = ${h}`,
+      `${divisors.slice(0, -1).join(", ")} ${de ? "und" : "and"} ${divisors[divisors.length - 1]}`, `${fmt(locale, balance, 1)}`,
+      de ? `zwischen ${2} und ${4}` : `between ${2} and ${4}`,
+      `H_kv = ${GQA}`, `H_kv = 2`,
+      `${fmt(locale, 1 / (cache(2) + weight), 4)}`, `${fmt(locale, factor(MHA, 2), 3)}`,
+      `H_kv = ${MQA}`, `${fmt(locale, factor(MHA, MQA), 3)}`];
+  };
+  // The grouped-thousand scan has to be locale-aware here, which v132's did not have to be:
+  // that card printed at most one decimal place, this one prints four, and a separator-blind
+  // pattern reads the German "0,0625" as the grouped figure 0,062 with a 5 left over. So each
+  // locale is scanned for ITS grouping separator only, and a run next to the locale's DECIMAL
+  // separator is refused -- otherwise the check would report figures the card never printed.
+  const groupSep = { de: "\\.", en: "," }, decSep = { de: ",", en: "\\." };
+  const grouped = (locale, text) => {
+    const g = groupSep[locale], dc = decSep[locale];
+    const re = new RegExp(`(?<![\\d${dc}])\\d{1,3}(?:${g}\\d{3})+(?![\\d${g}])`, "gu");
+    return (String(text).match(re) || []).map(s => s.replace(/[.,]/gu, ""));
+  };
+  const hold = (where, locale, text, tokens, expectGrouped) => {
+    if (typeof text !== "string") diFail(`${locale}: ${where} is missing`);
+    let cursor = -1;
+    for (const token of tokens) {
+      const at = text.indexOf(token, cursor + 1);
+      if (at < 0) diFail(`${locale}: ${where} is missing "${token}" or has it out of order`);
+      cursor = at + token.length - 1;
+    }
+    if (expectGrouped) {
+      const printed = grouped(locale, text);
+      if (JSON.stringify(printed) !== JSON.stringify(expectGrouped)) diFail(`${locale}: ${where} prints the grouped figures ${printed.join(" ")} where the model gives ${expectGrouped.join(" ")}`);
+    }
+    return tokens.length + 1;
+  };
+
+  const card = base.formulas.find(f => f.id === "decode-intensity-heads");
+  const english = pack.formulas["decode-intensity-heads"];
+  if (!card || !english) diFail("the card is missing in one of the two languages");
+  const exampleGrouped = [d, n, n, d * h, n, d, d * h, n * b].map(String);
+  for (const [locale, example, answer, pitfall, check] of [
+    ["de", card.example, formulaAnswers["decode-intensity-heads"], card.pitfall, card.check],
+    ["en", english.example, english.answer, english.pitfall, english.check]]) {
+    diChecks += hold("the example", locale, example, exampleTokens(locale), exampleGrouped);
+    diChecks += hold("the answer key", locale, answer, answerTokens(locale), null);
+    // The pitfall carries the gap as figures, not as an adjective: what was promised, what
+    // arrives, and the ceiling that explains the difference.
+    const de = locale === "de";
+    for (const needed of [`h = ${h}`, `${fmt(locale, factor(MHA, MQA), 3)}`, `b·n/d + 1 = ${ceilFactor}`,
+      `${h}`, `${ceilFactor}`, "AI_attn = S·T_q/(S+T_q)", "H_kv"])
+      if (!pitfall.includes(needed)) diFail(`${locale}: the pitfall no longer states "${needed}", so its claim is unquantified or no longer names the model it is contrasted with`);
+    // The ceiling and the head count must both stand in the pitfall, in that relation -- the
+    // sentence "32 was never on offer, 11 was" is the card's whole correction.
+    if (!new RegExp(`${h}[^.]*${ceilFactor}|${ceilFactor}[^.]*${h}`, "u").test(pitfall)) diFail(`${locale}: the pitfall no longer puts the head count and the ceiling factor in one sentence`);
+    // The self-check produces numbers the example does not contain (b = 10) and asks for the
+    // meaning of the break-even. Both halves are pinned.
+    diChecks += hold("the self-check", locale, check, de
+      ? [`b = 10`, `MHA`, `MQA`, `Faktor zwischen ihnen`, `${fmt(locale, balance, 1)}`, `keine ganze Zahl`]
+      : [`b = 10`, `MHA`, `MQA`, `factor between them`, `${fmt(locale, balance, 1)}`, `not an integer`], null);
+    diChecks += 9;
+  }
+  if (JSON.stringify(card.sources) !== JSON.stringify(["l03", "l10"])) diFail("the card's sources are no longer lecture 3 and lecture 10");
+  if (!(base.lectureGuides.l03.formulas || []).includes("decode-intensity-heads")) diFail("lecture 3 no longer curates the card, although slides 59-62 are where the two summands are named");
+  const diAv = base.concepts.find(c => c.id === "attention-variants");
+  if (!(diAv.formulas || []).includes("decode-intensity-heads")) diFail("attention-variants no longer links the card");
+  if (diAv.formulas[0] !== "kv-cache") diFail(`attention-variants' first formula is ${diAv.formulas[0]} -- a lecture that curates none of its cards prints only the first, so a new card belongs at the end`);
+  diChecks += 4;
+
+  // Fixtures: the three mistakes this card exists to prevent must all be caught -- the head
+  // count quoted as the delivered factor, the weight term dropped from a sum, and the cache
+  // term computed with H_kv in the wrong place (n/(d*H_kv) instead of n*H_kv/(d*h)).
+  let promisedCaught = false;
+  try { hold("fixture", "de", card.example.replace(`${fmt("de", cache(MHA) + weight, 1)}/${fmt("de", cache(MQA) + weight, 4)} = ${fmt("de", factor(MHA, MQA), 3)}`, `${fmt("de", cache(MHA) + weight, 1)}/${fmt("de", cache(MQA) + weight, 4)} = ${h}`), exampleTokens("de"), exampleGrouped); } catch { promisedCaught = true; }
+  let weightCaught = false;
+  try { hold("fixture", "en", english.example.replace(`${fmt("en", cache(GQA), 2)} + ${fmt("en", weight, 1)} = ${fmt("en", cache(GQA) + weight, 2)}`, `${fmt("en", cache(GQA), 2)} + ${fmt("en", weight, 1)} = ${fmt("en", cache(GQA), 2)}`), exampleTokens("en"), exampleGrouped); } catch { weightCaught = true; }
+  let placeCaught = false;
+  try { hold("fixture", "de", card.example.replace(`${GQA}·${fmt("de", unit, 4)} = ${fmt("de", cache(GQA), 2)}`, `${GQA}·${fmt("de", unit, 4)} = ${fmt("de", n / (d * GQA), 1)}`), exampleTokens("de"), exampleGrouped); } catch { placeCaught = true; }
+  // A fourth on the grouped sequence alone: d and n swapped reads correctly as a set of
+  // figures and wrongly as a calculation.
+  let orderCaught = false;
+  try { hold("fixture", "en", english.example.replace(`${group("en", n)}/${group("en", d)} = ${n / d}`, `${group("en", d)}/${group("en", n)} = ${n / d}`), exampleTokens("en"), exampleGrouped); } catch { orderCaught = true; }
+  if (!promisedCaught || !weightCaught || !placeCaught || !orderCaught) diFail("a fixture was not caught, so this block cannot see");
+  // Control: the untouched texts go through the same function the fixtures went through.
+  hold("control", "de", card.example, exampleTokens("de"), exampleGrouped);
+  hold("control", "en", english.example, exampleTokens("en"), exampleGrouped);
+  diChecks += 6;
+  console.log(`card decode intensity OK: ${diChecks} checks -- lecture 3 argues MQA/GQA from intensity, not cache size: at d = ${d}, h = ${h}, n = ${n} and b = ${b} the two summands are n*H_kv/(d*h) and 1/b, so MHA sits at ${fmt("en", ai(MHA), 4)}, GQA with H_kv = ${GQA} at ${fmt("en", ai(GQA), 4)} and MQA at ${fmt("en", ai(MQA), 4)} -- a factor of ${fmt("en", factor(MHA, MQA), 3)} where the head count promised ${h}, because the weight term caps the whole headroom at b*n/d + 1 = ${ceilFactor}. The break-even at H_kv = ${fmt("en", balance, 1)} is proved to fall between two divisors of h, and lecture 10's AI_attn is proved to contain no H_kv at all`);
+}
+
+// ---- expr markup safety: the one field that reaches the reader unescaped (v133) --------------
+// Found while checking which convention a new card's "<" should follow. formulaMarkup is
+// `String(f.expr).replace(/ /g," ")` -- no escaping -- and its result is interpolated into
+// `<div class="formula-display" role="math">...</div>`. Four cards therefore write &lt; in expr
+// (autoregressive, perplexity, triton-grid-mask, sft-loss) and that convention is load-bearing,
+// but nothing enforced it: cascade-yield carried a raw `<i` in the subscript of its third part.
+// `<` followed by a letter opens a tag, so an HTML parser took `<i} y_j) · (1 − yᵢ)</div` for one
+// bogus element: the reader saw the equation truncated at "(∏_{j", and the formula-display div
+// never closed. Checked with Python's html.parser against the real wrapper before the fix.
+// The check is the class, not the instance -- a raw "<" or ">" in any expr, in both languages --
+// and it carries its own fixture so it is provably still looking.
+{
+  const exFail = message => { throw new Error(`expr markup safety: ${message}`); };
+  let exChecks = 0;
+  // A raw "<" or ">" in a field that is injected without esc(). Entities are the convention and
+  // are explicitly allowed; the bare character is not.
+  const raw = value => /[<>]/u.test(String(value ?? "").replace(/&(?:lt|gt|amp|quot);/gu, ""));
+  const scan = () => {
+    const hits = [];
+    for (const formula of base.formulas) {
+      if (raw(formula.expr)) hits.push(`de:${formula.id}`);
+      const en = pack.formulas[formula.id];
+      if (en && "expr" in en && raw(en.expr)) hits.push(`en:${formula.id}`);
+    }
+    return hits;
+  };
+  const hits = scan();
+  if (hits.length) exFail(`${hits.join(", ")} carry a raw < or > in expr, which formulaMarkup injects without escaping -- an HTML parser swallows from there to the next ">", taking the rest of the equation and the closing tag with it; write &lt; / &gt; as autoregressive, perplexity, triton-grid-mask and sft-loss do`);
+  // The convention is really in use, so the rule is not vacuous: those four cards must still
+  // carry the entity. A guard that passes because no card has the character would be inert.
+  const entity = base.formulas.filter(formula => /&lt;|&gt;/u.test(String(formula.expr ?? ""))).map(formula => formula.id);
+  for (const id of ["autoregressive", "perplexity", "triton-grid-mask", "sft-loss", "cascade-yield"])
+    if (!entity.includes(id)) exFail(`${id} no longer writes its comparison as an entity, so the convention this check enforces has no example left`);
+  if (entity.length < 5) exFail(`only ${entity.length} cards use the entity, so the rule may be guarding an empty set`);
+  exChecks += 2 + base.formulas.length;
+  // Fixture: the defect this block was written for must be caught again if it comes back, and
+  // the "<i" form specifically, because that is the one a parser reads as a tag.
+  const victim = base.formulas.find(formula => formula.id === "cascade-yield");
+  const before = victim.expr;
+  victim.expr = before.replace("&lt;", "<");
+  if (!scan().includes("de:cascade-yield")) { victim.expr = before; exFail("the fixture restoring cascade-yield's raw < was not caught, so this block cannot see"); }
+  victim.expr = before;
+  if (scan().length) exFail("the fixture was not undone");
+  exChecks += 2;
+  console.log(`expr markup safety OK: ${exChecks} checks -- expr is the one formula field formulaMarkup injects without esc(), so a raw "<" opens a tag and the parser eats the rest of the equation and the closing div with it; all ${base.formulas.length} cards are clean in both languages, the ${entity.length} cards that need a comparison write it as an entity, and cascade-yield's raw "<i" -- which truncated its third part at "(∏_{j" -- is held by a fixture`);
+}
