@@ -18588,3 +18588,266 @@ console.log(`ffn-backward OK: ${fbValues} values, all four gradients match A2's 
   exChecks += 2;
   console.log(`expr markup safety OK: ${exChecks} checks -- expr is the one formula field formulaMarkup injects without esc(), so a raw "<" opens a tag and the parser eats the rest of the equation and the closing div with it; all ${base.formulas.length} cards are clean in both languages, the ${entity.length} cards that need a comparison write it as an entity, and cascade-yield's raw "<i" -- which truncated its third part at "(∏_{j" -- is held by a fixture`);
 }
+
+// ---- card zero ceiling: the stage that buys the most, and the wall two of three hit (v134) ----
+// Lecture 7 asks on slide 25 the one question the app never asked: not how many bytes a model
+// needs, but how many parameters fit a FIXED budget -- 8 A100s at 80 GB each, four rows. It asks
+// it in a format the app did not carry either: pure BF16 with Kahan summation, master weights
+// alone in FP32, so 12 bytes per parameter rather than slide 14's 16. "Kahan" appeared nowhere in
+// the markup, and none of the four figures (6.66 / 16 / 24.62 / 53.33 billion) stood anywhere.
+// Two slides on, the lecture claims stages 1 and 2 do not let you scale memory at all -- a
+// sentence whose number was missing.
+//
+// Three things make this card easy to get wrong, so all three are proved before the card is read.
+// (1) The total gain is exactly G, but it is spread against the intuition slides 18 and 24 set
+// up: the second FREE stage buys the least, and the only stage that costs bandwidth buys more
+// than it. (2) Stages 2 and 3 remove the IDENTICAL 1.75 bytes and still deliver different
+// factors, because the base shrank -- so a check on the saving alone would pass a card that
+// confused the two gains. (3) The ceiling is the whole point of slide 27 and it is a limit
+// statement: N_max rises in G but is bounded by M_GPU/b_fix, which is a number for stages 1 and 2
+// and does not exist for stage 3. Both directions of that bound are checked, not just one.
+//
+// The card's own blindness is carried as a check rather than a sentence, in two layers: the
+// optimizer state is 8 bytes and G is 8, so b_shard/G is exactly 1 in the ZeRO-1 row and that row
+// cannot say which eight divided; and weights and gradients are both 2 bytes wide, so swapping
+// them leaves ZeRO-2 at 3.25 and the ordering of stages 2 and 3 is NOT testable here -- nor in
+// the shard-ledger lab, which works in FP32 where P = G = 4N are equal too. The guard proves the
+// swap-blindness constructively instead of trusting the pitfall's word for it.
+{
+  const zcFail = message => { throw new Error(`card zero ceiling: ${message}`); };
+  let zcChecks = 0;
+  // 1e-12 relative: the sums here (2 + 10/8) are representable, but 80e9/3.25 is not, and a
+  // correct model must not fail on its own rounding. Still eight orders tighter than the
+  // smallest distinction the card draws (1.5 against 1.75).
+  const near = (x, y) => Math.abs(x - y) <= 1e-12 * Math.max(1, Math.abs(x), Math.abs(y));
+  const M = 80e9, G = 8, G2 = 16;                       // slide 25's budget and world size
+  const PAR = 2, GRAD = 2, MASTER = 4, MOM1 = 2, MOM2 = 2;
+  const TOTAL = PAR + GRAD + MASTER + MOM1 + MOM2;      // 12 bytes per parameter
+  const STATE = MASTER + MOM1 + MOM2;                   // 8 bytes the optimizer owns
+  const LADDER = ["base", "z1", "z2", "z3"];
+  // Each stage is a split of the same 12 bytes into what every GPU keeps whole and what it
+  // divides. b_fix is the entire difference between the stages.
+  const split = (stage, par = PAR, grad = GRAD, state = STATE) => ({
+    base: { fix: par + grad + state, shard: 0 },
+    z1: { fix: par + grad, shard: state },
+    z2: { fix: par, shard: grad + state },
+    z3: { fix: 0, shard: par + grad + state }
+  })[stage];
+  const brank = (stage, g, ...w) => { const s = split(stage, ...w); return s.fix + (s.shard ? s.shard / g : 0); };
+  const nmax = (stage, g, ...w) => M / brank(stage, g, ...w);
+  const gain = (from, to, g) => nmax(to, g) / nmax(from, g);
+  const ceil = stage => split(stage).fix ? M / split(stage).fix : Infinity;
+
+  // --- the model's claims, before a single character of the card is read ---------------------
+  // 1. Every stage is a split of the SAME total: nothing lost, nothing counted twice. Both
+  //    directions of the ladder -- what is sharded only grows, what is kept only shrinks.
+  for (const stage of LADDER) {
+    const s = split(stage);
+    if (s.fix + s.shard !== TOTAL) zcFail(`stage ${stage} splits ${s.fix} + ${s.shard}, which is not the ${TOTAL} bytes the format costs`);
+  }
+  for (const [a, b] of [["base", "z1"], ["z1", "z2"], ["z2", "z3"]]) {
+    if (!(split(b).shard > split(a).shard)) zcFail(`${a} -> ${b} does not shard strictly more, so it is not a further stage`);
+    if (!(split(b).fix < split(a).fix)) zcFail(`${a} -> ${b} does not keep strictly less whole, so the ladder has a flat step`);
+  }
+  if (split("base").shard !== 0 || split("z3").fix !== 0) zcFail("the ladder no longer runs from sharding nothing to sharding everything");
+  if (STATE !== MASTER + MOM1 + MOM2 || TOTAL !== 12 || STATE !== 8) zcFail(`the format is no longer slide 25's: ${TOTAL} bytes with ${STATE} in optimizer state`);
+  // 2. The four figures of slide 25, to the precision the slide prints them.
+  for (const [stage, want] of [["base", 20 / 3], ["z1", 16], ["z2", 320 / 13], ["z3", 160 / 3]])
+    if (!near(nmax(stage, G) / 1e9, want)) zcFail(`stage ${stage} reaches ${nmax(stage, G) / 1e9} billion, not slide 25's ${want}`);
+  // 3. The total gain is exactly G -- and parametrically so, not only at 8. That is the claim
+  //    "a factor of G, and not one byte more".
+  for (const g of [2, 4, G, G2, 64]) if (!near(gain("base", "z3", g), g)) zcFail(`at G = ${g} the ladder delivers ${gain("base", "z3", g)} instead of G`);
+  // 4. The baseline is the one row G does not enter; every sharding stage is strictly monotone
+  //    in G. Both directions: constant where it must be, rising where it must be.
+  for (const g of [2, G, G2, 1024]) if (nmax("base", g) !== nmax("base", G)) zcFail(`the baseline moved with G (at ${g}), although it shards nothing`);
+  for (const stage of ["z1", "z2", "z3"]) for (const [a, b] of [[2, 4], [4, G], [G, G2], [G2, 64]])
+    if (!(nmax(stage, b) > nmax(stage, a))) zcFail(`${stage} does not grow from G = ${a} to ${b}`);
+  // 5. The ceiling, in BOTH directions: strictly below it at every finite G, and approaching it.
+  //    This is slide 27 as arithmetic. Stage 3 has none and doubles exactly with G.
+  for (const stage of ["z1", "z2"]) {
+    for (const g of [2, G, G2, 1e6]) if (!(nmax(stage, g) < ceil(stage))) zcFail(`${stage} reaches ${nmax(stage, g)} at G = ${g}, not strictly below its ceiling ${ceil(stage)}`);
+    if (!(nmax(stage, 1e9) / ceil(stage) > 1 - 1e-6)) zcFail(`${stage} does not approach its ceiling as G grows, so the bound is not tight and calling it the limit is wrong`);
+    if (!Number.isFinite(ceil(stage))) zcFail(`${stage} has no finite ceiling, so slide 27's claim about it cannot be stated`);
+  }
+  if (Number.isFinite(ceil("z3"))) zcFail("stage 3 acquired a ceiling, which is exactly the difference slide 27 draws");
+  for (const g of [2, G, G2]) if (!near(nmax("z3", 2 * g), 2 * nmax("z3", g))) zcFail(`doubling G from ${g} does not double stage 3, so it is not proportional to G`);
+  if (!near(ceil("z1") / 1e9, 20) || !near(ceil("z2") / 1e9, 40)) zcFail(`the eternal limits are ${ceil("z1") / 1e9} and ${ceil("z2") / 1e9} billion, not 20 and 40`);
+  // 6. The punchline about the ORDER of the gains: stage 1 buys most, stage 2 LEAST, and stage 3
+  //    -- the only one that costs extra bandwidth (3*#params against 2) -- buys more than the
+  //    second free stage. Cheapness does not predict payoff; that is the card's correction.
+  const g1 = gain("base", "z1", G), g2 = gain("z1", "z2", G), g3 = gain("z2", "z3", G);
+  if (!(g1 > g3 && g3 > g2)) zcFail(`the gains run ${g1} / ${g2} / ${g3}, so the card's claim that the middle step is the weakest is false`);
+  if (!near(g1 * g2 * g3, G)) zcFail(`the three gains multiply to ${g1 * g2 * g3} instead of G`);
+  if (!(g2 > 1)) zcFail("the middle stage buys nothing at all, which is a different claim than buying least");
+  // 7. Stages 2 and 3 remove the IDENTICAL amount and still deliver different factors. The
+  //    equality is a consequence of par === grad, so the converse is checked too: make the two
+  //    widths differ and the removals must part. Otherwise this would be a coincidence the
+  //    guard asserts without knowing why.
+  const drop = (a, b, ...w) => brank(a, G, ...w) - brank(b, G, ...w);
+  if (!near(drop("z1", "z2"), drop("z2", "z3"))) zcFail(`stages 2 and 3 remove ${drop("z1", "z2")} and ${drop("z2", "z3")}, so the card's "equal saving" is wrong`);
+  if (!near(drop("z1", "z2"), GRAD * (G - 1) / G)) zcFail(`the removal is ${drop("z1", "z2")}, not a 2-byte item spread over ${G} GPUs`);
+  if (near(drop("z1", "z2", PAR, GRAD + 1), drop("z2", "z3", PAR, GRAD + 1))) zcFail("the equal removal survives unequal weight and gradient widths, so it is not the consequence the example says it is");
+  if (near(g2, g3)) zcFail("the two equal removals now deliver equal gains, and the card's point about base size is gone");
+  if (!near(drop("base", "z1"), 7)) zcFail(`stage 1 removes ${drop("base", "z1")} bytes, not 7`);
+  // 8. The reach percentages the answer key rests on.
+  for (const [stage, g, want] of [["z1", G, 80], ["z2", G, 61.5], ["z1", G2, 88.9], ["z2", G2, 76.2]])
+    if (Math.abs(nmax(stage, g) / ceil(stage) * 100 - want) > 0.05) zcFail(`${stage} at G = ${g} reaches ${nmax(stage, g) / ceil(stage) * 100} % of its ceiling, not ${want}`);
+  // 9. The two coincidences the pitfall names, proved rather than asserted. The second one is
+  //    proved CONSTRUCTIVELY: swapping the two 2-byte items leaves ZeRO-2 where it was, so the
+  //    ordering of stages 2 and 3 is genuinely not testable on this example.
+  if (STATE !== G) zcFail(`the optimizer state is ${STATE} bytes and G is ${G}; the pitfall's first coincidence no longer exists, so it must not be claimed`);
+  if (!near(split("z1").shard / G, 1)) zcFail("b_shard/G is no longer exactly 1 in the ZeRO-1 row, so that half of the pitfall is wrong");
+  if (PAR !== GRAD) zcFail(`weights are ${PAR} and gradients ${GRAD} bytes; the swap the pitfall calls invisible would now show, so the pitfall must say so`);
+  const swapped = GRAD + (PAR + STATE) / G;   // stage 2 with the two items exchanged
+  if (!near(swapped, brank("z2", G))) zcFail(`swapping weights and gradients moves ZeRO-2 to ${swapped}, so the pitfall's claim that it is invisible is false`);
+  // ... and the lab the pitfall names really is blind the same way, read out of it rather than
+  // asserted: shard-ledger works in FP32 where parameters and gradients are both 4N.
+  const zcLab = base.labs.find(l => l.id === "shard-ledger");
+  if (!zcLab) zcFail("the shard-ledger lab the pitfall contrasts with is gone");
+  if (!/P\s*=\s*4N/u.test(zcLab.formula) || !/G\s*=\s*4N/u.test(zcLab.formula)) zcFail("shard-ledger no longer states P = G = 4N, so the pitfall's claim that neither surface can tell the two apart needs rechecking");
+  zcChecks += 28;
+
+  const fmt = (locale, x, digits) => { const s = x.toFixed(digits); return locale === "de" ? s.replace(".", ",") : s; };
+  const bn = (locale, stage, g, digits = 4) => fmt(locale, nmax(stage, g) / 1e9, digits);
+  // Both locales are scanned for THEIR grouping separator only -- v133's lesson: a separator-
+  // blind pattern reads the German "6,6667" as a grouped figure with a digit left over. This
+  // card prints no grouped thousands at all, and that is pinned rather than assumed, so a figure
+  // that acquires one is reported instead of silently passing.
+  const groupSep = { de: "\\.", en: "," }, decSep = { de: ",", en: "\\." };
+  const grouped = (locale, text) => {
+    const re = new RegExp(`(?<![\\d${decSep[locale]}])\\d{1,3}(?:${groupSep[locale]}\\d{3})+(?![\\d${groupSep[locale]}])`, "gu");
+    return (String(text).match(re) || []).map(s => s.replace(/[.,]/gu, ""));
+  };
+  const hold = (where, locale, text, tokens, expectGrouped) => {
+    if (typeof text !== "string") zcFail(`${locale}: ${where} is missing`);
+    let cursor = -1;
+    for (const token of tokens) {
+      const at = text.indexOf(token, cursor + 1);
+      if (at < 0) zcFail(`${locale}: ${where} is missing "${token}" or has it out of order`);
+      cursor = at + token.length - 1;
+    }
+    if (expectGrouped) {
+      const printed = grouped(locale, text);
+      if (JSON.stringify(printed) !== JSON.stringify(expectGrouped)) zcFail(`${locale}: ${where} prints the grouped figures ${printed.join(" ")} where the model gives ${expectGrouped.join(" ")}`);
+    }
+    return tokens.length + 1;
+  };
+
+  // The example, in the order the calculation produces it. A card naming the right numbers in
+  // the wrong places teaches a different calculation, which a set comparison cannot see.
+  const exampleTokens = locale => {
+    const de = locale === "de", and = de ? "und" : "and";
+    return [
+      de ? `${TOTAL} Bytes je Parameter` : `${TOTAL} bytes per parameter`,
+      de ? `Gewichte ${PAR}` : `weights ${PAR}`, de ? `Gradienten ${GRAD}` : `gradients ${GRAD}`,
+      de ? `Masterkopie ${MASTER}` : `master copy ${MASTER}`,
+      `${MASTER} + ${MOM1} + ${MOM2} = ${STATE}`,
+      `M_GPU = 80 GB`, `G = ${G}`,
+      `b_fix = ${split("base").fix} ${and} b_shard = ${split("base").shard}`,
+      `B_rank = ${brank("base", G)}`, `80/${brank("base", G)} = ${bn(locale, "base", G)}`,
+      `b_fix = ${PAR} + ${GRAD} = ${split("z1").fix} ${and} b_shard = ${split("z1").shard}`,
+      `B_rank = ${split("z1").fix} + ${split("z1").shard}/${G} = ${brank("z1", G)}`,
+      `80/${brank("z1", G)} = ${bn(locale, "z1", G, 0)}`,
+      `b_fix = ${PAR} ${and} b_shard = ${GRAD} + ${STATE} = ${split("z2").shard}`,
+      `B_rank = ${split("z2").fix} + ${split("z2").shard}/${G} = ${fmt(locale, brank("z2", G), 2)}`,
+      `80/${fmt(locale, brank("z2", G), 2)} = ${bn(locale, "z2", G)}`,
+      `b_fix = ${split("z3").fix} ${and} b_shard = ${split("z3").shard}`,
+      `B_rank = ${split("z3").shard}/${G} = ${fmt(locale, brank("z3", G), 1)}`,
+      `80/${fmt(locale, brank("z3", G), 1)} = ${bn(locale, "z3", G)}`,
+      de ? `Faktor ${G}` : `factor of ${G}`,
+      `${bn(locale, "z1", G, 0)}/${bn(locale, "base", G)} = ${fmt(locale, g1, 1)}`,
+      `${bn(locale, "z2", G)}/${bn(locale, "z1", G, 0)} = ${fmt(locale, g2, 4)}`,
+      `${bn(locale, "z3", G)}/${bn(locale, "z2", G)} = ${fmt(locale, g3, 4)}`,
+      `${brank("base", G)} − ${brank("z1", G)} = ${drop("base", "z1")}`,
+      `${fmt(locale, drop("z1", "z2"), 2)}`,
+      `${GRAD}·${G - 1}/${G} = ${fmt(locale, drop("z1", "z2"), 2)}`,
+      `80/${split("z1").fix} = ${ceil("z1") / 1e9}`, `80/${split("z2").fix} = ${ceil("z2") / 1e9}`,
+      `${fmt(locale, nmax("z1", G) / ceil("z1") * 100, 1)} %`,
+      `${fmt(locale, nmax("z2", G) / ceil("z2") * 100, 1)} %`];
+  };
+  // The self-check's answer is where the ceiling becomes visible, so it carries G = 16 -- figures
+  // the example does not contain -- and the row that does not move at all.
+  const answerTokens = locale => {
+    const de = locale === "de";
+    return [
+      `b_shard = 0`, `${bn(locale, "base", G2)}`,
+      `B_rank = ${split("z1").fix} + ${split("z1").shard}/${G2} = ${fmt(locale, brank("z1", G2), 1)}`,
+      `${bn(locale, "z1", G2)}`, `${fmt(locale, nmax("z1", G2) / nmax("z1", G), 4)}`,
+      `${split("z2").fix} + ${split("z2").shard}/${G2} = ${fmt(locale, brank("z2", G2), 3)}`,
+      `${bn(locale, "z2", G2)}`, `${fmt(locale, nmax("z2", G2) / nmax("z2", G), 4)}`,
+      `${split("z3").shard}/${G2} = ${fmt(locale, brank("z3", G2), 2)}`, `${bn(locale, "z3", G2)}`,
+      `M_GPU/(b_fix + b_shard/G)`,
+      `b_fix = ${split("z1").fix}`, `${ceil("z1") / 1e9}`, `${ceil("z2") / 1e9}`,
+      `G = ${G}`, `${fmt(locale, nmax("z1", G) / ceil("z1") * 100, 1)} %`,
+      `G = ${G2}`, `${fmt(locale, nmax("z1", G2) / ceil("z1") * 100, 1)} %`,
+      `${fmt(locale, nmax("z2", G) / ceil("z2") * 100, 1)} %`,
+      `${fmt(locale, nmax("z2", G2) / ceil("z2") * 100, 1)} %`,
+      `b_fix = ${split("z3").fix}`];
+  };
+
+  const card = base.formulas.find(f => f.id === "zero-stage-ceiling");
+  const english = pack.formulas["zero-stage-ceiling"];
+  if (!card || !english) zcFail("the card is missing in one of the two languages");
+  for (const [locale, example, answer, pitfall, check] of [
+    ["de", card.example, formulaAnswers["zero-stage-ceiling"], card.pitfall, card.check],
+    ["en", english.example, english.answer, english.pitfall, english.check]]) {
+    const de = locale === "de";
+    zcChecks += hold("the example", locale, example, exampleTokens(locale), []);
+    zcChecks += hold("the answer key", locale, answer, answerTokens(locale), []);
+    // The pitfall must carry BOTH coincidences with their figures, and must name the lab that
+    // is blind the same way -- otherwise the reader is told the ordering is proved somewhere.
+    for (const needed of [`${STATE}`, `G ${de ? "ist" : "is"} ${G}`, `${fmt(locale, brank("z2", G), 2)}`,
+      "shard-ledger", "FP32", "P = G = 4N", "ZeRO-2", "ZeRO-1"])
+      if (!pitfall.includes(needed)) zcFail(`${locale}: the pitfall no longer states "${needed}", so one of the two blind spots is unnamed or unquantified`);
+    if (!new RegExp(`${PAR}[^.]*${GRAD}`, "u").test(pitfall)) zcFail(`${locale}: the pitfall no longer puts the two equal byte widths in one sentence`);
+    // The self-check asks for the row that does not move, and names the slide it settles.
+    zcChecks += hold("the self-check", locale, check, de
+      ? [`G = ${G2}`, "bewegt sich gar nicht", "Folie 27"]
+      : [`G = ${G2}`, "does not move at all", "slide 27"], null);
+    zcChecks += 10;
+  }
+  if (JSON.stringify(card.sources) !== JSON.stringify(["l07", "a2"])) zcFail("the card's sources are no longer lecture 7 and assignment 2");
+  if (!(base.lectureGuides.l07.formulas || []).includes("zero-stage-ceiling")) zcFail("lecture 7 no longer curates the card, although slides 25 and 27 are where the table and the wall stand");
+  const zcConcept = base.concepts.find(c => c.id === "ddp-zero-fsdp");
+  if (!(zcConcept.formulas || []).includes("zero-stage-ceiling")) zcFail("ddp-zero-fsdp no longer links the card");
+  if (zcConcept.formulas[0] !== "memory-state") zcFail(`ddp-zero-fsdp's first formula is ${zcConcept.formulas[0]} -- a lecture that curates none of its cards prints only the first, so a new card belongs at the end`);
+  // The card must not contradict memory-state, which counts the same state at 16 bytes in FP32.
+  // The two formats differ, and that is the point; what must not happen is the card quoting 16.
+  const zcState = base.formulas.find(f => f.id === "memory-state");
+  if (!/16\s*(Byte|MB)/u.test(zcState.example)) zcFail("memory-state no longer carries the 16-byte figure this card is the BF16 counterpart to");
+  zcChecks += 5;
+
+  // Fixtures: the mistakes this card exists to prevent, each caught through the same code the
+  // real text goes through, so the block is proved sighted on every run and not only under
+  // mutation. (a) a figure rounded the way the slide prints it rather than the way it divides;
+  // (b) the ZeRO-1 row computed as if it sharded everything -- the confusion the 8/8 = 1
+  // coincidence invites; (c) the ceiling moved, which is slide 27's whole content; (d) stage 3
+  // in the answer key no longer exactly double, which is where the bound becomes visible;
+  // (e) the two gains swapped, which a saving-only check would pass.
+  const bust = (locale, text, from, to, tokens, expect) => {
+    if (!text.includes(from)) zcFail(`${locale}: the fixture cannot fire because "${from}" is not in the text`);
+    try { hold("fixture", locale, text.replace(from, to), tokens, expect); } catch { return true; }
+    return false;
+  };
+  const deAnswer = formulaAnswers["zero-stage-ceiling"];
+  const caught = [
+    bust("de", card.example, `80/${fmt("de", brank("z2", G), 2)} = ${bn("de", "z2", G)}`, `80/${fmt("de", brank("z2", G), 2)} = ${fmt("de", nmax("z2", G) / 1e9, 2)}`, exampleTokens("de"), []),
+    bust("en", english.example, `B_rank = ${split("z1").fix} + ${split("z1").shard}/${G} = ${brank("z1", G)}`, `B_rank = ${split("z3").shard}/${G} = ${brank("z1", G)}`, exampleTokens("en"), []),
+    bust("de", card.example, `80/${split("z1").fix} = ${ceil("z1") / 1e9}`, `80/${split("z1").fix} = ${ceil("z2") / 1e9}`, exampleTokens("de"), []),
+    bust("de", deAnswer, `${split("z3").shard}/${G2} = ${fmt("de", brank("z3", G2), 2)}`, `${split("z3").shard}/${G2} = ${fmt("de", brank("z3", G2) * 2, 1)}`, answerTokens("de"), []),
+    bust("en", english.example, `${bn("en", "z2", G)}/${bn("en", "z1", G, 0)} = ${fmt("en", g2, 4)}`, `${bn("en", "z2", G)}/${bn("en", "z1", G, 0)} = ${fmt("en", g3, 4)}`, exampleTokens("en"), []),
+    // (f) a grouped thousand appearing where the card prints none -- the pinned empty set has to
+    //     be a test and not a formality.
+    bust("de", card.example, `80/${brank("base", G)} = ${bn("de", "base", G)}`, `80/${brank("base", G)} = 6.666 ${bn("de", "base", G)}`, exampleTokens("de"), [])
+  ];
+  if (!caught.every(Boolean)) zcFail(`a fixture was not caught (${caught.map((c, i) => c ? "" : i + 1).filter(Boolean).join(", ")}), so this block cannot see`);
+  // Controls: the untouched texts through the same function, and one control that must stay green
+  // precisely because it is a legitimate restatement -- without it the table above measures
+  // nothing.
+  hold("control", "de", card.example, exampleTokens("de"), []);
+  hold("control", "en", english.example, exampleTokens("en"), []);
+  hold("control", "de", deAnswer, answerTokens("de"), []);
+  hold("control", "en", english.answer, answerTokens("en"), []);
+  zcChecks += 10;
+  console.log(`card zero ceiling OK: ${zcChecks} checks -- slide 25 inverts the memory question and slide 27 names a wall without its number. At ${TOTAL} bytes per parameter (BF16 with Kahan summation, master weights alone in FP32) and G = ${G}, the four rows read ${bn("en", "base", G)} / ${bn("en", "z1", G, 0)} / ${bn("en", "z2", G)} / ${bn("en", "z3", G)} billion parameters -- a total factor of exactly G, spread as ${fmt("en", g1, 1)}, ${fmt("en", g2, 4)} and ${fmt("en", g3, 4)}, so the second FREE stage buys the least and the only stage that costs bandwidth buys more than it. Stages 2 and 3 are proved to remove the identical ${fmt("en", drop("z1", "z2"), 2)} bytes and still deliver different factors, and the equality is shown to follow from the two 2-byte widths rather than asserted. The ceiling is held in both directions: ZeRO-1 is bounded by ${ceil("z1") / 1e9} billion parameters and ZeRO-2 by ${ceil("z2") / 1e9} forever, while stage 3 has none and doubles exactly with G. The card's own blindness is proved constructively -- swapping weights and gradients leaves ZeRO-2 at ${fmt("en", brank("z2", G), 2)}, so the ordering of stages 2 and 3 is not testable here, nor in shard-ledger, whose P = G = 4N is read out of the lab`);
+}

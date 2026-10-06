@@ -402,6 +402,48 @@
   Formelkarte ziehen mit: Reihenfolge im EN-Pack wie in `FORMULAS` (sonst "locale IDs do not
   match"), README-Zähler, Quellkommentar der Accordion-Route (fünf Zahlen).
 
+## Was eine Stufe stehen laesst, ist ihre Obergrenze (v134)
+
+- **Ein geshardeter Posten schrumpft, ein stehengelassener nicht - und nur der zweite entscheidet,
+  wie weit man kommt (v134).** Lecture 7 Folie 25 fragt umgekehrt zu allem, was die Plattform
+  sonst rechnet: nicht wie viele Bytes ein Modell braucht, sondern wie viele Parameter in ein
+  festes Budget passen. B_rank = b_fix + b_shard/G und N_max = M_GPU/B_rank. Weil b_fix nicht
+  verschwindet, ist N_max in G monoton steigend **und** durch M_GPU/b_fix beschraenkt: ZeRO-1
+  laeuft gegen 20 Mrd Parameter, ZeRO-2 gegen 40, fuer immer; ZeRO-3 hat b_fix = 0 und keine
+  Schranke. Das ist Folie 27 (`Stufen 1 und 2 skalieren Speicher nicht`) als Rechnung statt als
+  Faustregel. Karte `zero-stage-ceiling`, Guard `card zero ceiling`.
+- **Folie 25 rechnet in einem Format, das die App nicht kannte:** reines BF16 mit
+  Kahan-Summation, nur die Masterkopie FP32, also **12 Bytes je Parameter** gegen die 16 der
+  Folie 14, die `memory-state` fuehrt. Bei G = 8 ergibt das 6,6667 / 16 / 24,6154 / 53,3333 Mrd.
+  Beide Formate bleiben nebeneinander stehen - das ist kein Widerspruch, sondern die
+  Praezisionsentscheidung, und wer eine Speicherzahl zitiert, muss das Format mitnennen.
+- **Die Reihenfolge der Kosten sagt die Reihenfolge des Nutzens nicht voraus.** Die Folien 18 und
+  24 nennen ZeRO-1 und ZeRO-2 gratis (je 2·#params) und ZeRO-3 teurer (3·#params). Die Gewinne
+  sind 2,4 / 1,5385 / 2,1667: Die **zweite gratis Stufe bringt den kleinsten Gewinn, und die
+  einzige Stufe, die Bandbreite kostet, bringt mehr als sie.** Beim Bauen einer Karte ueber eine
+  Stufenleiter gehoert deshalb die Gewinnreihenfolge als Ungleichung in den Guard
+  (`g1 > g3 > g2`), nicht nur das Produkt.
+- **Gleiche absolute Ersparnis, verschiedener relativer Gewinn - an exakt gleichen Zahlen.** Die
+  Stufen 2 und 3 nehmen beide genau 1,75 Bytes je Parameter weg (beide verteilen einen
+  2-Byte-Posten ueber 8 GPUs, 2·7/8). Dass daraus 1,5385 und 2,1667 werden, liegt allein an der
+  dazwischen geschrumpften Basis. Ein Guard, der nur die Ersparnis prueft, laesst zwei
+  vertauschte Gewinne durch.
+- **Eine Koinzidenz kann die tragende Behauptung der Karte unpruefbar machen, nicht nur eine
+  Zahl.** In diesem Format sind Gewichte und Gradienten **beide 2 Bytes** breit, also liefert
+  ZeRO-2 mit vertauschten Posten wieder 3,25: Die Aussage `Stufe 2 shardet die Gradienten,
+  Stufe 3 die Parameter` ist am Beispiel **nicht** pruefbar - und das Lab `shard-ledger` rechnet
+  in FP32, wo P = G = 4N ebenfalls gleich sind. Keine Flaeche der Plattform belegt die
+  Reihenfolge; sie steht als Zitat der Folien 19 und 21. Der Guard beweist die Blindheit
+  **konstruktiv** (er tauscht und vergleicht) statt dem Fallstrick zu glauben, und liest das
+  `P = G = 4N` aus dem Lab. Zweite Koinzidenz derselben Karte: Optimizerzustand 8 Bytes und
+  G = 8, also b_shard/G = 1 - die ZeRO-1-Zeile kann nicht sagen, welche Acht geteilt hat.
+  Siehe [[cs336-mutation-test-blind-spots]].
+- **Eine Schranke hat zwei Richtungen, und geprueft ist meist nur die erste.** `N_max < Deckel`
+  allein laesst einen Deckel durch, der viel zu hoch liegt; der Guard verlangt zusaetzlich, dass
+  N_max den Deckel bei grossem G auch **erreicht** (Verhaeltnis > 1 − 1e-6 bei G = 1e9). Und die
+  Gegenseite gehoert dazu: ZeRO-3 darf **keinen** endlichen Deckel haben und muss mit G exakt
+  verdoppeln.
+
 ## Der Faktor, den die Faustregel verdeckt (v132)
 
 - Die Strafe für einen unkoaleszierten Warp-Zugriff ist **nicht** die Warpbreite 32, sondern

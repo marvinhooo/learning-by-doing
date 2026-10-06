@@ -1,6 +1,67 @@
 # Activity
 
-Iteration Counter: 14
+Iteration Counter: 15
+
+## v134 - 2026-10-06 - die Stufe, die am meisten bringt, und die Grenze, an der zwei von drei enden
+
+- Status: abgeschlossen. Branch `claude/deep-review-v134`, gebaut auf dem Kettenkopf v133
+  (`69ad5bb`). Der zugewiesene Worktree stand auf v99 (`2ed21e7`); `git switch` war nicht gesperrt,
+  der Kettenkopf wurde direkt ausgecheckt. Die Ahnenpruefung ueber alle Branch-Spitzen fand keinen
+  verlorenen Zweig - `69ad5bb` enthaelt jede Spitze. Haupt-Checkout unberuehrt; der Codex-Worktree
+  `reading-position-release` war zuletzt am 5. Oktober 21:19 angefasst, also kein aktiver Codex.
+- **Fortsetzung des Folienabgleichs, jetzt Lecture 7 (60 Folien):** Der Abgleich der Lectures 3 und
+  5 ist seit v131 bis v133 erledigt; offen waren 4, 7, 9, 11, 15 und 16, mit Lecture 7 voran.
+  Collectives (Folien 7 bis 9), naives Data Parallel (12), die 16 Bytes je Parameter (14), die
+  ZeRO-Stufen als Mechanik (16 bis 23), Pipeline-Bubble (30 bis 34), Tensor Parallel (36 bis 39)
+  und die Vergleichstabelle (47) sind in der App abgedeckt - `memory-state` fuehrt die 16 Bytes,
+  `pipeline-efficiency` die Bubble, `ring-allreduce` das Volumen, das Lab `shard-ledger` den
+  Speicher je Rank fuer A2. **Die Luecke lag auf den Folien 25 und 27.**
+- **Der Befund:** Folie 25 stellt die Frage umgekehrt zu allem, was die App rechnet. Nicht wie
+  viele Bytes ein Modell braucht, sondern **wie viele Parameter in ein festes Budget passen** - vier
+  Zeilen fuer 8 A100 mit je 80 GB. Sie rechnet dabei in einem Format, das die App nirgends kannte:
+  reines BF16 mit Kahan-Summation, nur die Masterkopie FP32, also **12 statt 16 Bytes je
+  Parameter**. `Kahan` kam im ganzen Markup kein einziges Mal vor, `12 Bytes` ebenso nicht, und
+  keine der vier Zahlen der Tabelle (6,66 / 16 / 24,62 / 53,33 Milliarden) stand irgendwo. Zwei
+  Folien weiter behauptet die Lecture, die Stufen 1 und 2 erlaubten keine Speicherskalierung - eine
+  qualitative Aussage, deren Zahl nirgends stand.
+- **Neue Formelkarte `zero-stage-ceiling`** (DE/EN, Antwortschluessel, Quellen l07 + a2):
+  B_rank = b_fix + b_shard/G und N_max = M_GPU/B_rank. Bei 12 Bytes je Parameter (Gewichte 2,
+  Gradienten 2, Masterkopie 4, zwei Adam-Momente je 2; Optimizerzustand also 8) und G = 8:
+  ohne Sharding 12 -> 6,6667 Mrd; ZeRO-1 4 + 8/8 = 5 -> 16 Mrd; ZeRO-2 2 + 10/8 = 3,25 ->
+  24,6154 Mrd; ZeRO-3 12/8 = 1,5 -> 53,3333 Mrd. Alle vier Zahlen der Folie reproduzieren exakt.
+- **Pointe 1 - der Gewinn ist ungleich verteilt, und zwar gegen die Intuition der Folien 18 und
+  24.** Von der ersten zur letzten Zeile ist es genau der Faktor 8, also G. Aufgeteilt: 2,4 fuer
+  Stufe 1, dann nur 1,5385, dann wieder 2,1667. Die Folien nennen Stufe 1 und 2 *gratis* (beide
+  2·#params) und Stufe 3 teurer (3·#params, also das Anderthalbfache) - aber die **zweite gratis
+  Stufe bringt den kleinsten Gewinn, und die einzige Stufe, die Bandbreite kostet, bringt mehr als
+  sie.** Die Reihenfolge der Kosten sagt die Reihenfolge des Nutzens nicht voraus.
+- **Pointe 2 - gleiche Ersparnis, verschiedener Gewinn.** Stufe 1 nimmt 7 Bytes je Parameter weg;
+  die Stufen 2 und 3 nehmen **beide genau 1,75** weg, weil beide einen 2-Byte-Posten ueber 8 GPUs
+  verteilen und 2·7/8 = 1,75 ist. Dass daraus 1,5385 und 2,1667 werden, liegt allein daran, dass
+  die Basis dazwischen kleiner wurde - der Unterschied zwischen absoluter und relativer Ersparnis,
+  an exakt gleichen Zahlen.
+- **Pointe 3 - Folie 27 als Rechnung statt als Faustregel.** b_fix verschwindet nicht: N_max ist in
+  G monoton steigend, aber durch M_GPU/b_fix beschraenkt. ZeRO-1 laeuft gegen **20 Mrd Parameter,
+  fuer immer**, ZeRO-2 gegen 40; ZeRO-3 hat keine Schranke und waechst proportional zu G. Bei G = 8
+  hat ZeRO-1 davon schon 80,0 % erreicht und ZeRO-2 61,5 % - deshalb muss man weiter.
+- **Der Selbstcheck erzeugt Zahlen, die im Beispiel nicht stehen:** G = 16 statt 8. Die erste Zeile
+  bewegt sich **gar nicht** (ohne Sharding kommt G nicht vor, 6,6667 bleibt), ZeRO-1 geht auf
+  17,7778 Mrd (nur das 1,1111-Fache), ZeRO-2 auf 30,4762 (1,2381), ZeRO-3 auf 106,6667 - genau das
+  Doppelte. Doppelte Hardware verdoppelt allein ZeRO-3; das ist die Schranke, sichtbar gemacht.
+- **Die Modellgrenze steht als Pruefung, nicht als Behauptung** - und sie ist diesmal eine
+  Blindstelle des Beispiels selbst, in zwei Schichten. Erstens ist der Optimizerzustand 8 Bytes
+  gross und G ist 8, also ist b_shard/G in der ZeRO-1-Zeile genau 1: An dieser Zeile ist nicht zu
+  erkennen, welche der beiden Achten der Teiler war. Zweitens sind Gewichte und Gradienten in
+  diesem Format **beide 2 Bytes** breit - vertauscht man sie, kommt fuer ZeRO-2 wieder 3,25 heraus.
+  Die Behauptung, Stufe 2 shardet die Gradienten und Stufe 3 zusaetzlich die Parameter, ist an
+  diesem Beispiel also **nicht pruefbar**; und das Lab `shard-ledger` rechnet in FP32, wo P = G = 4N
+  ebenfalls gleich sind. Keine der beiden Flaechen kann die Reihenfolge belegen. Der Fallstrick
+  schreibt das aus, und der Guard fuehrt beide Koinzidenzen als Pruefung.
+- Verknuepft: Lecture 7 kuratiert die Karte (4. Formel), das Concept `ddp-zero-fsdp` fuehrt sie am
+  Ende seiner Formelliste.
+- Zaehler nachgezogen: README 87 Formeln, Quellkommentar der Accordion-Route (87/277/87/79/111/281).
+- Cache-Bump auf **v111** (sw.js zweimal, index.html, README).
+- Der Iteration Counter wurde erhoeht, da der Run ueber einen Scheduled Task startete.
 
 ## v133 - 2026-10-05 - der Faktor, den die Kopfzahl verspricht und der Batch behaelt
 
