@@ -10612,7 +10612,7 @@ window.CS336_EN = Object.freeze({
     "Aktuell synchronisiert": "Up to date",
     "Angemeldet als": "Signed in as",
     "Supabase-Benutzer": "Supabase user",
-    "Fortschritt, Notizen und Lesezeichen werden zwischen deinen Geräten synchronisiert. Theme und zuletzt geöffnete Seite bleiben gerätespezifisch.": "Progress, notes, and bookmarks are synced across your devices. The theme and last-opened page remain device-specific.",
+    "Notizen, Lesezeichen, Übungshistorie und deine zuletzt gelesene Seite samt Leseposition werden zwischen deinen Geräten synchronisiert. Nach der Anmeldung oder beim Zurückkehren zur App kannst du dort weiterlesen. Sprache und Farbschema bleiben gerätespezifisch.": "Notes, bookmarks, practice history, and your last-read page and reading position are synced across your devices. Continue there after signing in or returning to the app. Language and color theme stay device-specific.",
     "Jetzt synchronisieren": "Sync now",
     "Abmelden": "Sign out",
     "Synchronisierung geprüft": "Sync checked",

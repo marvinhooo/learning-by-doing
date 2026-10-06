@@ -873,7 +873,7 @@
       *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
     }
   </style>
-  <script src="i18n-en.js?v=79"></script>
+  <script src="i18n-en.js?v=100"></script>
   <script src="config.js"></script>
   <script src="vendor/supabase.js"></script>
 </head>
@@ -5912,8 +5912,8 @@
     const LEGACY_CLAIMED_KEY = "cs336-legacy-claimed-user";
     const STORAGE_PREFIX = "cs336-lernwerk-v2:";
     const SYNC_META_PREFIX = "cs336-sync-meta-v1:";
-    const SYNC_FIELDS = ["conceptLevels","moduleStatus","moduleEvidence","assignmentMissions","assignmentMissionEvidence","bookmarks","notes","hypotheses","diagnostic","quizAnswers","reviewState","labChecks","labDone"];
-    const defaultUser = {theme:"dark",conceptLevels:{},moduleStatus:{},moduleEvidence:{},assignmentMissions:{},assignmentMissionEvidence:{},bookmarks:[],notes:"",hypotheses:{},diagnostic:null,quizAnswers:{},reviewState:{},labChecks:{},labDone:{},lastView:"dashboard"};
+    const SYNC_FIELDS = ["conceptLevels","moduleStatus","moduleEvidence","assignmentMissions","assignmentMissionEvidence","bookmarks","notes","hypotheses","diagnostic","quizAnswers","reviewState","labChecks","labDone","readingPosition"];
+    const defaultUser = {theme:"dark",conceptLevels:{},moduleStatus:{},moduleEvidence:{},assignmentMissions:{},assignmentMissionEvidence:{},bookmarks:[],notes:"",hypotheses:{},diagnostic:null,quizAnswers:{},reviewState:{},labChecks:{},labDone:{},readingPosition:null,lastView:"dashboard"};
     let activeUserId = null;
     let activeStorageKey = STORAGE_PREFIX+"guest";
 
@@ -5928,6 +5928,23 @@
         clean[id]={firstAt,lastAt,lastResult:rating};
       });
       return clean;
+    }
+    function normalizeReadingPosition(value){
+      if(!value||typeof value!=="object"||typeof value.updatedAt!=="string"||!Number.isFinite(Date.parse(value.updatedAt)))return null;
+      const view=value.view;let detail=null;
+      if(view==="detail"){
+        const source=value.detail;if(!source||typeof source.id!=="string")return null;
+        const collections={module:MODULES,concept:CONCEPTS,formula:FORMULAS,assignment:ASSIGNMENTS,lab:LABS};
+        const exists=source.type==="lecture"?Object.hasOwn(LECTURE_GUIDES,source.id):Object.hasOwn(collections,source.type)&&collections[source.type].some(item=>item.id===source.id);
+        if(!exists)return null;
+        detail={type:source.type,id:source.id};
+        if(source.type==="concept"&&Object.hasOwn(LECTURE_GUIDES,source.lectureId)&&lectureUsesConcept(source.lectureId,source.id))detail.lectureId=source.lectureId;
+      }else if(!NAV_ITEMS.some(item=>item[0]===view))return null;
+      return {view,detail,scrollRatio:Number.isFinite(value.scrollRatio)?Math.max(0,Math.min(1,value.scrollRatio)):0,updatedAt:new Date(value.updatedAt).toISOString()};
+    }
+    function newerReadingPosition(local,remote){
+      if(!local)return remote;if(!remote)return local;
+      return local.updatedAt>remote.updatedAt?local:remote;
     }
     function normalizeUser(value={}){
       const source=value&&typeof value==="object"?value:{};
@@ -5947,6 +5964,7 @@
         reviewState:normalizeReviewState(source.reviewState),
         labChecks:source.labChecks&&typeof source.labChecks==="object"?source.labChecks:{},
         labDone:source.labDone&&typeof source.labDone==="object"?source.labDone:{},
+        readingPosition:normalizeReadingPosition(source.readingPosition),
         theme:source.theme==="light"?"light":"dark",
         lastView:source.lastView==="concepts"?"path":typeof source.lastView==="string"?source.lastView:"dashboard"
       };
@@ -5970,7 +5988,15 @@
     let searchItems = [];
     let activeSearchIndex = -1;
     const routeScrollPositions = new Map();
-    const cloud = {client:null,session:null,configured:false,status:"local",syncing:false,retryTimer:null};
+    // An app-created history entry is a resume/reload, not a newly opened deep link.
+    let keepRouteOnLogin = Boolean(location.hash)&&history.state?.route!==location.hash.slice(1);
+    let readingActivityGeneration = 0;
+    let displayedReadingPosition = null;
+    let readingScrollTimer = null;
+    let readingScrollPending = false;
+    let restoringReadingScroll = false;
+    let navigationRenderId = 0;
+    const cloud = {client:null,session:null,configured:false,status:"local",syncing:false,syncPromise:null,activating:false,retryTimer:null,sessionGeneration:0};
 
     const esc = value => String(value ?? "").replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
     const clone = value => typeof structuredClone==="function"?structuredClone(value):JSON.parse(JSON.stringify(value));
@@ -5984,14 +6010,14 @@
     function writeSyncMeta(meta,uid=activeUserId){if(!uid)return;try{localStorage.setItem(SYNC_META_PREFIX+uid,JSON.stringify(meta))}catch{}}
     function syncSnapshot(source=user){return Object.fromEntries(SYNC_FIELDS.map(key=>[key,clone(source[key])]))}
     function applySyncSnapshot(snapshot){const clean=normalizeUser(snapshot);SYNC_FIELDS.forEach(key=>{user[key]=clone(clean[key])})}
-    function meaningfulLearningState(source=user){return source.notes.trim().length>0||source.bookmarks.length>0||!!source.diagnostic||Object.keys(source.conceptLevels).length>0||Object.keys(source.moduleEvidence).length>0||Object.keys(source.assignmentMissions).length>0||Object.keys(source.assignmentMissionEvidence).length>0||Object.keys(source.hypotheses).length>0||Object.keys(source.reviewState).length>0||Object.keys(source.labChecks).length>0||Object.keys(source.labDone).length>0||Object.keys(source.quizAnswers).length>0}
+    function meaningfulLearningState(source=user){return !!source.readingPosition||source.notes.trim().length>0||source.bookmarks.length>0||!!source.diagnostic||Object.keys(source.conceptLevels).length>0||Object.keys(source.moduleEvidence).length>0||Object.keys(source.assignmentMissions).length>0||Object.keys(source.assignmentMissionEvidence).length>0||Object.keys(source.hypotheses).length>0||Object.keys(source.reviewState).length>0||Object.keys(source.labChecks).length>0||Object.keys(source.labDone).length>0||Object.keys(source.quizAnswers).length>0}
     function persistLocal(){
       try{localStorage.setItem(activeStorageKey,JSON.stringify(user));return true}
       catch{cloud.status="error";setCloudStatus("error","Lokales Speichern fehlgeschlagen");return false}
     }
     function saveUser(trackSync=false){
       persistLocal();
-      if(trackSync&&activeUserId){const meta=readSyncMeta();meta.dirty=true;writeSyncMeta(meta);localGeneration++;scheduleCloudSync()}
+      if(trackSync&&activeUserId){const meta=readSyncMeta();meta.dirty=true;writeSyncMeta(meta);localGeneration++;setCloudStatus(navigator.onLine?"syncing":"offline");scheduleCloudSync()}
       updateProgressUI();
     }
     function toast(message){ const el=document.getElementById("toast"); el.textContent=message; el.classList.add("show"); clearTimeout(toastTimer); toastTimer=setTimeout(()=>el.classList.remove("show"),2600); }
@@ -6040,7 +6066,8 @@
         quizAnswers:{...remote.quizAnswers,...local.quizAnswers},
         reviewState:mergeReviewState(local.reviewState,remote.reviewState),
         labChecks,
-        labDone
+        labDone,
+        readingPosition:newerReadingPosition(local.readingPosition,remote.readingPosition)
       };
     }
     function setCloudStatus(status,label=""){
@@ -6054,76 +6081,117 @@
       if(!cloud.configured||!cloud.session||!activeUserId)return;
       clearTimeout(cloud.retryTimer);cloud.retryTimer=setTimeout(()=>void syncNow(),delay);
     }
-    async function fetchRemoteState(){
-      const {data,error}=await cloud.client.from("cs336_learning_states").select("state,revision,updated_at").eq("user_id",activeUserId).maybeSingle();
+    async function fetchRemoteState(uid=activeUserId){
+      const {data,error}=await cloud.client.from("cs336_learning_states").select("state,revision,updated_at").eq("user_id",uid).maybeSingle();
       if(error)throw error;return data;
     }
-    async function syncNow(){
-      if(!cloud.configured||!cloud.session||!activeUserId||cloud.syncing)return;
+    function syncNow(){
+      if(cloud.syncPromise)return cloud.syncPromise;
+      const sessionGeneration=cloud.sessionGeneration;
+      cloud.syncPromise=writeCloudState().finally(()=>{if(sessionGeneration===cloud.sessionGeneration)cloud.syncPromise=null});
+      return cloud.syncPromise;
+    }
+    async function writeCloudState(){
+      if(!cloud.configured||!cloud.session||!activeUserId||cloud.syncing||cloud.activating)return;
+      flushReadingPosition();
       const meta=readSyncMeta();if(!meta.dirty){setCloudStatus(navigator.onLine?"synced":"offline");return}
       if(!navigator.onLine){setCloudStatus("offline");return}
+      const sessionGeneration=cloud.sessionGeneration,uid=activeUserId;
       cloud.syncing=true;setCloudStatus("syncing");
       try{
         for(let attempt=0;attempt<3;attempt++){
-          const remote=await fetchRemoteState();
+          const remote=await fetchRemoteState(uid);if(sessionGeneration!==cloud.sessionGeneration)return;
           const generationAtWrite=localGeneration;
           const localState=syncSnapshot();
-          const candidate=remote&&meta.revision!==null&&Number(meta.revision)!==Number(remote.revision)?mergeConcurrentLearning(localState,remote.state):localState;
+          const candidate=remote&&Number(meta.revision)!==Number(remote.revision)?mergeConcurrentLearning(localState,remote.state):localState;
           let result;
           if(remote){
-            const response=await cloud.client.from("cs336_learning_states").update({state:candidate}).eq("user_id",activeUserId).eq("revision",remote.revision).select("revision,updated_at").maybeSingle();
-            if(response.error)throw response.error;if(!response.data){meta.revision=remote.revision;continue}result=response.data;
+            const response=await cloud.client.from("cs336_learning_states").update({state:candidate}).eq("user_id",uid).eq("revision",remote.revision).select("revision,updated_at").maybeSingle();
+            if(sessionGeneration!==cloud.sessionGeneration)return;
+            if(response.error)throw response.error;if(!response.data)continue;result=response.data;
           }else{
-            const response=await cloud.client.from("cs336_learning_states").insert({user_id:activeUserId,state:candidate}).select("revision,updated_at").maybeSingle();
+            const response=await cloud.client.from("cs336_learning_states").insert({user_id:uid,state:candidate}).select("revision,updated_at").maybeSingle();
+            if(sessionGeneration!==cloud.sessionGeneration)return;
             if(response.error){if(response.error.code==="23505")continue;throw response.error}result=response.data;
           }
-          const changedDuringWrite=localGeneration!==generationAtWrite;
+          flushReadingPosition();const changedDuringWrite=localGeneration!==generationAtWrite;
           applySyncSnapshot(changedDuringWrite?mergeConcurrentLearning(syncSnapshot(),candidate):candidate);
           persistLocal();meta.revision=result.revision;meta.dirty=changedDuringWrite;writeSyncMeta(meta);
           setCloudStatus(meta.dirty?"syncing":"synced");if(meta.dirty)scheduleCloudSync(300);return;
         }
         throw new Error("Synchronisationskonflikt konnte nicht zusammengeführt werden.");
       }catch(error){
+        if(sessionGeneration!==cloud.sessionGeneration)return;
         meta.dirty=true;writeSyncMeta(meta);setCloudStatus(navigator.onLine?"error":"offline",error?.message||"");
         clearTimeout(cloud.retryTimer);cloud.retryTimer=setTimeout(()=>void syncNow(),5000);
-      }finally{cloud.syncing=false}
+      }finally{if(sessionGeneration===cloud.sessionGeneration)cloud.syncing=false}
     }
     async function refreshCloudState(){
-      if(!cloud.session||!activeUserId)return;
-      const meta=readSyncMeta();if(meta.dirty){await syncNow();return}
+      if(!cloud.session||!activeUserId||cloud.activating)return;
+      flushReadingPosition();
+      const sessionGeneration=cloud.sessionGeneration,activityAtRead=readingActivityGeneration;
+      if(readSyncMeta().dirty)await syncNow();
+      if(sessionGeneration!==cloud.sessionGeneration||readSyncMeta().dirty||cloud.syncing)return;
+      const meta=readSyncMeta(),generationAtRead=localGeneration;
       if(!navigator.onLine){setCloudStatus("offline");return}
       try{
         const remote=await fetchRemoteState();
-        if(remote&&Number(meta.revision)!==Number(remote.revision)){applySyncSnapshot(remote.state);persistLocal();meta.revision=remote.revision;writeSyncMeta(meta);renderCurrent()}
+        if(sessionGeneration!==cloud.sessionGeneration)return;
+        flushReadingPosition();
+        if(localGeneration!==generationAtRead||readSyncMeta().dirty){scheduleCloudSync(100);return}
+        if(remote&&Number(remote.revision)<Number(readSyncMeta().revision))return;
+        const changed=remote&&Number(meta.revision)!==Number(remote.revision);
+        if(changed){applySyncSnapshot(remote.state);persistLocal();meta.revision=remote.revision;writeSyncMeta(meta)}
+        const restored=readingActivityGeneration===activityAtRead&&restoreReadingPosition();
+        if(changed&&!restored)renderCurrent();
         setCloudStatus("synced");
-      }catch(error){setCloudStatus("error",error?.message||"")}
+      }catch(error){if(sessionGeneration===cloud.sessionGeneration)setCloudStatus("error",error?.message||"")}
     }
     async function activateSessionUser(session){
       if(!session?.user?.id)return;
+      if(activeUserId===session.user.id){cloud.session=session;return}
+      flushReadingPosition();clearTimeout(cloud.retryTimer);
+      const sessionGeneration=++cloud.sessionGeneration,activityAtLogin=readingActivityGeneration,preserveRoute=keepRouteOnLogin;
+      keepRouteOnLogin=false;cloud.syncing=false;cloud.syncPromise=null;cloud.activating=true;routeScrollPositions.clear();
       cloud.session=session;
       const uid=session.user.id,previousTheme=user.theme,previousView=appState.view;
       const scopedKey=STORAGE_PREFIX+uid,hasScoped=Boolean(localStorage.getItem(scopedKey));
       const guestState=readStoredUser(STORAGE_PREFIX+"guest");
       activeUserId=uid;activeStorageKey=scopedKey;user=readStoredUser(scopedKey);
       if(!hasScoped){user.theme=previousTheme;user.lastView=previousView}
+      displayedReadingPosition=null;
+      if(!preserveRoute)restoreReadingPosition();
       try{
         if(!hasScoped&&meaningfulLearningState(guestState)&&!localStorage.getItem(LEGACY_CLAIMED_KEY)){
           applySyncSnapshot(syncSnapshot(guestState));localStorage.setItem(LEGACY_CLAIMED_KEY,uid);
         }
-        const remote=await fetchRemoteState();
+        const remote=await fetchRemoteState(uid);if(sessionGeneration!==cloud.sessionGeneration)return;
+        flushReadingPosition();
         const meta=readSyncMeta(uid),localState=syncSnapshot();
         if(remote){
           const remoteSnapshot=syncSnapshot(normalizeUser(remote.state));
           const merged=meaningfulLearningState(user)?mergeConcurrentLearning(localState,remoteSnapshot):remoteSnapshot;
           applySyncSnapshot(merged);meta.revision=remote.revision;meta.dirty=stateJson(syncSnapshot())!==stateJson(remoteSnapshot);
         }else{meta.revision=null;meta.dirty=meaningfulLearningState(user)}
-        persistLocal();writeSyncMeta(meta,uid);applyTheme();renderCurrent();
-        setCloudStatus(meta.dirty?"syncing":"synced");if(meta.dirty)scheduleCloudSync(200);
-      }catch(error){persistLocal();setCloudStatus("error",error?.message||"")}
+        persistLocal();writeSyncMeta(meta,uid);applyTheme();
+        if(preserveRoute||readingActivityGeneration!==activityAtLogin){recordReadingPosition(readingScrollRatio(),true);renderCurrent()}
+        else if(!restoreReadingPosition())renderCurrent();
+        const dirty=readSyncMeta().dirty;setCloudStatus(dirty?"syncing":"synced");if(dirty)scheduleCloudSync(200);
+      }catch(error){
+        if(sessionGeneration!==cloud.sessionGeneration)return;
+        if(preserveRoute||readingActivityGeneration!==activityAtLogin)recordReadingPosition(readingScrollRatio(),true);
+        persistLocal();applyTheme();setCloudStatus(navigator.onLine?"error":"offline",error?.message||"");
+      }finally{
+        if(sessionGeneration===cloud.sessionGeneration){cloud.activating=false;if(readSyncMeta().dirty)scheduleCloudSync(200)}
+      }
     }
     function activateGuest(){
-      clearTimeout(cloud.retryTimer);cloud.session=null;activeUserId=null;activeStorageKey=STORAGE_PREFIX+"guest";user=readStoredUser(activeStorageKey);
-      applyTheme();renderCurrent();setCloudStatus(cloud.configured?"signedout":"local");
+      if(!activeUserId){setCloudStatus(cloud.configured?"signedout":"local");return}
+      clearTimeout(cloud.retryTimer);clearTimeout(readingScrollTimer);readingScrollPending=false;
+      cloud.sessionGeneration++;cloud.syncing=false;cloud.syncPromise=null;cloud.activating=false;cloud.session=null;activeUserId=null;activeStorageKey=STORAGE_PREFIX+"guest";user=readStoredUser(activeStorageKey);
+      keepRouteOnLogin=false;displayedReadingPosition=null;routeScrollPositions.clear();applyTheme();
+      if(!restoreReadingPosition())navigate(user.lastView,null,{historyMode:"replace",trackPosition:false});
+      setCloudStatus(cloud.configured?"signedout":"local");
     }
     async function initCloud(){
       const cfg=window.CS336_CONFIG||{};
@@ -6152,9 +6220,9 @@
         bindInstallButton();return;
       }
       const meta=readSyncMeta();
-      openModal("Konto & Synchronisation",meta.dirty?"Lokale Änderungen ausstehend":"Aktuell synchronisiert",`<div class="panel"><p class="eyebrow">Angemeldet als</p><strong>${esc(cloud.session.user.email||"Supabase-Benutzer")}</strong><p class="muted small" style="margin-top:.5rem">Fortschritt, Notizen und Lesezeichen werden zwischen deinen Geräten synchronisiert. Theme und zuletzt geöffnete Seite bleiben gerätespezifisch.</p><div class="card-actions"><button class="button primary" id="syncNowButton">Jetzt synchronisieren</button><button class="button" id="logoutButton">Abmelden</button></div></div><div style="margin-top:1rem">${installHelpHtml()}</div>`);
+      openModal("Konto & Synchronisation",meta.dirty?"Lokale Änderungen ausstehend":"Aktuell synchronisiert",`<div class="panel"><p class="eyebrow">Angemeldet als</p><strong>${esc(cloud.session.user.email||"Supabase-Benutzer")}</strong><p class="muted small" style="margin-top:.5rem">Notizen, Lesezeichen, Übungshistorie und deine zuletzt gelesene Seite samt Leseposition werden zwischen deinen Geräten synchronisiert. Nach der Anmeldung oder beim Zurückkehren zur App kannst du dort weiterlesen. Sprache und Farbschema bleiben gerätespezifisch.</p><div class="card-actions"><button class="button primary" id="syncNowButton">Jetzt synchronisieren</button><button class="button" id="logoutButton">Abmelden</button></div></div><div style="margin-top:1rem">${installHelpHtml()}</div>`);
       document.getElementById("syncNowButton").onclick=async()=>{await refreshCloudState();toast("Synchronisierung geprüft");closeModal()};
-      document.getElementById("logoutButton").onclick=async()=>{await syncNow();await cloud.client.auth.signOut();activateGuest();closeModal();toast("Abgemeldet")};bindInstallButton();
+      document.getElementById("logoutButton").onclick=async()=>{flushReadingPosition();await syncNow();if(readSyncMeta().dirty&&navigator.onLine)await syncNow();await cloud.client.auth.signOut();activateGuest();closeModal();toast("Abgemeldet")};bindInstallButton();
     }
     function bindInstallButton(){const button=document.getElementById("installAppButton");if(button)button.onclick=async()=>{await installPrompt.prompt();await installPrompt.userChoice;installPrompt=null;closeModal()}}
     function isLocalPdfMode(){return location.protocol==="file:"||["localhost","127.0.0.1"].includes(location.hostname)}
@@ -6227,9 +6295,27 @@
     }
     function routeHash(view,detail=null){const lectureContext=detail?.type==="concept"&&detail.lectureId?`/${detail.lectureId}`:"";return `#${detail?`${view}/${detail.type}/${detail.id}${lectureContext}`:view}`}
     function routeKey(view=appState.view,detail=appState.detail){const lectureContext=detail?.type==="concept"&&detail.lectureId?`/${detail.lectureId}`:"";return detail?`${view}/${detail.type}/${detail.id}${lectureContext}`:view}
-    function routeFromLocation(){const raw=location.hash.slice(1);if(!raw){const saved=user.lastView==="concepts"?"path":NAV_ITEMS.some(x=>x[0]===user.lastView)?user.lastView:"dashboard";return{view:saved,detail:null}}if(raw==="concepts"){history.replaceState(history.state,"","#path");return{view:"path",detail:null}}const [view,type,id,lectureId]=raw.split("/");if(view==="detail"&&type&&id){const context=type==="concept"&&lectureUsesConcept(lectureId,id)?{lectureId}:{};return{view,detail:{type,id,...context}}}if(NAV_ITEMS.some(x=>x[0]===view))return{view,detail:null};return{view:"dashboard",detail:null}}
+    function readingScrollRatio(){const height=document.documentElement.scrollHeight-window.innerHeight;return height>0?Math.max(0,Math.min(1,window.scrollY/height)):0}
+    function recordReadingPosition(scrollRatio=readingScrollRatio(),force=false){
+      const updatedAt=new Date(Math.max(Date.now(),(Date.parse(user.readingPosition?.updatedAt)||0)+1)).toISOString();
+      const position=normalizeReadingPosition({view:appState.view,detail:appState.detail,scrollRatio,updatedAt});if(!position)return;
+      if(!force&&displayedReadingPosition&&routeKey(position.view,position.detail)===routeKey(displayedReadingPosition.view,displayedReadingPosition.detail)&&Math.abs(position.scrollRatio-displayedReadingPosition.scrollRatio)<.002)return;
+      user.readingPosition=position;displayedReadingPosition=position;readingActivityGeneration++;
+      if(!activeUserId)keepRouteOnLogin=true;
+      saveUser(true);
+    }
+    function flushReadingPosition(){
+      clearTimeout(readingScrollTimer);if(!readingScrollPending)return;
+      readingScrollPending=false;recordReadingPosition();
+    }
+    function restoreReadingPosition(){
+      const position=user.readingPosition;if(!position||stateJson(position)===stateJson(displayedReadingPosition))return false;
+      navigate(position.view,position.detail,{historyMode:"replace",focusMain:false,trackPosition:false,readingPosition:position});return true;
+    }
+    function routeFromLocation(){const raw=location.hash.slice(1);if(!raw){if(user.readingPosition)return{view:user.readingPosition.view,detail:user.readingPosition.detail};const saved=user.lastView==="concepts"?"path":NAV_ITEMS.some(x=>x[0]===user.lastView)?user.lastView:"dashboard";return{view:saved,detail:null}}if(raw==="concepts"){history.replaceState(history.state,"","#path");return{view:"path",detail:null}}const [view,type,id,lectureId]=raw.split("/");if(view==="detail"&&type&&id){const context=type==="concept"&&lectureUsesConcept(lectureId,id)?{lectureId}:{};return{view,detail:{type,id,...context}}}if(NAV_ITEMS.some(x=>x[0]===view))return{view,detail:null};return{view:"dashboard",detail:null}}
     function updateRouteMetadata(){const main=document.getElementById("mainContent"),active=document.querySelector(`.view[data-view="${appState.view}"]`),heading=active?.querySelector("h1"),appName=currentLanguage==="en"?"CS336 Learning Lab":"CS336 Lernwerk";document.querySelectorAll("#activeViewTitle").forEach(title=>title.removeAttribute("id"));if(heading){heading.id="activeViewTitle";main.setAttribute("aria-labelledby",heading.id);document.title=`${heading.textContent.trim()} – ${appName}`}else{main.removeAttribute("aria-labelledby");document.title=`${appName} – Language Models from Scratch`}}
-    function navigate(view,detail=null,{historyMode="push",focusMain=true,restoreScroll=false}={}){
+    function navigate(view,detail=null,{historyMode="push",focusMain=true,restoreScroll=false,trackPosition=true,readingPosition=null}={}){
+      clearTimeout(readingScrollTimer);readingScrollPending=false;restoringReadingScroll=true;const renderId=++navigationRenderId;
       const previousKey=routeKey();if(previousKey!==routeKey(view,detail))routeScrollPositions.set(previousKey,window.scrollY);
       appState.view=view; appState.detail=detail; if(view!=="detail")user.lastView=view; saveUser();
       document.querySelectorAll(".view").forEach(v=>v.hidden=v.dataset.view!==view);
@@ -6237,8 +6323,14 @@
       setMobileNav(false);
       renderCurrent();
       const nextKey=routeKey(view,detail),hash=routeHash(view,detail);if(historyMode==="push"&&location.hash!==hash)history.pushState({route:nextKey,fromRoute:previousKey},"",hash);else if(historyMode==="replace")history.replaceState({route:nextKey,fromRoute:history.state?.fromRoute||null},"",hash);
-      const targetTop=restoreScroll?(routeScrollPositions.get(routeKey(view,detail))||0):0,reduced=window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      requestAnimationFrame(()=>{window.scrollTo({top:targetTop,behavior:restoreScroll||reduced?"auto":"smooth"});if(focusMain)document.getElementById("mainContent").focus({preventScroll:true})});
+      const scrollHeight=Math.max(0,document.documentElement.scrollHeight-window.innerHeight);
+      const targetTop=readingPosition?readingPosition.scrollRatio*scrollHeight:restoreScroll?(routeScrollPositions.get(routeKey(view,detail))||0):0,reduced=window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if(trackPosition)recordReadingPosition(scrollHeight?targetTop/scrollHeight:0,true);else displayedReadingPosition=readingPosition;
+      requestAnimationFrame(()=>{
+        if(renderId!==navigationRenderId)return;
+        window.scrollTo({top:targetTop,behavior:readingPosition||!trackPosition||restoreScroll||reduced?"instant":"smooth"});if(focusMain)document.getElementById("mainContent").focus({preventScroll:true});
+        requestAnimationFrame(()=>{if(renderId===navigationRenderId)restoringReadingScroll=false});
+      });
     }
     function handleHistoryNavigation(){const route=routeFromLocation();if(routeKey(route.view,route.detail)===routeKey())return;navigate(route.view,route.detail,{historyMode:"none",focusMain:true,restoreScroll:true})}
     function renderCurrent(){
@@ -13409,11 +13501,14 @@ p99 went from 12.4ms to 8.1ms but RSS is back to ~78MB, so it is a real tradeoff
       document.addEventListener("click",e=>{if(!e.target.closest(".search-wrap"))setSearchOpen(false)});
       document.querySelector(".skip-link").addEventListener("click",e=>{e.preventDefault();document.getElementById("mainContent").focus()});
       window.addEventListener("popstate",handleHistoryNavigation);window.addEventListener("hashchange",handleHistoryNavigation);
-      window.addEventListener("online",()=>{setCloudStatus(cloud.session?"syncing":cloud.configured?"signedout":"local");scheduleCloudSync(100)});
+      window.addEventListener("online",()=>{setCloudStatus(cloud.session?"syncing":cloud.configured?"signedout":"local");void refreshCloudState()});
       window.addEventListener("offline",()=>setCloudStatus("offline"));
-      document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden"){const notes=document.getElementById("notesArea");if(notes&&user.notes!==notes.value){user.notes=notes.value;saveUser(true)}}else void refreshCloudState()});
+      window.addEventListener("scroll",()=>{if(restoringReadingScroll||document.visibilityState==="hidden")return;readingScrollPending=true;clearTimeout(readingScrollTimer);readingScrollTimer=setTimeout(flushReadingPosition,400)},{passive:true});
+      document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden"){flushReadingPosition();const notes=document.getElementById("notesArea");if(appState.view==="notes"&&notes&&user.notes!==notes.value){user.notes=notes.value;saveUser(true)}void syncNow()}else void refreshCloudState()});
+      window.addEventListener("pagehide",()=>{flushReadingPosition();void syncNow()});
       window.addEventListener("beforeinstallprompt",event=>{event.preventDefault();installPrompt=event});
-      navigate(appState.view,appState.detail,{historyMode:"replace",focusMain:false});registerPwa();void initCloud();
+      const initialPosition=!keepRouteOnLogin&&user.readingPosition&&routeKey(user.readingPosition.view,user.readingPosition.detail)===routeKey()?user.readingPosition:null;
+      navigate(appState.view,appState.detail,{historyMode:"replace",focusMain:false,trackPosition:false,readingPosition:initialPosition});registerPwa();void initCloud();
     }
     init();
   </script>

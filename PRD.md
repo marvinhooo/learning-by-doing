@@ -35,7 +35,7 @@ Eine offline-first, interaktive zweisprachige Lernhilfe, die einen Lernenden mit
 7. Quiz, Glossar, optionale Notizen, Lesezeichen und pull-basiertes Retrieval-Training (aktives Abrufen). Bewertungen sortieren nur spaetere Uebungskarten und erzeugen weder Kompetenzlevel noch Kursfortschritt.
 8. Offline-faehige lokale Nutzung ohne Build-Schritt.
 9. GitHub-Pages-Deployment als Progressive Web App (PWA; installierbare Web-App) fuer Desktop, iPhone und iPad.
-10. E-Mail-/Passwort-Anmeldung, private PDF-Ablage und Synchronisation von Lernstand, Notizen und Lesezeichen ueber ein eigenes Supabase-Projekt.
+10. E-Mail-/Passwort-Anmeldung, private PDF-Ablage und Synchronisation von Lernstand, Notizen, Lesezeichen und der zuletzt gelesenen Seite samt relativer Scrollposition ueber ein eigenes Supabase-Projekt.
 11. Vollstaendige englische und deutsche Darstellung aller Lerninhalte und Bedienelemente mit einem persistenten Sprachumschalter.
 
 ## Nicht-Ziele
@@ -79,6 +79,8 @@ Eine offline-first, interaktive zweisprachige Lernhilfe, die einen Lernenden mit
 - Nur fest auswertbare Fragen duerfen einen lokalen Status wie `bestanden` anzeigen. Dieser Status ist Feedback fuer genau den Check und keine Aussage ueber Lecture-, Assignment- oder Gesamtkompetenz.
 - Ohne Netz bleiben Lerninhalte und lokale Aenderungen nutzbar; nach Wiederverbindung werden ausstehende Aenderungen synchronisiert.
 - Angemeldete Benutzer koennen ausschliesslich ihren eigenen Lernstand lesen und schreiben.
+- Beim Anmelden, bei Rueckkehr zum Tab und nach Wiederverbindung wird der juengere gespeicherte Lesestand mit genauer Detailseite, Lecture-Kontext und relativer Scrollposition wiederhergestellt. Bewusst geoeffnete Direktlinks und neue Navigation waehrend des Ladens bleiben erhalten. Ein automatischer Start oder eine Wiederherstellung darf keinen neueren Besuch vortaeuschen; der Lesestand zaehlt nicht als Kompetenz oder Abschluss. Sprache und Farbschema bleiben lokal.
+- Offline-Navigation bleibt lokal erhalten und wird bei Wiederverbindung zusammengefuehrt. Verzoegerte Synchronisationsantworten duerfen weder neuere Navigation/Scrollbewegungen noch einen Kontowechsel ueberschreiben; eine Abmeldung wartet bei bestehender Verbindung auf laufende und zwischenzeitlich entstandene Aenderungen.
 - PDFs werden nicht mit GitHub Pages veroeffentlicht, sondern nur fuer aktive Mitglieder ueber zeitlich begrenzte URLs aus dem privaten Supabase-Bucket geoeffnet.
 - Die App ist auf iPhone und iPad ohne horizontales Ueberlaufen bedienbar, respektiert Safe Areas und bietet Touch-Ziele von mindestens 44 Pixeln fuer zentrale Bedienelemente.
 - Zentrale Interaktionen entsprechen WCAG 2.2 AA: sichtbare Fokusindikatoren und Kontrollkontraste, Skip-Link, semantische Navigation, dynamische Seitentitel sowie bedienbare Dialog-, Drawer- und Combobox-Muster.
@@ -113,6 +115,8 @@ Eine offline-first, interaktive zweisprachige Lernhilfe, die einen Lernenden mit
 - Version 52 gibt jeder navigierbaren Konzeptseite innerhalb einer Lecture eine sofort sichtbare Seitenzahl. Kopfzeile und Positionsstreifen zeigen `Seite X / Y`, der Weiter-Button nennt die kommende Seitenzahl, und nur das aktuelle Segment wird hervorgehoben. Der Ablauf zaehlt zuerst vorgeschaltete Voraussetzungskonzepte, die nicht ohnehin Kernkonzept sind, und danach die kuratierten Kernkonzepte ohne Duplikate. Die Anzeige ist zweisprachig, mobil ohne horizontalen Ueberlauf und explizit keine Abschlusswertung.
 
 ## Offener Rest
+
+- Geraeteuebergreifender Lesestand ist am 2026-10-05 lokal implementiert und mit dreizehn Browser-Regressionsfaellen gegen einen lokalen Cloud-Ersatz geprueft. Die Veroeffentlichung ist am 2026-10-06 autorisiert und wird auf dem aktuellen GitHub-Stand vorbereitet; Live-Auslieferung und Pruefung mit einem echten angemeldeten Konto stehen noch aus. Keine Datenbankmigration erforderlich.
 
 - Der Lecture-first-Kernweg und die spezifizierten Inhaltscluster fuer A1, A2, A3, A5 sowie Mixture of Experts (MoE; Expertenmischung) sind abgeschlossen. Jede Lecture bietet einen kuratierten Einstieg in ihre wesentlichen Ideen; das ist bewusst kein Anspruch, jede einzelne Folie als eigenes Lernobjekt abzubilden.
 - Verbleibende P1-Breite betrifft insbesondere GPU Tensor Cores, Coalescing und Wave Quantization, Critical Batch und weitere Parallelism-Topologien, Evaluationstaxonomie und Safety-Evaluation, Datenherkunft, Lizenz und Terms of Service sowie vertiefte Reinforcement-Learning-Infrastruktur und weitere Modellfallstudien jenseits des A5-Vertrags.

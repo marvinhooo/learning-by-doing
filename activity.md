@@ -2,6 +2,15 @@
 
 Iteration Counter: 1
 
+## 2026-10-05 - Geraeteuebergreifender Lesestand (manueller Run)
+
+- Status: lokal implementiert und verifiziert; Veroeffentlichung am 2026-10-06 vom Benutzer autorisiert. Fuer den Release wurde die Aenderung auf den neueren GitHub-Stand `2ed21e7` uebertragen; bestehende neuere Inhalte bleiben erhalten. Supabase bleibt fuer Anmeldung, private PDFs und Synchronisation erhalten.
+- Bisher speicherte `lastView` nur eine lokale Uebersichtsansicht; konkrete Detailseiten und Lecture-Kontext wurden nicht synchronisiert. Das neue Feld `readingPosition` liegt im bestehenden benutzerspezifischen Zustandsobjekt und benoetigt keine Datenbankmigration.
+- Gespeichert werden Ansicht, Detail-ID, Lecture-Kontext, relative Scrollposition und eigener Zeitstempel. Login, Rueckkehr zum Tab und Wiederverbindung uebernehmen den juengeren Lesestand. Direktlinks und neue Interaktionen waehrend des Ladens bleiben erhalten; automatisches Wiederherstellen erzeugt keinen Besuch. Vorhandene Browser-History-Eintraege werden beim Neuladen von frisch geoeffneten Direktlinks unterschieden, damit ein altes Geraet den neueren Cloud-Lesestand nicht ueberschreibt. Sprache/Farbschema bleiben lokal.
+- Asynchrone Cloud-Antworten sind an die jeweilige Anmeldung gebunden. Noch nicht gespeicherte Scrollbewegungen werden vor eingehenden Antworten gesichert; aeltere parallele Antworten werden verworfen. Revision-Konflikte werden erneut zusammengefuehrt. Ein reproduzierter Fehler beim Abmelden waehrend einer laufenden Uebertragung ist behoben: Abmelden wartet auf diese Uebertragung und danach entstandene Aenderungen.
+- Verifiziert: dreizehn Browser-Regressionsfaelle mit getrennten Desktop-/Handy-Profilen und lokalem Cloud-Ersatz, darunter Start/Login, Lecture-Kontext, relative Scrollposition, Direktlinks, Offlinebetrieb, verzoegerte Lese-/Schreibantworten, Kontowechsel, Abmeldung und Browser-History. Keine Browser-JavaScript-Fehler; mobile Ansicht ohne horizontalen Ueberlauf. Sprach-/Semantikcheck, JavaScript-Syntax, Build und Diff-Pruefung erfolgreich.
+- Konto-Erklaerung in beiden Sprachen aktualisiert; Service-Worker-Cache und Sprachbundle fuer die Veroeffentlichung auf Version 100 angehoben. Offen: Live-Auslieferung verifizieren und Pruefung mit echtem Konto auf zwei Geraeten. Der Iteration Counter bleibt 1, da der Run interaktiv gestartet wurde.
+
 ## 2026-07-14 - Interaktiver CS336-Lernbegleiter (manueller Run)
 
 - Status: abgeschlossen
