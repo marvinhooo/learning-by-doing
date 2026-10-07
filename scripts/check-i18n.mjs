@@ -18851,3 +18851,395 @@ console.log(`ffn-backward OK: ${fbValues} values, all four gradients match A2's 
   zcChecks += 10;
   console.log(`card zero ceiling OK: ${zcChecks} checks -- slide 25 inverts the memory question and slide 27 names a wall without its number. At ${TOTAL} bytes per parameter (BF16 with Kahan summation, master weights alone in FP32) and G = ${G}, the four rows read ${bn("en", "base", G)} / ${bn("en", "z1", G, 0)} / ${bn("en", "z2", G)} / ${bn("en", "z3", G)} billion parameters -- a total factor of exactly G, spread as ${fmt("en", g1, 1)}, ${fmt("en", g2, 4)} and ${fmt("en", g3, 4)}, so the second FREE stage buys the least and the only stage that costs bandwidth buys more than it. Stages 2 and 3 are proved to remove the identical ${fmt("en", drop("z1", "z2"), 2)} bytes and still deliver different factors, and the equality is shown to follow from the two 2-byte widths rather than asserted. The ceiling is held in both directions: ZeRO-1 is bounded by ${ceil("z1") / 1e9} billion parameters and ZeRO-2 by ${ceil("z2") / 1e9} forever, while stage 3 has none and doubles exactly with G. The card's own blindness is proved constructively -- swapping weights and gradients leaves ZeRO-2 at ${fmt("en", brank("z2", G), 2)}, so the ordering of stages 2 and 3 is not testable here, nor in shard-ledger, whose P = G = 4N is read out of the lab`);
 }
+
+// ---- card balance gradient: the loss is symmetric, the gradient is not (v135) --------------
+// Lecture 4 slide 28 is the one place in the whole lecture that DIFFERENTIATES. It writes
+// (alpha*N/T^2) * sum 1[argmax p(x) = i] and comments "more frequent use = stronger
+// downweighting". The app carried the loss (moe-balance) but no derivative: neither 0,0128 nor
+// alpha*E*c_i/T^2 nor "Folie 28" appeared anywhere, and the moe-routing lab said only
+// qualitatively that the loss uses "harte Dispatchhaeufigkeit plus differenzierbare
+// Routerwahrscheinlichkeit" -- a sentence without a number.
+//
+// Why that matters more than a missing figure: L_bal = sum f_i*P_i is a DOT PRODUCT, hence
+// perfectly symmetric in f and P. Swapping the two vectors returns the same value, so the claim
+// "f is hard, P is differentiable" is not testable on the loss at all -- not because of badly
+// chosen numbers, but because no example of this loss can ever separate them. Only the gradient
+// can, and this guard proves that constructively: it swaps the roles and shows the ratio moves
+// from the token counts (5) to the probabilities (2).
+//
+// Five further things are easy to get wrong, so all five are proved before the card is read.
+// (1) The gradient does not depend on p at all (L is linear in p), so the pressure on an expert
+// is the same for every token -- checked by varying P and requiring g to stand still. (2) The
+// yardstick on the logits is the probability-weighted mean g_bar, NOT the even share T/E: the
+// example's expert 2 sits above the share and is still pulled up, and the guard requires that
+// inversion to exist rather than trusting the pitfall. (3) The floor alpha is a STATIONARY
+// point, in both directions: exactly zero logit gradient at perfect balance, and demonstrably
+// non-zero away from it. (4) A dead expert gets direct gradient zero and is lifted only by
+// -p_j*g_bar, which vanishes with p_j -- the computed reason DeepSeek v3 needs a per-expert bias.
+// (5) g_bar = L_bal/T and the logit gradients sum to zero are identities, so they are proved over
+// a sweep rather than at the one example that could satisfy them by accident.
+{
+  const bgFail = message => { throw new Error(`card balance gradient: ${message}`); };
+  let bgChecks = 0;
+  // 1e-12 relative: sums like 0.20 + 0.105 are not representable, and a correct model must not
+  // fail on its own binary rounding. Still far tighter than the smallest distinction the card
+  // draws (0.000046 against 0.000042, a gap of 4e-6).
+  const near = (x, y) => Math.abs(x - y) <= 1e-12 * Math.max(1, Math.abs(x), Math.abs(y));
+  const bgFmt = (locale, x, digits) => { const s = Math.abs(x).toFixed(digits); return locale === "de" ? s.replace(".", ",") : s; };
+  // A ratio the card prints as a whole number must not leak 2.9999999999999996 out of a float
+  // division; it is rounded and then required to BE whole, so a genuinely non-integral ratio
+  // fails loudly instead of being rounded into agreement.
+  const bgRatio = (a, b) => { const r = a / b, k = Math.round(r); if (Math.abs(r - k) > 1e-9) bgFail(`the ratio ${r} is not the whole number the card prints`); return String(k); };
+  const bgSign = (locale, x, digits) => (x < 0 ? "−" : "+") + bgFmt(locale, x, digits);
+  const ALPHA = 0.01, E = 4, T = 10;
+  const COUNTS = [5, 3, 1, 1];                         // the hard argmax tally
+  const PROBS = [0.40, 0.35, 0.20, 0.05];              // mean router probabilities
+  const frac = (c, t = T) => c.map(x => x / t);
+  const loss = (f, P, e = E, a = ALPHA) => a * e * f.reduce((s, fi, i) => s + fi * P[i], 0);
+  // slide 28: dL/dp_i(x) = alpha*E*c_i/T^2. Note p does not appear.
+  const grad = (c, t = T, e = E, a = ALPHA) => c.map(ci => a * e * ci / (t * t));
+  const gbar = (g, P) => g.reduce((s, gi, i) => s + gi * P[i], 0);
+  const logitGrad = (g, P) => { const m = gbar(g, P); return g.map((gi, j) => P[j] * (gi - m)); };
+
+  const F = frac(COUNTS), G = grad(COUNTS), L = loss(F, PROBS);
+  const GBAR = gbar(G, PROBS), ZG = logitGrad(G, PROBS);
+
+  // --- the model's claims, before a single character of the card is read ---------------------
+  // 1. The setup is a routing group: the fractions and the probabilities each sum to one, and
+  //    f is the tally divided by T -- the definition the indicator in the card's vars names.
+  if (COUNTS.reduce((s, x) => s + x, 0) !== T) bgFail(`the counts sum to ${COUNTS.reduce((s, x) => s + x, 0)}, not the ${T} tokens of the group, so top-1 routing is not what is being counted`);
+  if (!near(PROBS.reduce((s, x) => s + x, 0), 1)) bgFail(`the router probabilities sum to ${PROBS.reduce((s, x) => s + x, 0)} instead of 1`);
+  if (!F.every((fi, i) => near(fi, COUNTS[i] / T))) bgFail("f is no longer c/T, so the card's identity f_i = c_i/T is wrong");
+  if (COUNTS.length !== E || PROBS.length !== E) bgFail("the example no longer has E experts in both vectors");
+  // 2. The loss and the two bounds, at the figures the card prints.
+  if (!near(L, 0.0132)) bgFail(`the loss is ${L}, not the 0.0132 the card prints`);
+  if (!near(ALPHA * E, 0.04) || !near(L / ALPHA, 1.32)) bgFail(`floor/ceiling no longer read 0.01 / 0.04 with the example at 1.32 times the floor (got ${L / ALPHA})`);
+  // 3. The gradient: slide 28's form, equal to alpha*E*f_i/T, and -- the point -- INDEPENDENT of
+  //    p. Varying the probabilities must not move it by one bit; that is what "linear in p" means.
+  if (!G.every((gi, i) => near(gi, ALPHA * E * COUNTS[i] / (T * T)) && near(gi, ALPHA * E * F[i] / T)))
+    bgFail("the gradient is no longer slide 28's alpha*E*c_i/T^2, or no longer equals alpha*E*f_i/T");
+  if (!near(G[0], 0.002) || !near(G[1], 0.0012) || !near(G[2], 0.0004) || !near(G[3], 0.0004))
+    bgFail(`the gradient reads ${G.join(" / ")}, not the 0.002 / 0.0012 / 0.0004 / 0.0004 the card prints`);
+  for (const other of [[0.25, 0.25, 0.25, 0.25], [0.7, 0.1, 0.1, 0.1], [0.1, 0.2, 0.3, 0.4]])
+    if (!grad(COUNTS).every((gi, i) => near(gi, G[i]))) bgFail(`the gradient moved when P became ${other.join("/")}, so it is not independent of p and the card's first point is false`);
+  // 4. The ratio of the gradients is the ratio of the TOKEN COUNTS -- not only at this example.
+  if (!near(G[0] / G[2], COUNTS[0] / COUNTS[2]) || !near(G[0] / G[2], 5)) bgFail(`g_1/g_3 is ${G[0] / G[2]}, not the count ratio ${COUNTS[0] / COUNTS[2]}`);
+  for (const [a, b] of [[0, 1], [0, 3], [1, 2]]) if (!near(G[a] / G[b], COUNTS[a] / COUNTS[b])) bgFail(`the gradient ratio of experts ${a + 1} and ${b + 1} does not follow their counts`);
+  // 5. g_bar = L_bal/T and the logit gradients sum to zero are IDENTITIES, so they are proved
+  //    over a sweep -- at one example either could hold by accident.
+  if (!near(GBAR, L / T) || !near(GBAR, 0.00132)) bgFail(`g_bar is ${GBAR}; the identity g_bar = L_bal/T (= ${L / T}) or the printed 0.00132 is wrong`);
+  if (!ZG.every((z, j) => near(z, PROBS[j] * (G[j] - GBAR)))) bgFail("the logit gradient is no longer p_j*(g_j - g_bar)");
+  if (!near(ZG.reduce((s, x) => s + x, 0), 0)) bgFail(`the logit gradients sum to ${ZG.reduce((s, x) => s + x, 0)} instead of 0, which a softmax forbids`);
+  for (const [zc, zp, zt] of [[[3, 1, 1, 1], [0.5, 0.2, 0.2, 0.1], 6], [[8, 2, 0, 0], [0.6, 0.2, 0.1, 0.1], 10], [[2, 2, 2, 1], [0.1, 0.2, 0.3, 0.4], 7], [[12, 0, 0, 0], [0.9, 0.05, 0.03, 0.02], 12]]) {
+    const zg2 = grad(zc, zt), zl = loss(frac(zc, zt), zp);
+    if (!near(gbar(zg2, zp), zl / zt)) bgFail(`the identity g_bar = L_bal/T fails at counts ${zc.join("/")}, so it is a coincidence of the example rather than a property`);
+    if (!near(logitGrad(zg2, zp).reduce((s, x) => s + x, 0), 0)) bgFail(`the logit gradients do not sum to zero at counts ${zc.join("/")}`);
+  }
+  // 6. The two bounds, in BOTH directions. The ceiling holds for ANY f and P (sum f_i*P_i <=
+  //    max P_i <= 1) and is REACHED by a one-hot; the floor alpha holds only in the coupled case
+  //    f = P, where sum P_i^2 >= 1/E, and is reached exactly at the uniform router.
+  const oneHot = [1, 0, 0, 0];
+  if (!near(loss(oneHot, oneHot), ALPHA * E)) bgFail("a one-hot router does not reach the ceiling alpha*E, so calling it the ceiling is wrong");
+  if (!near(loss(frac([T / E, T / E, T / E, T / E]), [1 / E, 1 / E, 1 / E, 1 / E]), ALPHA)) bgFail("the uniform router does not reach the floor alpha");
+  let bgSweeps = 0;
+  for (let s = 1; s <= 4000; s++) {                     // a deterministic LCG, so the sweep is reproducible
+    let seed = s * 2654435761 % 2147483647;
+    const rnd = () => (seed = seed * 48271 % 2147483647) / 2147483647;
+    const n = 2 + (s % 5);
+    const raw = Array.from({ length: n }, rnd), sum = raw.reduce((a, b) => a + b, 0);
+    const P = raw.map(x => x / sum);
+    const raw2 = Array.from({ length: n }, rnd), sum2 = raw2.reduce((a, b) => a + b, 0);
+    const f = raw2.map(x => x / sum2);
+    if (loss(f, P, n) > ALPHA * n + 1e-12) bgFail(`the ceiling alpha*E is exceeded at sweep ${s}, so it is not a bound`);
+    if (loss(P, P, n) < ALPHA - 1e-12) bgFail(`the coupled floor alpha is undercut at sweep ${s}, so Cauchy-Schwarz is being misapplied`);
+    bgSweeps++;
+  }
+  if (bgSweeps !== 4000) bgFail("the bound sweep did not run");
+  // And the floor is NOT a universal bound -- the card says "only in the coupled case f = P", and
+  // that caveat has to be true, otherwise it is an apology for a claim that needed none.
+  if (!(loss([1, 0, 0, 0], [0, 1, 0, 0]) < ALPHA)) bgFail("a decoupled f and P no longer fall below alpha, so the card's restriction of the floor to f = P is an unnecessary hedge and must be removed");
+  // 7. The floor is a STATIONARY point, both directions: exactly zero logit gradient at perfect
+  //    balance, and demonstrably non-zero as soon as the counts part. This is the exact form of
+  //    the lab's qualitative "not zero under even routing, yet it can still promote balance".
+  const BT = 20, BC = [5, 5, 5, 5], BP = [0.25, 0.25, 0.25, 0.25];
+  const BG = grad(BC, BT), BL = loss(frac(BC, BT), BP);
+  if (!near(BL, ALPHA)) bgFail(`perfect balance gives ${BL}, not exactly alpha -- the self-check's floor claim is wrong`);
+  if (!BG.every(g => near(g, 0.0005))) bgFail(`perfect balance gives g = ${BG.join("/")}, not the 0.0005 the answer key prints`);
+  if (!logitGrad(BG, BP).every(z => z === 0)) bgFail(`the logit gradient at perfect balance is ${logitGrad(BG, BP).join("/")} and not exactly zero, so it is not the stationary point the answer claims`);
+  if (ZG.every(z => z === 0)) bgFail("the logit gradient vanishes at the unbalanced example too, so 'stationary at the floor' says nothing");
+  if (!(Math.max(...ZG.map(Math.abs)) > 1e-5)) bgFail("the unbalanced example's logit gradient is numerically indistinguishable from zero, so the contrast with perfect balance is not visible");
+  // 8. THE BLIND SPOT, proved constructively and twice. Swapping f and P leaves the loss
+  //    untouched -- here, and in moe-balance's own example read out of that card rather than
+  //    asserted -- while the gradient moves from the counts (5) to the probabilities (2). So the
+  //    loss cannot carry the claim about which half is differentiable, and the card must not
+  //    pretend it does.
+  if (!near(loss(F, PROBS), loss(PROBS, F))) bgFail("swapping f and P changes the loss, so the symmetry the pitfall rests on is gone");
+  const wrong = PROBS.map(p => ALPHA * E * p / T);      // the gradient someone gets by routing it through f
+  if (!near(wrong[0] / wrong[2], PROBS[0] / PROBS[2]) || !near(wrong[0] / wrong[2], 2)) bgFail(`the counterfactual gradient ratio is ${wrong[0] / wrong[2]} instead of the 2 the pitfall prints`);
+  if (near(G[0] / G[2], wrong[0] / wrong[2])) bgFail("the correct and the swapped gradient now give the SAME ratio, so the example can no longer tell the two halves apart and the whole card is blind");
+  // The counterfactual must be visible in EVERY slot: wherever f_i = P_i the two gradients
+  // coincide there, and that slot would be textually identical to the original -- v132's lesson
+  // that a mutation equal to its own original can never be caught.
+  if (!F.every((fi, i) => fi !== PROBS[i])) bgFail(`f and P coincide at expert ${F.findIndex((fi, i) => fi === PROBS[i]) + 1}, so the swap is invisible in that slot and the example must be rechosen`);
+  if (!G.every((gi, i) => !near(gi, wrong[i]))) bgFail("some slot gives the same value either way, so the constructive proof has a hole");
+  // ... and the same blindness in the older card, read out of the data. moe-balance's example is
+  // the surface a reader meets first, and it is symmetric too -- so NEITHER card's loss can show
+  // it. If that example ever changes, this has to be rechecked rather than silently inherited.
+  const bgOlder = base.formulas.find(f => f.id === "moe-balance");
+  if (!bgOlder) bgFail("the moe-balance card this one extends is gone");
+  const bgOlderNums = (bgOlder.example.match(/0,\d+/gu) || []).map(s => Number(s.replace(",", ".")));
+  if (bgOlderNums.length < 7) bgFail(`moe-balance's example now prints ${bgOlderNums.length} decimals; the pair of vectors this check reads out of it is no longer there`);
+  const [of1, of2, op1, op2] = bgOlderNums;
+  if (!near(of1 * op1 + of2 * op2, op1 * of1 + op2 * of2)) bgFail("moe-balance's own example is no longer swap-symmetric, which would be a different lesson");
+  // "0,55" stands twice in that example (once as the sum, once inside L_bal = 0,01*2*0,55), so a
+  // bare includes() passes a mutation of either one. Both occurrences are pinned with their own
+  // carrier, and the count is pinned too -- v132's lesson about a number the sentence carries twice.
+  for (const carrier of [`+${bgFmt("de", of2, 2)}·${bgFmt("de", op2, 2)}=0,55`, `·2·0,55=`])
+    if (!bgOlder.example.includes(carrier)) bgFail(`moe-balance's example no longer prints "${carrier}", so the swap-invariant sum this card quotes is not the one it computes`);
+  if ((bgOlder.example.match(/0,55/gu) || []).length !== 2) bgFail(`moe-balance's example prints 0,55 ${(bgOlder.example.match(/0,55/gu) || []).length} times instead of twice, so the two carriers above no longer cover every occurrence`);
+  if (!near(of1 * op1 + of2 * op2, 0.55)) bgFail(`the two vectors read out of moe-balance give ${of1 * op1 + of2 * op2}, not the 0,55 it prints -- the parse is reading the wrong numbers`);
+  // 9. The yardstick is the weighted mean, NOT the even share. The card claims an expert above
+  //    the share is still pulled up; that inversion has to EXIST, or the claim is decoration.
+  const share = T / E;
+  const above = COUNTS.map((c, i) => c > share && ZG[i] < 0);
+  if (!above.some(Boolean)) bgFail(`no expert sits above the even share ${share} and is still pulled up, so the pitfall's second point has no case in this example`);
+  if (!(COUNTS[1] > share && ZG[1] < 0 && G[1] < GBAR)) bgFail("expert 2 is no longer the above-share expert that gets pulled up, which is the case the pitfall and the example both name");
+  if (!(ZG[0] > 0)) bgFail("expert 1, the only one above the weighted mean, is not the one being pushed down");
+  if (ZG.filter(z => z > 0).length !== 1) bgFail(`${ZG.filter(z => z > 0).length} experts are pushed down; the example's point is that exactly one is`);
+  // 10. The dead expert: direct gradient zero, lifted only through the coupling, in proportion to
+  //     the probability it already has -- and that lift vanishes as p_j -> 0. This is the computed
+  //     reason the aux loss cannot undo a collapse.
+  const DT = 10, DC = [6, 4, 0, 0], DP = [0.50, 0.30, 0.15, 0.05];
+  const DG = grad(DC, DT), DL = loss(frac(DC, DT), DP), DBAR = gbar(DG, DP), DZ = logitGrad(DG, DP);
+  if (!near(DL, 0.0168) || !near(DBAR, 0.00168) || !near(DBAR, DL / DT)) bgFail(`the dead-expert case gives L = ${DL} and g_bar = ${DBAR}, not the 0.0168 / 0.00168 the answer prints`);
+  if (!(DG[2] === 0 && DG[3] === 0)) bgFail("an expert with zero tokens no longer has gradient exactly zero, which is the answer key's whole point");
+  if (!near(DZ[2], -DP[2] * DBAR) || !near(DZ[3], -DP[3] * DBAR)) bgFail("a dead expert's logit gradient is no longer exactly -p_j*g_bar");
+  if (!near(DZ[2], -0.000252) || !near(DZ[3], -0.000084)) bgFail(`the two lifts read ${DZ[2]} / ${DZ[3]}, not the -0.000252 / -0.000084 the answer prints`);
+  if (!near(DZ[2] / DZ[3], DP[2] / DP[3]) || !near(DZ[2] / DZ[3], 3)) bgFail(`the lift ratio is ${DZ[2] / DZ[3]} instead of the probability ratio ${DP[2] / DP[3]}`);
+  if (!(DZ[2] < 0 && DZ[3] < 0)) bgFail("the dead experts are not being lifted at all, which contradicts the answer");
+  // the lift really does vanish with p_j -- checked as a limit, not asserted
+  let bgPrev = Infinity;
+  for (const eps of [1e-2, 1e-3, 1e-4, 1e-6, 1e-9]) {
+    const p = [0.6 - eps / 3, 0.2 - eps / 3, 0.2 - eps / 3, eps];
+    const lift = Math.abs(logitGrad(grad([6, 2, 2, 0], DT), p)[3]);
+    if (!(lift < bgPrev)) bgFail(`the lift of a collapsing expert does not shrink with p_j (at eps = ${eps}), so "the loss cannot resurrect it" is unproven`);
+    bgPrev = lift;
+  }
+  if (!(bgPrev < 1e-11)) bgFail(`at p_j = 1e-9 the lift is still ${bgPrev}, so it does not vanish`);
+  // 11. Two experts with the SAME count get the same g and yet different lifts -- the sharpest
+  //     form of "the count sets the pressure, the probability sets the lift".
+  if (!(COUNTS[2] === COUNTS[3])) bgFail("experts 3 and 4 no longer share a count, so the example cannot separate count from probability");
+  if (!near(G[2], G[3])) bgFail("equal counts no longer give equal gradients");
+  if (near(ZG[2], ZG[3])) bgFail("equal counts now give equal lifts too, so the example's last point is gone");
+  if (!near(ZG[2] / ZG[3], PROBS[2] / PROBS[3]) || !near(ZG[2] / ZG[3], 4)) bgFail(`the two lifts stand as ${ZG[2] / ZG[3]} instead of the probability ratio 4`);
+  bgChecks += 44;
+
+  // Which expert plays which role is a CLAIM, and prose names it by index. Derive the indices
+  // from the model so that renaming an expert in the text is caught, and require the roles to be
+  // distinct -- if two of them collapsed onto one expert the example would stop separating them.
+  const bgDown = ZG.findIndex(z => z > 0) + 1;                       // the one pushed down
+  const bgAbove = COUNTS.findIndex((c, i) => c > share && ZG[i] < 0) + 1; // above the share, still lifted
+  const bgTwinA = COUNTS.findIndex((c, i) => COUNTS.indexOf(c) !== i) ;   // the second of the equal pair
+  const bgPair = [COUNTS.indexOf(COUNTS[bgTwinA]) + 1, bgTwinA + 1];      // the two sharing a count
+  if (bgDown < 1 || bgAbove < 1 || bgTwinA < 1) bgFail("one of the three roles the prose names by index does not exist in the example any more");
+  if (new Set([bgDown, bgAbove, ...bgPair]).size !== 4) bgFail(`the roles collapse onto ${new Set([bgDown, bgAbove, ...bgPair]).size} experts instead of 4, so naming them by index proves nothing`);
+  // Per-locale separators only -- v133's lesson: a separator-blind pattern reads the German
+  // "0,0132" as a grouped figure. This card prints no grouped thousands at all, and that empty
+  // set is pinned as a test rather than assumed.
+  const bgGroupSep = { de: "\\.", en: "," }, bgDecSep = { de: ",", en: "\\." };
+  const bgGrouped = (locale, text) => {
+    const re = new RegExp(`(?<![\\d${bgDecSep[locale]}])\\d{1,3}(?:${bgGroupSep[locale]}\\d{3})+(?![\\d${bgGroupSep[locale]}])`, "gu");
+    return (String(text).match(re) || []).map(s => s.replace(/[.,]/gu, ""));
+  };
+  const bgHold = (where, locale, text, tokens, expectGrouped) => {
+    if (typeof text !== "string") bgFail(`${locale}: ${where} is missing`);
+    let cursor = -1;
+    for (const token of tokens) {
+      const at = text.indexOf(token, cursor + 1);
+      if (at < 0) bgFail(`${locale}: ${where} is missing "${token}" or has it out of order`);
+      cursor = at + token.length - 1;
+    }
+    if (expectGrouped) {
+      const printed = bgGrouped(locale, text);
+      if (JSON.stringify(printed) !== JSON.stringify(expectGrouped)) bgFail(`${locale}: ${where} prints the grouped figures ${printed.join(" ")} where the model gives ${expectGrouped.join(" ")}`);
+    }
+    return tokens.length + 1;
+  };
+
+  // The example in the order the calculation produces it. A card naming the right figures in the
+  // wrong places teaches a different calculation, and a set comparison cannot see that. Each
+  // figure travels with the text that gives it its role -- v132's lesson that a bare number
+  // proves nothing when the sentence carries it twice.
+  const bgExampleTokens = locale => {
+    const de = locale === "de", f = (x, d) => bgFmt(locale, x, d);
+    const vec = (xs, d) => "[" + xs.map(x => f(x, d)).join("; ") + "]";
+    return [
+      de ? `T = ${T} Tokens und E = ${E} Experten` : `T = ${T} tokens and E = ${E} experts`,
+      de ? `Top-1-Routing` : `top-1 routing`,
+      `α = ${f(ALPHA, 2)}`,
+      `c = [${COUNTS.join("; ")}]`,
+      `f = ${vec(F, 1)}`,
+      `P = ${vec(PROBS, 2)}`,
+      `${f(F[0], 1)}·${f(PROBS[0], 2)} + ${f(F[1], 1)}·${f(PROBS[1], 2)} + ${f(F[2], 1)}·${f(PROBS[2], 2)} + ${f(F[3], 1)}·${f(PROBS[3], 2)}`,
+      `= ${f(F[0] * PROBS[0], 2)} + ${f(F[1] * PROBS[1], 3)} + ${f(F[2] * PROBS[2], 2)} + ${f(F[3] * PROBS[3], 3)} = ${f(L / (ALPHA * E), 2)}`,
+      `L_bal = ${f(ALPHA, 2)}·${E}·${f(L / (ALPHA * E), 2)} = ${f(L, 4)}.`,
+      de ? `Boden liegt bei α = ${f(ALPHA, 2)}` : `floor sits at α = ${f(ALPHA, 2)}`,
+      `α·E = ${f(ALPHA * E, 2)}`,
+      de ? `${f(L / ALPHA, 2)}-Fachen des Bodens` : `${f(L / ALPHA, 2)} times the floor`,
+      de ? `Ableitung der Folie 28` : `Now slide 28`,
+      `g_i = α·E·c_i/T² = ${f(ALPHA * E, 2)}·c_i/${T * T} = ${f(ALPHA * E / (T * T), 4)}·c_i`,
+      `g = ${vec(G, 4).replace(f(G[0], 4), f(G[0], 3))}`,
+      `g_1/g_3 = ${f(G[0], 3)}/${f(G[2], 4)} = ${COUNTS[0] / COUNTS[2]}`,
+      // the ratio restated in words: a figure repeated in prose is a second claim, not decoration
+      de ? `wie ${COUNTS[0]} zu ${COUNTS[2]} Tokens` : `like ${COUNTS[0]} to ${COUNTS[2]} tokens`,
+      `ḡ = Σ_i g_i·p_i = ${f(G[0], 3)}·${f(PROBS[0], 2)} + ${f(G[1], 4)}·${f(PROBS[1], 2)} + ${f(G[2], 4)}·${f(PROBS[2], 2)} + ${f(G[3], 4)}·${f(PROBS[3], 2)} = ${f(GBAR, 5)}`,
+      `L_bal/T = ${f(L, 4)}/${T}`,
+      `∂L_bal/∂z_j = p_j·(g_j − ḡ) = [${ZG.map(z => bgSign(locale, z, 6)).join("; ")}]`,
+      de ? `Nur Expert ${bgDown} wird heruntergedrückt` : `Only expert ${bgDown} is pushed down`,
+      de ? `auch Expert ${bgAbove}, der mit ${COUNTS[bgAbove - 1]} Tokens` : `including expert ${bgAbove}, which with ${COUNTS[bgAbove - 1]} tokens`,
+      `${T}/${E} = ${f(share, 1)}`,
+      de ? `die Experten ${bgPair[0]} und ${bgPair[1]} haben dieselbe Tokenzahl` : `experts ${bgPair[0]} and ${bgPair[1]} hold the same token count`,
+      `${f(Math.abs(ZG[2]), 6)}/${f(Math.abs(ZG[3]), 6)} = ${bgRatio(ZG[2], ZG[3])}`,
+      `${f(PROBS[2], 2)}/${f(PROBS[3], 2)}`];
+  };
+  // The answer key carries figures the example does NOT contain (T = 20 and T = 10 with a dead
+  // expert), so it cannot pass by echoing the example.
+  const bgAnswerTokens = locale => {
+    const de = locale === "de", f = (x, d) => bgFmt(locale, x, d);
+    return [
+      `L_bal = ${f(ALPHA, 2)}·${E}·(${E}·${f(0.25, 2)}·${f(0.25, 2)}) = ${f(ALPHA, 2)}·${E}·${f(0.25, 2)} = ${f(ALPHA, 2)}`,
+      `g_i = α·E·${BC[0]}/T² = ${f(ALPHA * E, 2)}·${BC[0]}/${BT * BT} = ${f(0.0005, 4)}`,
+      `ḡ = Σ_i g_i·p_i = ${f(0.0005, 4)}`,
+      `${f(0.25, 2)}·(${f(0.0005, 4)} − ${f(0.0005, 4)}) = 0 ${de ? "für alle vier Experten" : "for all four experts"}`,
+      `T = ${DT}`, `c = [${DC.join("; ")}]`, `P = [${DP.map(x => f(x, 2)).join("; ")}]`,
+      `L_bal = ${f(ALPHA * E, 2)}·(${f(0.6, 1)}·${f(DP[0], 2)} + ${f(0.4, 1)}·${f(DP[1], 2)}) = ${f(ALPHA * E, 2)}·${f(DL / (ALPHA * E), 2)} = ${f(DL, 4)}`,
+      `ḡ = ${f(DBAR, 5)} = L_bal/T`,
+      `c_i = 0 ${de ? "und" : "and"}`, `g_i = 0:`,
+      `∂L_bal/∂z_j = p_j·(0 − ḡ) = −p_j·ḡ`,
+      de ? `${bgSign(locale, DZ[2], 6).replace("+", "−")} für Expert ${3}` : `${bgSign(locale, DZ[2], 6).replace("+", "−")} for expert ${3}`,
+      de ? `${bgSign(locale, DZ[3], 6).replace("+", "−")} für Expert ${4}` : `${bgSign(locale, DZ[3], 6).replace("+", "−")} for expert ${4}`,
+      de ? `im Verhältnis ${bgRatio(DZ[2], DZ[3])} zu 1` : `in the ratio ${bgRatio(DZ[2], DZ[3])} to 1`,
+      `${f(DP[2], 2)}`, `${f(DP[3], 2)}`,
+      de ? `DeepSeek v3 setzt auf Folie 30` : `DeepSeek v3 on slide 30`];
+  };
+
+  const bgCard = base.formulas.find(f => f.id === "moe-balance-gradient");
+  const bgEnglish = pack.formulas["moe-balance-gradient"];
+  if (!bgCard || !bgEnglish) bgFail("the card is missing in one of the two languages");
+  for (const [locale, example, answer, pitfall, check, purpose] of [
+    ["de", bgCard.example, formulaAnswers["moe-balance-gradient"], bgCard.pitfall, bgCard.check, bgCard.purpose],
+    ["en", bgEnglish.example, bgEnglish.answer, bgEnglish.pitfall, bgEnglish.check, bgEnglish.purpose]]) {
+    const de = locale === "de", f = (x, d) => bgFmt(locale, x, d);
+    // expr is what the reader sees as THE formula, and it was unbound in the first mutation run.
+    // Held in order, in both languages, with the two derivatives and the bracket.
+    bgChecks += bgHold("the expression", locale, locale === "de" ? bgCard.expr : (bgEnglish.expr ?? bgCard.expr),
+      ["∂L_bal/∂p_i(x) = α·E·c_i/T²", "∂L_bal/∂z_j = p_j·(g_j − ḡ)", "α ≤ L_bal ≤ α·E"], null);
+    bgChecks += bgHold("the example", locale, example, bgExampleTokens(locale), []);
+    bgChecks += bgHold("the answer key", locale, answer, bgAnswerTokens(locale), []);
+    // The purpose has to name the slide and quote the derivative, or the card no longer says
+    // where its one number comes from.
+    for (const needed of [de ? "Folie 28" : "slide 28", "(α·E/T²)·Σ_x 1[argmax p(x) = i]",
+      de ? "Skalarprodukt" : "dot product", "moe-balance"])
+      if (!purpose.includes(needed)) bgFail(`${locale}: the purpose no longer states "${needed}", so the card's source or its reason is missing`);
+    // The pitfall carries the card's three warnings, and each one is an argument with figures in
+    // a definite order -- so it is held as an ordered list, not a set. An unordered check cannot
+    // see the above-share expert renamed, nor the two ratios swapped between the halves they
+    // belong to, and both of those escaped the first mutation run.
+    bgChecks += bgHold("the pitfall", locale, pitfall, [
+      de ? "Skalarprodukt" : "dot product",
+      de ? "in f und P symmetrisch" : "symmetric in f and P",
+      "moe-balance", f(0.55, 2), "Σ_i f_i·P_i",
+      de ? "über P_i" : "through P_i",
+      `g_1/g_3 = ${COUNTS[0] / COUNTS[2]}`,
+      de ? "über f_i" : "through f_i",
+      de ? `nämlich ${bgRatio(PROBS[0], PROBS[2])}` : `namely ${bgRatio(PROBS[0], PROBS[2])}`,
+      "T/E", "ḡ",
+      de ? `Expert ${bgAbove} hat im Beispiel mit ${COUNTS[bgAbove - 1]} Tokens` : `expert ${bgAbove} holds ${COUNTS[bgAbove - 1]} tokens`,
+      f(share, 1),
+      `g_${bgAbove} = ${f(G[bgAbove - 1], 4)}`,
+      `ḡ = ${f(GBAR, 5)}`,
+      "c_i = 0", de ? "Gradienten null" : "gradient of zero",
+      "−p_j·ḡ", "DeepSeek v3", de ? "Folie 30" : "slide 30"], null);
+    // A substring test passes "unsymmetrisch"/"asymmetric" -- the exact negation of the claim --
+    // so the word is required at a boundary, and its negations are rejected by name.
+    if (!new RegExp(`(?<![\\p{L}])${de ? "symmetrisch" : "symmetric"}(?![\\p{L}])`, "u").test(pitfall)) bgFail(`${locale}: the pitfall no longer calls the loss symmetric in f and P, which is the reason this card exists`);
+    for (const negation of de ? ["unsymmetrisch", "asymmetrisch", "nicht symmetrisch"] : ["asymmetric", "unsymmetric", "not symmetric"])
+      if (pitfall.includes(negation)) bgFail(`${locale}: the pitfall now says the loss is "${negation}" in f and P, which is the opposite of what makes this card necessary`);
+    if (!new RegExp(de ? "Gradienten null" : "gradient of zero", "u").test(pitfall)) bgFail(`${locale}: the pitfall no longer says a token-less expert gets gradient zero, which is its third point`);
+    // The self-check asks both halves and names the figures that are NOT in the example.
+    bgChecks += bgHold("the self-check", locale, check, de
+      ? [`T = ${BT} Tokens`, `E = ${E} Experten`, `je ${BC[0]} Tokens`, `${f(0.25, 2)}`, "keinen Token"]
+      : [`T = ${BT} tokens`, `E = ${E} experts`, `${BC[0]} tokens hard-selected each`, `${f(0.25, 2)}`, "no token at all"], null);
+    // The vars block has to explain the indicator and the mean, since both carry the point.
+    const bgVars = new Map((de ? bgCard.vars : bgEnglish.vars).map(([s, m]) => [s, m]));
+    for (const sym of ["g_i", "c_i", "ḡ", "1[argmax p(x) = i]", "p_j·(g_j − ḡ)"])
+      if (!bgVars.has(sym)) bgFail(`${locale}: the vars block no longer explains ${sym}`);
+    // The indicator is the whole reason no gradient flows through f, so its entry has to say
+    // BOTH halves: that the derivative is zero, and what follows for f_i. Naming the symbol is
+    // not naming the mechanism.
+    const bgInd = bgVars.get("1[argmax p(x) = i]");
+    if (!new RegExp(de ? "Ableitung null" : "derivative zero", "u").test(bgInd)) bgFail(`${locale}: the indicator's entry no longer says its derivative is zero, which is why no gradient flows through f`);
+    if (!/f_i/u.test(bgInd)) bgFail(`${locale}: the indicator's entry no longer draws the consequence for f_i, so the reader is told a fact without its point`);
+    if (!/P_i/u.test(bgInd)) bgFail(`${locale}: the indicator's entry no longer says the pressure goes through P_i instead`);
+    if (!/argmax/u.test(bgCard.expr + " " + [...bgVars.keys()].join(" "))) bgFail(`${locale}: argmax appears in neither the expression nor a symbol name, so the hard selection is unnamed`);
+    if (!bgVars.get("ḡ").includes("L_bal/T")) bgFail(`${locale}: g_bar's explanation no longer carries the identity g_bar = L_bal/T`);
+    bgChecks += 18;
+  }
+  // The older "formula sources" block already rejects dropping l04, so this clause exists for
+  // the other direction: an EXTRA source would make the card claim a slide it does not rest on.
+  if (JSON.stringify(bgCard.sources) !== JSON.stringify(["l04"])) bgFail(`the card cites ${JSON.stringify(bgCard.sources)} instead of lecture 4 alone, where slide 28 stands`);
+  if (!(base.lectureGuides.l04.formulas || []).includes("moe-balance-gradient")) bgFail("lecture 4 no longer curates the card, although slide 28 is its own");
+  if (!(base.lectureGuides.l04.formulas || []).includes("moe-balance")) bgFail("lecture 4 no longer curates the loss this card differentiates, so the reader meets the derivative without its function");
+  const bgL04 = base.lectureGuides.l04.formulas;
+  if (bgL04.indexOf("moe-balance-gradient") <= bgL04.indexOf("moe-balance")) bgFail("the derivative is curated before the loss it differentiates, so the lecture shows the gradient first");
+  const bgConcept = base.concepts.find(c => c.id === "moe-routing-capacity");
+  if (!bgConcept) bgFail("the moe-routing-capacity concept is gone");
+  if (!(bgConcept.formulas || []).includes("moe-balance-gradient")) bgFail("moe-routing-capacity no longer links the card");
+  if (bgConcept.formulas[bgConcept.formulas.length - 1] !== "moe-balance-gradient") bgFail(`the card is not last in moe-routing-capacity's ordered list (last is ${bgConcept.formulas[bgConcept.formulas.length - 1]}) -- a lecture that curates none of its cards prints only the first, so a new card belongs at the end`);
+  // The lab whose misconception this card turns into arithmetic must still make that claim --
+  // otherwise the card answers a question nothing on the platform asks any more.
+  const bgLab = base.labs.find(l => l.id === "moe-routing");
+  if (!bgLab) bgFail("the moe-routing lab is gone");
+  if (!/nicht null/u.test(bgLab.misconception)) bgFail("the moe-routing lab no longer claims the balance loss is non-zero under uniform routing, which is the qualitative sentence this card quantifies");
+  bgChecks += 8;
+
+  // Fixtures: the mistakes this card exists to prevent, each driven through the same code the
+  // real text goes through, so the block is proved sighted on EVERY run and not only under
+  // mutation. (a) the gradient given the probabilities' ratio instead of the counts' -- exactly
+  // the f/P confusion the card is about; (b) g_bar set to the loss rather than the loss over T;
+  // (c) a lift swapped between two experts with equal counts, which only the probabilities
+  // distinguish; (d) the answer key's stationary point made non-zero; (e) a dead expert given a
+  // non-zero direct gradient; (f) a grouped thousand where the card prints none.
+  const bgBust = (locale, text, from, to, tokens, expect) => {
+    if (!text.includes(from)) bgFail(`${locale}: the fixture cannot fire because "${from}" is not in the text`);
+    try { bgHold("fixture", locale, text.replace(from, to), tokens, expect); } catch { return true; }
+    return false;
+  };
+  const bgDeAnswer = formulaAnswers["moe-balance-gradient"];
+  const bgCaught = [
+    bgBust("de", bgCard.example, `g_1/g_3 = ${bgFmt("de", G[0], 3)}/${bgFmt("de", G[2], 4)} = ${COUNTS[0] / COUNTS[2]}`,
+      `g_1/g_3 = ${bgFmt("de", G[0], 3)}/${bgFmt("de", G[2], 4)} = ${bgRatio(PROBS[0], PROBS[2])}`, bgExampleTokens("de"), []),
+    bgBust("en", bgEnglish.example, `= ${bgFmt("en", GBAR, 5)}`, `= ${bgFmt("en", L, 4)}`, bgExampleTokens("en"), []),
+    bgBust("de", bgCard.example, `[${ZG.map(z => bgSign("de", z, 6)).join("; ")}]`,
+      `[${[ZG[0], ZG[1], ZG[3], ZG[2]].map(z => bgSign("de", z, 6)).join("; ")}]`, bgExampleTokens("de"), []),
+    bgBust("de", bgDeAnswer, `) = 0 für alle vier Experten`,
+      `) = ${bgFmt("de", 0.0005, 4)} für alle vier Experten`, bgAnswerTokens("de"), []),
+    bgBust("en", bgEnglish.answer, "g_i = 0", "g_i = 1", bgAnswerTokens("en"), []),
+    bgBust("de", bgCard.example, `= ${bgFmt("de", L, 4)}.`,
+      `= 1.234 ${bgFmt("de", L, 4)}.`, bgExampleTokens("de"), []),
+    // (g) a printed figure given an extra digit -- the class fixture (d) exposed: a token ending
+    //     in a bare digit still matches a longer number that starts with it, so every one of them
+    //     carries the words that follow. Without this fixture that repair is a claim.
+    bgBust("en", bgEnglish.answer, `g_i = 0:`, `g_i = 0.5:`, bgAnswerTokens("en"), []),
+    bgBust("de", bgCard.example, `= ${bgFmt("de", L, 4)}.`, `= ${bgFmt("de", L, 4)}5.`, bgExampleTokens("de"), [])
+  ];
+  if (!bgCaught.every(Boolean)) bgFail(`a fixture was not caught (${bgCaught.map((c, i) => c ? "" : i + 1).filter(Boolean).join(", ")}), so this block cannot see`);
+  // Controls: the untouched texts through the same functions. Without a line that must stay
+  // green, the table above measures nothing.
+  bgHold("control", "de", bgCard.example, bgExampleTokens("de"), []);
+  bgHold("control", "en", bgEnglish.example, bgExampleTokens("en"), []);
+  bgHold("control", "de", bgDeAnswer, bgAnswerTokens("de"), []);
+  bgHold("control", "en", bgEnglish.answer, bgAnswerTokens("en"), []);
+  bgChecks += 10;
+  console.log(`card balance gradient OK: ${bgChecks} checks -- slide 28 is the one place lecture 4 differentiates, and the app carried the loss without its derivative. L_bal = sum f_i*P_i is a dot product, so it is symmetric in f and P: swapping them returns ${bgFmt("en", L, 4)} again, and moe-balance's own example returns its 0.55 again -- read out of that card -- so NEITHER loss can show which half is differentiable. The gradient can: g_i = alpha*E*c_i/T^2 = ${G.map(g => bgFmt("en", g, 4)).join(" / ")} follows the token counts (g_1/g_3 = ${COUNTS[0] / COUNTS[2]}) where a gradient routed through f would follow the probabilities (${bgRatio(PROBS[0], PROBS[2])}), and f_i differs from P_i in every slot so that counterfactual is visible everywhere. It is independent of p, proved by varying P. On the logits p_j*(g_j - g_bar) with g_bar = L_bal/T = ${bgFmt("en", GBAR, 5)} sums to zero and pushes exactly one expert down -- not expert 2, which sits above the even share ${bgFmt("en", share, 1)} with 3 tokens and is still pulled up, because the yardstick is the weighted mean. The floor alpha is proved a stationary point in both directions (exactly zero at T = ${BT} with ${BC[0]} tokens each, demonstrably non-zero here), the ceiling alpha*E over a ${bgSweeps}-case sweep, and the floor's restriction to f = P is shown to be necessary. A dead expert gets g_i exactly 0 and is lifted only by -p_j*g_bar, which is shown to vanish as p_j -> 0 -- the computed reason DeepSeek v3 adds a per-expert bias; two experts with the SAME count are lifted ${bgRatio(ZG[2], ZG[3])}x apart, purely by the probability they already hold`);
+}

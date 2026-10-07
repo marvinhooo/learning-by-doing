@@ -1,6 +1,120 @@
 # Activity
 
-Iteration Counter: 15
+Iteration Counter: 16
+
+## v135 - 2026-10-07 - der Loss ist symmetrisch, der Gradient ist es nicht
+
+- Status: abgeschlossen. Branch `claude/deep-review-v135`, gebaut auf dem Kettenkopf v134
+  (`b0cab63`). Der zugewiesene Worktree stand auf v99 plus einem fremden Commit
+  (`dce0496`, `Sync reading position across signed-in devices`) und hatte damit **47 Commits
+  verloren** - die ganze Kette v100 bis v134. `git switch` war nicht gesperrt, der Kettenkopf
+  wurde direkt ausgecheckt. Die Ahnenpruefung ueber alle Branch-Spitzen zeigt: `dce0496` ist
+  *nicht* Nachfahre von `b0cab63`, und `origin/main` steht ebenfalls auf diesem Seitenzweig.
+  Das ist kein verlorener Zweig dieses Laufs, sondern ein offener Rest fuer den Menschen:
+  **`main` enthaelt die Lectures-Arbeit seit v100 nicht.** Haupt-Checkout unberuehrt (er hat
+  eigene uncommittete Aenderungen); der Codex-Worktree `reading-position-release` war zuletzt am
+  5. Oktober angefasst, also kein aktiver Codex.
+- **Fortsetzung des Folienabgleichs, jetzt Lecture 4 (47 Folien, MoEs):** Abgeglichen sind damit
+  die Lectures 3, 4, 5 und 7; offen bleiben 9, 11, 15 und 16. Abgedeckt waren in der App die
+  MoE-Ausgabe (Folien 13 bis 19), Expert Capacity, der Balance-Loss als Formel (28), Router
+  z-loss (36), die Per-Expert-Biases von DeepSeek v3 (30) und Upcycling (38 bis 40) - `moe-output`,
+  `moe-capacity`, `moe-balance`, `z-loss` und das Lab `moe-routing` fuehren das.
+  **Die Luecke lag auf Folie 28, und zwar nicht in der Formel, sondern in ihrer Ableitung.**
+- **Der Befund:** Folie 28 ist die einzige Stelle der ganzen Lecture, die ableitet. Sie schreibt
+  `(alpha*N/T^2) * Summe 1[argmax p(x) = i]` hin, mit dem Kommentar `more frequent use = stronger
+  downweighting`. Die App kannte den Loss, aber keine Ableitung: `0,0128`, `alpha*E*c_i/T^2` und
+  `Folie 28` kamen im Markup kein einziges Mal vor. Das Lab `moe-routing` sagte dazu nur
+  qualitativ, der Balance-Loss verwende `harte Dispatchhaeufigkeit plus differenzierbare
+  Routerwahrscheinlichkeit` - eine Aussage ohne Zahl, und genau die Sorte Luecke, die v134 schon
+  gezeigt hat.
+- **Warum das keine Kosmetik ist:** Der Loss ist `Summe f_i*P_i`, also ein Skalarprodukt - und
+  damit **strukturell symmetrisch in f und P**. Vertauscht man die beiden Vektoren, kommt derselbe
+  Wert heraus; das Beispiel der Karte `moe-balance` liefert vertauscht wieder 0,55. Die Behauptung
+  `f ist hart, P ist differenzierbar` ist am Loss also **prinzipiell nicht pruefbar**, und zwar
+  nicht wegen schlecht gewaehlter Zahlen, sondern weil kein Beispiel dieses Losses sie je
+  unterscheiden kann. Erst der Gradient trennt die Haelften.
+- **Neue Formelkarte `moe-balance-gradient`** (DE/EN, Antwortschluessel, Quelle l04):
+  `g_i = alpha*E*c_i/T^2` und `dL/dz_j = p_j*(g_j - g_mittel)`, dazu `alpha <= L_bal <= alpha*E`.
+  Bei T = 10, E = 4, alpha = 0,01, c = [5; 3; 1; 1] und P = [0,40; 0,35; 0,20; 0,05]:
+  L_bal = 0,0132, g = [0,002; 0,0012; 0,0004; 0,0004], g_mittel = 0,00132 und
+  dL/dz = [+0,000272; -0,000042; -0,000184; -0,000046].
+- **Pointe 1 - der Gradient haengt gar nicht von p ab.** L_bal ist in p linear, also ist
+  `dL/dp_i(x)` eine Konstante: Jeder Token drueckt Expert i gleich stark, unabhaengig davon, wie
+  sicher der Router gerade ist. Und diese Konstante ist genau die Tokenzahl: g_1/g_3 = 5 wie 5 zu
+  1 Tokens. Das ist `more frequent use = stronger downweighting` als Zahl.
+- **Pointe 2 - die Blindstelle wird konstruktiv aufgehoben.** Ueber P_i stehen die Verhaeltnisse
+  wie die Tokenzahlen (5), ueber f_i stuenden sie wie die Wahrscheinlichkeiten (2). Das Beispiel
+  ist so gewaehlt, dass f_i und P_i in **keinem** Slot zusammenfallen - sonst waere der
+  Gegenvergleich in diesem Slot textgleich mit dem Original und der Tausch unsichtbar.
+- **Pointe 3 - der Massstab ist nicht der Schnitt.** Auf den Logits zaehlt `p_j*(g_j - g_mittel)`,
+  und g_mittel ist das wahrscheinlichkeitsgewichtete Mittel, nicht T/E. Expert 2 liegt mit 3
+  Tokens ueber dem Schnitt 2,5 und wird **trotzdem hochgezogen**, weil 0,0012 unter 0,00132 liegt.
+  `ueber dem Schnitt, also wird heruntergedrueckt` ist falsch. Nebenbei faellt die Identitaet
+  `g_mittel = L_bal/T` ab, allgemein geprueft und nicht nur an diesem Beispiel.
+- **Pointe 4 - der Boden ist ein stationaerer Punkt.** Das Lab sagte bisher, der Loss sei bei
+  gleichmaessigem Routing nicht null, sein Gradient koenne trotzdem Balance foerdern. Gerechnet
+  ist es scharfer: Bei perfekter Balance ist L_bal = alpha **exakt** (der Boden, nach
+  Cauchy-Schwarz im gekoppelten Fall f = P), und der Logit-Gradient ist **exakt null** in allen
+  Koordinaten. Der Wert ueber null ist kein Mangel, sondern das Minimum.
+- **Pointe 5 - der Loss kann einen kollabierten Experten nicht zurueckholen.** Fuer c_i = 0 ist
+  g_i = 0: direkt belohnt der Balance-Loss einen ungenutzten Experten **nie**, er drueckt nur die
+  anderen. Gehoben wird er allein ueber die Softmax-Kopplung mit `-p_j*g_mittel`, also proportional
+  zu der Wahrscheinlichkeit, die er schon hat - und fuer p_j gegen null verschwindet die Hebung.
+  Im Beispiel haben die Experten 3 und 4 **dieselbe** Tokenzahl und damit dasselbe g, werden aber
+  um den Faktor 4 verschieden stark gehoben, genau im Verhaeltnis 0,20/0,05 ihrer heutigen
+  Wahrscheinlichkeiten. Das ist die gerechnete Begruendung dafuer, warum DeepSeek v3 auf Folie 30
+  zusaetzlich einen gelernten Bias je Expert braucht - der Bogen von Folie 28 ueber 30 zu 31.
+- **Der Selbstcheck erzeugt Zahlen, die im Beispiel nicht stehen:** (a) T = 20 mit vier mal 5
+  Tokens gibt L_bal = 0,01 = alpha und g_i = 0,0005 fuer alle vier, also Logit-Gradient null;
+  (b) T = 10 mit c = [6; 4; 0; 0] gibt L_bal = 0,0168, g_mittel = 0,00168 und die Hebungen
+  -0,000252 gegen -0,000084, Verhaeltnis 3 wie 0,15 zu 0,05.
+- Verknuepft: Lecture 4 kuratiert die Karte (4. Formel, ans Ende), das Concept
+  `moe-routing-capacity` fuehrt sie am Ende seiner geordneten Liste.
+- **Guard `card balance gradient`** (90 -> 92 Bloecke in der Suite, 252 Pruefungen): 44
+  Modellzusicherungen vor dem ersten gelesenen Zeichen der Karte. Darunter die Unabhaengigkeit des
+  Gradienten von p (durch Variieren von P bewiesen, nicht behauptet), die Identitaet
+  `g_mittel = L_bal/T` und die Nullsumme der Logit-Gradienten ueber vier zusaetzliche Faelle statt
+  nur am Beispiel, die Decke ueber einen deterministischen 4.000-Faelle-Sweep, der Boden als
+  stationaerer Punkt **in beiden Richtungen** (exakt null bei perfekter Balance, messbar nicht null
+  am Beispiel) und die Notwendigkeit der Einschraenkung `nur fuer f = P` - ein Hedge, der falsch
+  waere, wenn der Boden universell gaelte, wird also selbst geprueft. Die Blindstelle ist
+  **konstruktiv** bewiesen: der Guard vertauscht f und P und zeigt, dass der Loss sich nicht
+  bewegt, der Gradient aber von 5 auf 2 springt; zusaetzlich verlangt er, dass f_i und P_i in
+  keinem Slot zusammenfallen, weil die Mutation dort textgleich mit dem Original waere.
+  Das `0,55` wird aus `moe-balance` **gelesen**, nicht abgeschrieben.
+- **Mutationstest: 331 Mutationen, 0 entkommen, 0 unerklaert inert.** 323 Faenge nachweislich aus
+  dem neuen Block (Schlankfassung 0,25 s statt 80 s), eine Mutation (l04 aus `sources` entfernen)
+  faengt ein aelterer Block - deshalb wurde die eigene Klausel auf die *andere* Richtung
+  geschaerft (eine zusaetzliche, nicht belegte Quelle) und dadurch beweisbar scharf gestellt.
+  7 Kontrollmutationen in den bewusst nicht gebundenen Feldern (`read`, `intuition`, `dims`,
+  `aliases`, `title`) blieben gruen, Kontrolle vor und nach jedem Durchgang gruen.
+- **Was der erste Mutationsdurchgang aufdeckte (42 Entkommene, alle geschlossen):** (1) Ein Token,
+  das auf einer nackten Ziffer endet, passt auch auf eine **laengere** Zahl, die damit anfaengt -
+  `= 0` passte auf `= 0,0005`, und damit entkam die Mutation, die den stationaeren Punkt aufhob.
+  Jedes solche Token traegt jetzt die folgenden Woerter, und eine eigene Fixture beweist die
+  Reparatur. (2) Eine Teilstring-Pruefung auf `symmetrisch` passt auf **`unsymmetrisch`**, also auf
+  die exakte Negation der tragenden Aussage; jetzt mit Wortgrenze plus namentlicher Abweisung der
+  Negationen. (3) `0,55` steht in `moe-balance` **zweimal**, eine blosse `includes`-Pruefung laesst
+  also jede der beiden Mutationen durch - beide Fundstellen sind mit eigenem Traegersatz verankert
+  und ihre Anzahl ist festgenagelt. (4) Prosa benennt Rollen per **Index** (`Nur Expert 1`,
+  `auch Expert 2`, `die Experten 3 und 4`); diese Indizes werden jetzt aus dem Modell abgeleitet,
+  und der Guard verlangt, dass die vier Rollen auf vier verschiedene Experten fallen. (5) Der
+  Fallstrick ist von einer Menge auf eine **geordnete** Liste umgestellt, weil eine Menge weder
+  einen umbenannten Experten noch zwei zwischen ihren Haelften vertauschte Verhaeltnisse sieht.
+  (6) `expr` war ungebunden - das Feld, das der Leser als *die* Formel sieht.
+- Kein Browsertest (geplanter Lauf, `preview_start` gesperrt). Ersatz: die Karte durch die
+  app-eigenen Renderer (`formulaAccordion` ueber `activateCourseLanguage`) headless gerendert,
+  beide Sprachen - alle 29 gerechneten Zahlen erreichen den Leser, Markup in zehn Tagpaaren
+  balanciert, die vier Schritte der Lernsequenz in Reihenfolge, die geschlossene Karte zeigt keine
+  Gleichung, und das Beispiel steht vor der allgemeinen Regel.
+- Zaehler nachgezogen: README 88 Formeln, Quellkommentar der Accordion-Route (88/280/88/80/112/284).
+- Cache-Bump auf **v112** (sw.js zweimal, index.html, README).
+- Der Iteration Counter wurde erhoeht, da der Run ueber einen Scheduled Task startete.
+- **Nebenbefund, nicht Teil dieses Commits:** `Copy LaTeX` liefert bei drei Karten (`rope`,
+  `decode-intensity-heads`, `zero-stage-ceiling`) doppelte Backslashes, weil ihr `latex`-Feld im
+  Datei-Quelltext `\\frac` statt `\frac` schreibt. 85 Karten folgen der richtigen Konvention,
+  drei nicht, und nichts erzwingt sie - dieselbe Klasse wie das ungeschuetzte `expr` aus v133.
+  Wird als eigener Commit nachgezogen.
 
 ## v134 - 2026-10-06 - die Stufe, die am meisten bringt, und die Grenze, an der zwei von drei enden
 

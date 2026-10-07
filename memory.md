@@ -444,6 +444,56 @@
   Gegenseite gehoert dazu: ZeRO-3 darf **keinen** endlichen Deckel haben und muss mit G exakt
   verdoppeln.
 
+## Der Loss ist symmetrisch, der Gradient ist es nicht (v135)
+
+- **Eine Behauptung ueber zwei Faktoren eines Produkts ist am Produkt nie pruefbar.** Der
+  MoE-Balance-Loss ist `alpha*E*Summe f_i*P_i`, also ein Skalarprodukt und damit symmetrisch in
+  f und P. Die Aussage `f ist die harte Haeufigkeit, P die differenzierbare Wahrscheinlichkeit`
+  kann deshalb **kein** Beispiel dieses Losses belegen - vertauscht kommt immer derselbe Wert
+  heraus, auch bei `moe-balance` wieder 0,55. Das ist keine schlechte Zahlenwahl, sondern eine
+  Eigenschaft der Form. Wo eine Karte eine Rolle behauptet, die ihre eigene Gleichung nicht
+  unterscheiden kann, ist die Ableitung die fehlende Flaeche: ueber P_i folgen die Verhaeltnisse
+  den Tokenzahlen (5), ueber f_i wuerden sie den Wahrscheinlichkeiten folgen (2).
+  Karte `moe-balance-gradient`, Guard `card balance gradient`.
+- **Lecture 4 Folie 28 ist die einzige Stelle der Lecture, die ableitet** - und `(alpha*N/T^2) *
+  Summe 1[argmax p(x)=i]` stand nirgends. Der Gradient haengt **gar nicht von p ab** (der Loss ist
+  in p linear), ist also fuer jeden Token derselbe und genau proportional zur Tokenzahl. Beim
+  Bauen einer Karte ueber eine Ableitung gehoert diese Unabhaengigkeit als Pruefung hinein: P
+  variieren und verlangen, dass g sich nicht bewegt.
+- **Der Massstab eines Softmax ist das wahrscheinlichkeitsgewichtete Mittel, nicht der
+  gleichmaessige Schnitt.** `dL/dz_j = p_j*(g_j - g_mittel)`. Ein Expert kann mit 3 von 10 Tokens
+  **ueber** dem Schnitt 2,5 liegen und trotzdem hochgezogen werden, weil 0,0012 unter
+  g_mittel = 0,00132 liegt. `ueber dem Schnitt, also wird heruntergedrueckt` ist falsch, und ein
+  Guard, der das Vorzeichen gegen den Schnitt prueft, zertifiziert den Irrtum.
+- **Ein nicht verschwindender Loss kann genau das Minimum sein.** Bei perfekter Balance ist
+  L_bal = alpha **exakt** (Cauchy-Schwarz im gekoppelten Fall f = P) und der Logit-Gradient
+  **exakt null** in allen Koordinaten. Die qualitative Fassung (`nicht null, foerdert aber
+  trotzdem Balance`) verdeckte, dass es ein stationaerer Punkt ist. Eine Schranke gehoert in
+  beiden Richtungen in den Guard: null bei Balance **und** messbar nicht null daneben - sonst sagt
+  `stationaer am Boden` nichts. Und die Einschraenkung `nur fuer f = P` ist selbst eine Behauptung:
+  Der Guard verlangt, dass der Boden ohne Kopplung tatsaechlich unterschritten wird, sonst waere
+  der Hedge unnoetig.
+- **Ein Aux-Loss kann einen kollabierten Experten nicht zurueckholen.** Fuer c_i = 0 ist g_i = 0:
+  belohnt wird ein ungenutzter Expert direkt **nie**, gehoben nur ueber die Softmax-Kopplung mit
+  `-p_j*g_mittel`, also proportional zu der Wahrscheinlichkeit, die er schon hat - und fuer
+  p_j gegen null verschwindet die Hebung. Zwei Experten mit **derselben** Tokenzahl werden um den
+  Faktor ihrer Wahrscheinlichkeiten verschieden stark gehoben (im Beispiel 4). Das ist die
+  gerechnete Begruendung fuer die Per-Expert-Biases von DeepSeek v3 (Folie 30) und fuer Folie 31.
+- **Ein Token, das auf einer nackten Ziffer endet, passt auch auf eine laengere Zahl.** `= 0`
+  passte auf `= 0,0005`, und damit entkam die Mutation, die den stationaeren Punkt aufhob. Jedes
+  Token, das auf einer Zahl endet, muss die folgenden Woerter mittragen. Siehe
+  [[cs336-mutation-test-blind-spots]].
+- **Eine Teilstring-Pruefung auf ein Wort passt auf seine eigene Negation.** `symmetrisch` ist in
+  `unsymmetrisch` enthalten, also liess die Pruefung die exakte Umkehrung der tragenden Aussage
+  durch. Wortgrenze verlangen **und** die Negationen namentlich abweisen.
+- **Prosa benennt Rollen per Index, und Indizes sind Behauptungen.** `Nur Expert 1`,
+  `auch Expert 2`, `die Experten 3 und 4` - alle drei entkamen zuerst. Die Indizes gehoeren aus dem
+  Modell abgeleitet, und der Guard muss verlangen, dass die benannten Rollen auf **verschiedene**
+  Experten fallen; fallen zwei zusammen, beweist das Benennen nichts.
+- **Ein Fallstrick mit mehreren Punkten gehoert als geordnete Liste geprueft, nicht als Menge.**
+  Eine Menge sieht weder einen umbenannten Experten noch zwei zwischen ihren Haelften vertauschte
+  Verhaeltnisse. Und `expr` - das Feld, das der Leser als *die* Formel sieht - war ungebunden.
+
 ## Der Faktor, den die Faustregel verdeckt (v132)
 
 - Die Strafe für einen unkoaleszierten Warp-Zugriff ist **nicht** die Warpbreite 32, sondern
