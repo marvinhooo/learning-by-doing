@@ -1,6 +1,43 @@
 # Activity
 
-Iteration Counter: 16
+Iteration Counter: 17
+
+## v136 - 2026-10-07 - warum die Gerade gerade ist
+
+- Status: abgeschlossen. Branch `claude/deep-review-v136`, gebaut auf dem Kettenkopf `d2f950a`
+  (v135-Report) per `git worktree add -b` im Scratchpad; der zugewiesene Worktree stand wieder auf
+  `dce0496` (v99 plus Leseposition-Sync). Ahnenpruefung ueber `refs/heads` und `refs/remotes`:
+  ausserhalb des Kopfs liegen nur `dce0496` (= `origin/main`, offene Merge-Entscheidung fuer den
+  Menschen, unveraendert seit v135) und die eigene v135-Spitze, die jetzt Vorfahre ist.
+- **Folienabgleich Lecture 9 (53 Folien, Scaling Laws Basics).** Abgedeckt waren C = 6ND,
+  das Chinchilla-Loss-Modell, IsoFLOPs, der Power-Law-Fit, Critical Batch und muP. **Die Luecke
+  lag in Teil 1 (Folien 16 bis 20): warum Scaling Laws ueberhaupt Potenzgesetze sind.** Die
+  Lecture antwortet mit zwei Rechnungen - Mittelwertschaetzung `E[(mu_hat - mu)^2] = sigma^2/n`
+  (Steigung -1) und nichtparametrisches Lernen `n^(-1/d)` - und stellt auf Folie 18 den
+  gemessenen Sprachmodell-Exponenten 0,095 (Folie 15) dagegen. `intrinsisch`, `Bahri` und
+  `n^(-1/d)` kamen im Markup null Mal vor; der Exponent war eine Fitzahl ohne Bedeutung.
+- **Neue Formelkarte `estimation-rate`** (DE/EN, Antwortschluessel, Quelle l09), kuratiert in
+  Lecture 9 vor `scaling-law`, am Ende von `power-laws`; neues Lernziel in `l09`. Beispiel:
+  sigma = 2 -> 0,04 / 0,01 bei n = 100 / 400 (Steigung -1, k_1/2 = 2); d = 8 -> 4^(1/8) = 1,189,
+  k_1/2 = 256; alpha = 0,095 -> 10x Daten = Loss x 0,804, k_1/2 = 2^(1/0,095) = 1475,
+  1/alpha = 10,53.
+- **Pointe - das Beispiel der Folie ist blind.** Bei d = 2 fallen die informelle Rate 1/d und der
+  Bias-Varianz-Exponent 2/(d+2) exakt zusammen (0,5); der Guard beweist, dass das fuer d in 1..64
+  nur bei d = 2 passiert. Die Karte rechnet deshalb bei d = 8 (256- gegen 32-fache Daten) und
+  zeigt, dass eine Steigung zwei Dimensionen liefert (alpha = 0,2 -> 5 oder 8; im
+  Antwortschluessel alpha = 1/3 -> 3 oder 4) - die gerechnete Form der Folie-20-Warnung.
+- **Guard `card estimation rate`** (93 -> 94 Bloecke, 143 Pruefungen): 14 Modellzusicherungen vor
+  dem Lesen, expr/Beispiel/Fallstrick/Antwort/Selbstcheck/Zweck in Reihenfolge in beiden
+  Sprachen, Kuration und Ordnung, sechs eingebaute Fixtures.
+- **Mutationstest:** 32 Mutationen, **0 entkommen, 0 inert**, zwei Kontrollmutationen gruen,
+  Kontrolle vor und nach gruen (Schlankfassung).
+- **Kein Browsertest** (geplanter Lauf). Die volle Suite rendert die Karte in `accordion route`
+  und prueft sie in `formula field fallthrough`, `card numerals`, `expr markup safety`,
+  `copy latex`; alle 94 Bloecke gruen.
+- Zaehler: README 89 Formeln, Accordion-Route 89/283/89/81/113/287. Cache-Bump auf **v113**.
+- localsub-Zweitpruefung nicht moeglich: `~/.claude/localsub-model` nennt `qwen3.8:27b`, Ollama
+  kennt nur `qwen3.8:27b-mlx` (Nutzerentscheidung, nicht angefasst).
+- Der Iteration Counter wurde erhoeht, da der Run ueber einen Scheduled Task startete.
 
 ## v135 - 2026-10-07 - der Loss ist symmetrisch, der Gradient ist es nicht
 

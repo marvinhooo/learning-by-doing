@@ -4317,6 +4317,55 @@ window.CS336_EN = Object.freeze({
       "check": "What is the cost of very large m?",
       "answer": "Very large m reduces the relative pipeline bubble but generates more scheduling and communication operations. With a fixed global batch, individual microbatches become smaller and may underutilize matrix multiplications; with fixed microbatch size, batch size and latency increase instead."
     },
+    "estimation-rate": {
+      "cat": "Scaling",
+      "title": "Why power laws? The estimation rate behind the straight line",
+      "expr": "E[(μ̂ − μ)²] = σ²/n   ·   error ∝ n^(−1/d)   ·   k_½ = 2^(1/α)",
+      "latex": "\\mathbb E\\left[(\\hat\\mu-\\mu)^2\\right]=\\frac{\\sigma^2}{n}\\qquad\\text{error}\\propto n^{-1/d}\\qquad k_{1/2}=2^{1/\\alpha}",
+      "read": "The expected squared error of a mean is the variance of one observation divided by the number of observations. A flexible function in d dimensions learns more slowly: its error falls only like n to the minus one over d. And whoever has measured a slope α needs 2 to the one over α times as much data to halve the error.",
+      "purpose": "Lecture 9 asks explicitly on slide 16 why scaling laws are power laws at all, that is straight lines on a log-log plot, and answers with two calculations: mean estimation on slide 17 with σ²/n and nonparametric learning on slide 19 with n^(−1/d). Slide 18 names the contradiction: classical models predict the slope −1, while language models on slide 15 show only L = (D/5.4·10¹³)^(−0.095). The platform carried the empirical line and its fit, but not this reason. Without it the exponent remains a mere fitted number; with it, it is a statement about how hard the learning problem is and how expensive every halving of the error becomes.",
+      "dims": "n counts observations or training examples, σ² is the variance of a single observation in squared units of x, and the expected squared error has the same unit as σ². d is a dimensionless number of input dimensions, α a dimensionless exponent and k_½ a pure data factor without unit.",
+      "vars": [
+        [
+          "μ̂",
+          "sample mean (x₁ + … + xₙ)/n, that is the estimator"
+        ],
+        [
+          "μ",
+          "true mean of the distribution the data are drawn from"
+        ],
+        [
+          "σ²",
+          "variance of a single observation"
+        ],
+        [
+          "n",
+          "number of observations or training examples"
+        ],
+        [
+          "E[(μ̂ − μ)²]",
+          "expected squared error of the estimator, averaged over many freshly drawn datasets of the same size"
+        ],
+        [
+          "d",
+          "number of input dimensions over which a flexible, nonparametric function is estimated"
+        ],
+        [
+          "α",
+          "magnitude of the slope on the log-log plot: error ∝ n^(−α). Mean estimation has α = 1, the nonparametric case α = 1/d."
+        ],
+        [
+          "k_½",
+          "data factor that halves the error: k_½^(−α) = 1/2 gives k_½ = 2^(1/α). It is the same for every halving."
+        ]
+      ],
+      "intuition": "Each further observation contributes a piece of information that shrinks with n. That is why the error falls polynomially, and polynomially means a straight line on a log-log plot. Its slope measures how much space the data must cover. A mean is a single number, hence slope −1. A flexible function in d dimensions needs data in every box, and the number of boxes grows exponentially with d. The spread σ, by contrast, only shifts the intercept, because log error = −log n + 2·log σ; the slope stays.",
+      "pitfall": "Two pitfalls. First, n^(−1/d) is the lecture's informal form. Balancing bias against variance carefully, that is box width h with bias error h² against variance 1/(n·h^d), yields the exponent 2/(d+2). In the example of slide 19 with d = 2 the two coincide exactly: 1/2 = 2/4 = 0.5, which is why the slide cannot tell them apart at all. At d = 8 they separate: 0.125 against 0.2, that is 256 times against 32 times the data for half the error. For large d both have the same order of magnitude, and the lecture's message that the exponent shrinks like 1/d stands. Second, the reading `slope = 1/intrinsic dimension` on slide 20 is a hypothesis by Bahri et al. 2021, not a measurement procedure: the same measured slope α = 0.2 would mean dimension 5 under 1/d and dimension 8 under 2/(d+2), and the lecture explicitly calls estimators of intrinsic dimension sketchy.",
+      "example": "(1) Mean estimation: σ = 2, so σ² = 4. With n = 100 observations the expected squared error is 4/100 = 0.04, with n = 400 it is 4/400 = 0.01. Four times the data, a quarter of the error; on the log-log plot the slope is log(0.01/0.04)/log(400/100) = −1, so α = 1, and half the error needs only k_½ = 2^1 = 2, twice the data. (2) Nonparametric in d = 8 dimensions: error ∝ n^(−1/8). Four times the data lower the error only by the factor 4^(1/8) ≈ 1.189, and half the error needs k_½ = 2^8 = 256 times the data. (3) Language models on slide 15: L = (D/5.4·10¹³)^(−0.095), so α = 0.095. Ten times the data multiply the loss only by 10^(−0.095) ≈ 0.804, and half the loss needs k_½ = 2^(1/0.095) ≈ 1475 times the data. Under the reading of slide 20 that would correspond to an intrinsic dimension of 1/0.095 ≈ 10.53. The same straight line, three slopes, and the slope is the price of every halving.",
+      "check": "(a) A series of runs shows: multiplying the data by eight halves the error. How large is α, how much more data halves it a second time, and which dimension do the two readings 1/d and 2/(d+2) give? (b) In mean estimation σ doubles. What changes on the log-log plot and what does not?",
+      "answer": "(a) 8^α = 2, so α = log 2/log 8 = 1/3. The slope on the log-log plot is −1/3, and the second halving again costs k_½ = 2^(1/α) = 2³ = 8 times the data, so 64 times as much as at the start in total: a power law demands the same factor for every halving. The lecture's reading, α = 1/d, gives d = 3; balancing bias and variance, α = 2/(d+2), gives d = 4. The same measurement, two dimensions, and that is why the intrinsic dimension cannot be read off a slope alone. (b) σ² becomes four times as large, so every error is multiplied by 4: log error = −log n + 2·log σ grows by 2·log 2 = log 4. The line shifts upward in parallel, the slope stays −1. Lecture 9 shows the same on slide 22 for distribution shift: the composition of the data changes the intercept, not the slope.",
+      "aliases": "why power law scaling law theory mean estimation sample complexity nonparametric intrinsic dimension bahri slope exponent halving data factor kaplan"
+    },
     "scaling-law": {
       "cat": "Scaling",
       "title": "Chinchilla-style Loss Model",

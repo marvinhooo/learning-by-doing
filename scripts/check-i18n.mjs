@@ -19315,3 +19315,127 @@ console.log(`ffn-backward OK: ${fbValues} values, all four gradients match A2's 
   if (!(clCards >= base.formulas.length)) clFail(`only ${clCards} latex fields were scanned against ${base.formulas.length} cards, so the extraction stopped seeing them`);
   console.log(`copy latex OK: ${clChecks} checks -- f.latex is the one card field that leaves the app as text, and two cards (decode-intensity-heads and zero-stage-ceiling) wrote \\\\frac where the file convention is \\frac, so the clipboard received a LaTeX row break followed by a bare word. ${clCards} latex fields in both languages now carry ${clCommands} commands and ${clRowBreaks} row breaks, every one of the latter inside an environment that accepts it -- which is how a legitimate matrix break in rope is kept without naming it as an exception, and ${clPlain} field (advantage) is plain algebra needing no command at all`);
 }
+
+// ---- card estimation rate: why the straight line is straight (v136) -------------------------
+// Lecture 9 asks on slide 16 why scaling laws are power laws at all and answers with two
+// calculations -- mean estimation, sigma^2/n (slide 17), and nonparametric learning, n^(-1/d)
+// (slide 19) -- before slide 18 sets them against the measured language-model slope 0.095 from
+// slide 15. The app carried the empirical line and its fit but not one of these: "intrinsisch",
+// "Bahri" and n^(-1/d) appeared nowhere, so the exponent was a fitted number without a meaning.
+//
+// The card's own trap is the slide's example: at d = 2 the informal exponent 1/d and the
+// bias-variance exponent 2/(d+2) are the SAME number, 0.5, so the slide cannot show which one
+// it means. The guard proves that coincidence and that it is unique to d = 2, and holds the card
+// to an example at d = 8, where they separate (256x against 32x data per halving). It also
+// proves the answer key's two dimensions differ, since a key whose readings agreed would teach
+// that a slope pins the dimension -- the opposite of slide 20.
+{
+  const erFail = message => { throw new Error(`card estimation rate: ${message}`); };
+  let erChecks = 0;
+  const near = (x, y, tol = 1e-9) => Math.abs(x - y) <= tol * Math.max(1, Math.abs(x), Math.abs(y));
+  const erFmt = (locale, x, digits) => { const s = x.toFixed(digits); return locale === "de" ? s.replace(".", ",") : s; };
+  const halving = alpha => 2 ** (1 / alpha);                 // k_1/2 = 2^(1/alpha)
+  const informal = d => 1 / d, balanced = d => 2 / (d + 2);  // slide 19 vs bias-variance
+  const SIGMA = 2, N1 = 100, N2 = 400, D = 8, A_LM = 0.095, A_PIT = 0.2, CHECK_K = 8;
+  const mse = n => SIGMA ** 2 / n;
+
+  // --- the model, before a character of the card is read --------------------------------------
+  if (!near(mse(N1), 0.04) || !near(mse(N2), 0.01)) erFail("sigma^2/n no longer gives 0.04 and 0.01");
+  if (!near(Math.log(mse(N2) / mse(N1)) / Math.log(N2 / N1), -1)) erFail("the mean-estimation slope is not -1");
+  for (const s of [0.5, 3, 7]) if (!near(Math.log((s * s / N2) / (s * s / N1)) / Math.log(N2 / N1), -1)) erFail(`sigma = ${s} changes the slope, so sigma is not an intercept-only parameter`);
+  if (!near(halving(1), 2) || !near(halving(informal(D)), 256) || !near(halving(balanced(D)), 32)) erFail("the halving factors 2 / 256 / 32 are wrong");
+  if (!near(4 ** informal(D), 1.189207115, 1e-8)) erFail("4^(1/8) is not 1.189");
+  if (Math.round(halving(A_LM)) !== 1475 || erFmt("en", 10 ** -A_LM, 3) !== "0.804" || erFmt("en", 1 / A_LM, 2) !== "10.53") erFail("the language-model figures 1475 / 0.804 / 10.53 no longer follow from alpha = 0.095");
+  // The coincidence that blinds slide 19, and its uniqueness: 1/d = 2/(d+2) only at d = 2.
+  if (informal(2) !== balanced(2)) erFail("1/d and 2/(d+2) no longer coincide at d = 2");
+  for (let d = 1; d <= 64; d++) if (d !== 2 && near(informal(d), balanced(d))) erFail(`1/d and 2/(d+2) also coincide at d = ${d}`);
+  if (informal(D) === balanced(D)) erFail("the example's d no longer separates the two exponents");
+  // The two readings of one slope give two dimensions -- in the pitfall and in the answer key.
+  const dimInformal = a => 1 / a, dimBalanced = a => 2 / a - 2;
+  if (!near(dimInformal(A_PIT), 5) || !near(dimBalanced(A_PIT), 8)) erFail("alpha = 0.2 no longer reads as d = 5 and d = 8");
+  const aCheck = Math.log(2) / Math.log(CHECK_K);
+  if (!near(aCheck, 1 / 3) || !near(halving(aCheck), 8) || !near(dimInformal(aCheck), 3) || !near(dimBalanced(aCheck), 4)) erFail("the self-check's alpha = 1/3, factor 8, d = 3 and d = 4 do not follow");
+  erChecks += 14;
+
+  const erHold = (where, locale, text, tokens) => {
+    if (typeof text !== "string") erFail(`${locale}: ${where} is missing`);
+    let cursor = -1;
+    for (const token of tokens) {
+      const at = text.indexOf(token, cursor + 1);
+      if (at < 0) erFail(`${locale}: ${where} is missing "${token}" or has it out of order`);
+      cursor = at + token.length - 1;
+    }
+    return tokens.length;
+  };
+  // Every figure travels with the words that give it its role, and figures ending in a bare
+  // digit carry what follows, so "= 256" cannot pass as "= 2560".
+  const erExample = locale => {
+    const de = locale === "de", f = (v, d) => erFmt(locale, v, d), x = de ? "-mal" : " times";
+    return [
+      `σ = ${SIGMA}, ${de ? "also" : "so"} σ² = ${SIGMA ** 2}.`,
+      `n = ${N1} ${de ? "Beobachtungen" : "observations"}`, `${SIGMA ** 2}/${N1} = ${f(mse(N1), 2)},`,
+      `n = ${N2}`, `${SIGMA ** 2}/${N2} = ${f(mse(N2), 2)}.`,
+      `log(${f(mse(N2), 2)}/${f(mse(N1), 2)})/log(${N2}/${N1}) = −1,`, "α = 1,", "k_½ = 2^1 = 2,",
+      `d = ${D}`, `n^(−1/${D})`, `4^(1/${D}) ≈ ${f(4 ** informal(D), 3)},`, `k_½ = 2^${D} = ${halving(informal(D))}${x}`,
+      `L = (D/${f(5.4, 1)}·10¹³)^(−${f(A_LM, 3)})`, `α = ${f(A_LM, 3)}.`,
+      `10^(−${f(A_LM, 3)}) ≈ ${f(10 ** -A_LM, 3)},`, `k_½ = 2^(1/${f(A_LM, 3)}) ≈ ${Math.round(halving(A_LM))}${x}`,
+      `1/${f(A_LM, 3)} ≈ ${f(1 / A_LM, 2)}.`];
+  };
+  const erPitfall = locale => {
+    const de = locale === "de", f = (x, d) => erFmt(locale, x, d);
+    return ["n^(−1/d)", "h²", "1/(n·h^d)", "2/(d+2)", de ? "Folie 19" : "slide 19", "d = 2",
+      `1/2 = 2/4 = ${f(0.5, 1)},`, `d = ${D}`, `${f(informal(D), 3)} ${de ? "gegen" : "against"} ${f(balanced(D), 1)},`,
+      `${halving(informal(D))}${de ? "-fache gegen " : " times against "}${halving(balanced(D))}${de ? "-fache" : " times"}`, de ? "Folie 20" : "slide 20", "Bahri et al. 2021",
+      `α = ${f(A_PIT, 1)}`, de ? `1/d die Dimension ${dimInformal(A_PIT)} und` : `dimension ${dimInformal(A_PIT)} under 1/d`, de ? `2/(d+2) die Dimension ${dimBalanced(A_PIT)},` : `dimension ${dimBalanced(A_PIT)} under 2/(d+2),`];
+  };
+  const erAnswer = locale => {
+    const de = locale === "de", x = de ? "-mal" : " times";
+    return [`${CHECK_K}^α = 2,`, `α = log 2/log ${CHECK_K} = 1/3.`, "−1/3,", `k_½ = 2^(1/α) = 2³ = ${halving(aCheck).toFixed(0)}${x}`,
+      `${(halving(aCheck) ** 2).toFixed(0)}${x}`, `α = 1/d, ${de ? "ergibt" : "gives"} d = ${dimInformal(aCheck).toFixed(0)};`,
+      `α = 2/(d+2), ${de ? "ergibt" : "gives"} d = ${dimBalanced(aCheck).toFixed(0)}.`,
+      "−log n + 2·log σ", "2·log 2 = log 4.", de ? "die Steigung bleibt −1" : "the slope stays −1", de ? "Folie 22" : "slide 22"];
+  };
+
+  const erCard = base.formulas.find(f => f.id === "estimation-rate");
+  const erEnglish = pack.formulas["estimation-rate"];
+  if (!erCard || !erEnglish) erFail("the card is missing in one of the two languages");
+  const erTexts = locale => locale === "de"
+    ? { expr: erCard.expr, example: erCard.example, pitfall: erCard.pitfall, answer: formulaAnswers["estimation-rate"], purpose: erCard.purpose, check: erCard.check }
+    : { expr: erEnglish.expr, example: erEnglish.example, pitfall: erEnglish.pitfall, answer: erEnglish.answer, purpose: erEnglish.purpose, check: erEnglish.check };
+  for (const locale of ["de", "en"]) {
+    const t = erTexts(locale), de = locale === "de";
+    erChecks += erHold("the expression", locale, t.expr, ["E[(μ̂ − μ)²] = σ²/n", `${de ? "Fehler" : "error"} ∝ n^(−1/d)`, "k_½ = 2^(1/α)"]);
+    erChecks += erHold("the example", locale, t.example, erExample(locale));
+    erChecks += erHold("the pitfall", locale, t.pitfall, erPitfall(locale));
+    erChecks += erHold("the answer key", locale, t.answer, erAnswer(locale));
+    erChecks += erHold("the self-check", locale, t.check, [de ? "Verachtfacht" : "multiplying the data by eight", "1/d", "2/(d+2)", de ? "verdoppelt sich σ" : "σ doubles"]);
+    erChecks += erHold("the purpose", locale, t.purpose, [de ? "Folie 16" : "slide 16", de ? "Folie 17" : "slide 17", "σ²/n", de ? "Folie 19" : "slide 19", "n^(−1/d)", de ? "Folie 18" : "Slide 18", "−1", de ? "Folie 15" : "slide 15", `(−${erFmt(locale, A_LM, 3)})`]);
+  }
+  if (JSON.stringify(erCard.sources) !== JSON.stringify(["l09"])) erFail(`the card cites ${JSON.stringify(erCard.sources)} instead of lecture 9 alone`);
+  const erL09 = base.lectureGuides.l09.formulas || [];
+  if (!erL09.includes("estimation-rate")) erFail("lecture 9 no longer curates the card, although slides 16 to 20 are its own");
+  if (!(erL09.indexOf("estimation-rate") < erL09.indexOf("scaling-law"))) erFail("the card is curated after the Chinchilla fit, so the lecture shows the fit before the reason a fit is a straight line");
+  const erConcept = base.concepts.find(c => c.id === "power-laws");
+  if (!erConcept || erConcept.formulas[erConcept.formulas.length - 1] !== "estimation-rate") erFail("the card is not last in power-laws' ordered formula list -- a new card belongs at the end");
+  if (erConcept.formulas[0] !== "scaling-law") erFail("power-laws' first formula moved, so lectures that curate none of its cards print a different one");
+  erChecks += 5;
+
+  // Fixtures through the same code, so the block is proved sighted on every run.
+  const erBust = (locale, key, tokens, from, to) => {
+    const text = erTexts(locale)[key];
+    if (!text.includes(from)) erFail(`${locale}: fixture cannot fire, "${from}" is not in the ${key}`);
+    try { erHold("fixture", locale, text.replace(from, to), tokens); } catch { return true; }
+    return false;
+  };
+  const erCaught = [
+    erBust("de", "example", erExample("de"), "≈ 1475-mal", "≈ 1068-mal"),                 // 2^0.095 instead of 2^(1/0.095)
+    erBust("en", "example", erExample("en"), "2^8 = 256 times", "2^8 = 2560 times"),           // a trailing digit
+    erBust("de", "pitfall", erPitfall("de"), "0,125 gegen 0,2,", "0,2 gegen 0,125,"), // the two exponents swapped
+    erBust("en", "answer", erAnswer("en"), "gives d = 4.", "gives d = 3."),         // both readings made to agree
+    erBust("de", "answer", erAnswer("de"), "die Steigung bleibt −1", "die Steigung wird −2"),
+    erBust("en", "pitfall", erPitfall("en"), "1/2 = 2/4 = 0.5,", "1/2 = 2/6 = 0.5,")
+  ];
+  if (!erCaught.every(Boolean)) erFail(`fixture(s) ${erCaught.map((c, i) => c ? "" : i + 1).filter(Boolean).join(", ")} not caught, so this block cannot see`);
+  erChecks += erCaught.length;
+  console.log(`card estimation rate OK: ${erChecks} checks -- lecture 9 slides 16-20 explain WHY a scaling law is a straight line, and the app carried the line without the reason. Mean estimation gives sigma^2/n = ${erFmt("en", mse(N1), 2)} -> ${erFmt("en", mse(N2), 2)} at four times the data, slope exactly -1 for every sigma (sigma moves only the intercept); nonparametric learning at d = ${D} needs ${halving(informal(D))}x data per halving; the measured LM slope 0.095 of slide 15 needs ${Math.round(halving(A_LM))}x. The slide's own example is blind: 1/d and the bias-variance exponent 2/(d+2) coincide at d = 2 and nowhere else in 1..64, so the card computes at d = ${D}, where they read ${halving(informal(D))}x against ${halving(balanced(D))}x, and one slope alpha = 0.2 is shown to mean d = 5 or d = 8 -- the computed form of slide 20's warning that intrinsic dimension estimates are sketchy`);
+}

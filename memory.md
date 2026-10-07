@@ -553,3 +553,12 @@
   Summen wie `2 + 0,2`; eine korrekte Modellzusicherung scheitert sonst an ihrer eigenen
   Binaerrundung. Toleranz 1e-12 relativ, aber belegen, dass sie enger ist als der kleinste
   Unterschied, den die Karte behauptet. Siehe [[cs336-guard-verification-lessons]].
+
+## Warum die Gerade gerade ist (v136)
+
+- Lecture 9 folienweise abgeglichen. Die Luecke war die Begruendung des Potenzgesetzes
+  (Folien 16-20), nicht ein Fit: Karte `estimation-rate`, Guard `card estimation rate`.
+- Lehre: eine Folie, die zwei Formeln am selben Beispiel zeigt, kann blind fuer ihren Unterschied
+  sein - 1/d und 2/(d+2) fallen genau bei d = 2 zusammen. Beispielwert so waehlen, dass die
+  Lesarten sich trennen, und die Koinzidenz im Guard als einzig beweisen.
+- Abgeglichen: Lectures 3, 4, 5, 7, 9. Offen: 11, 15, 16.
