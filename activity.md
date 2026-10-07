@@ -110,11 +110,21 @@ Iteration Counter: 16
 - Zaehler nachgezogen: README 88 Formeln, Quellkommentar der Accordion-Route (88/280/88/80/112/284).
 - Cache-Bump auf **v112** (sw.js zweimal, index.html, README).
 - Der Iteration Counter wurde erhoeht, da der Run ueber einen Scheduled Task startete.
-- **Nebenbefund, nicht Teil dieses Commits:** `Copy LaTeX` liefert bei drei Karten (`rope`,
-  `decode-intensity-heads`, `zero-stage-ceiling`) doppelte Backslashes, weil ihr `latex`-Feld im
-  Datei-Quelltext `\\frac` statt `\frac` schreibt. 85 Karten folgen der richtigen Konvention,
-  drei nicht, und nichts erzwingt sie - dieselbe Klasse wie das ungeschuetzte `expr` aus v133.
-  Wird als eigener Commit nachgezogen.
+- **Nebenbefund, als eigener Commit nachgezogen:** `Copy LaTeX` ist das einzige Kartenfeld, das die
+  App als Text verlaesst - `copyText(f.latex)` legt es unveraendert in die Zwischenablage. Zwei
+  Karten (`decode-intensity-heads` aus v133 und `zero-stage-ceiling` aus v134) schrieben im
+  Dateiquelltext `\\\\frac` statt `\\frac`, die Zwischenablage bekam also `\\frac` - und in LaTeX
+  ist `\\` ein Zeilenumbruch und kein Escape, der Einfuegevorgang erzeugte somit einen Umbruch und
+  danach das nackte Wort `frac`. 86 Karten folgten der Konvention, zwei nicht, und nichts erzwang
+  sie: dieselbe Klasse wie das ungeschuetzte `expr` aus v133. Beide Felder korrigiert, neuer Guard
+  `copy latex` (93 Bloecke, 97 Pruefungen). Die Regel ist dabei **nicht** `kein \\\\ vor einem
+  Buchstaben`, denn in einer Matrix ist `\\\\` genau der Zeilenumbruch - `rope` traegt ihn zu Recht.
+  Der Guard erlaubt einen Umbruch nur innerhalb einer `\\begin`-Umgebung und haelt `rope` damit
+  ohne namentliche Ausnahme. Vier Fixtures beweisen ihn sehend, darunter die Gegenprobe, dass der
+  legitime Matrixumbruch **nicht** gemeldet wird. Eine erste Zusatzklausel (`eine Karte ohne
+  LaTeX-Befehl ist kein LaTeX`) scheiterte an `advantage` mit `A(x,y)=R(x,y)-b(x)` - gueltiges
+  LaTeX ohne Befehl; dort war die Zusicherung falsch und nicht die Karte, also wird der Fall
+  gezaehlt und namentlich gefuehrt statt gemeldet.
 
 ## v134 - 2026-10-06 - die Stufe, die am meisten bringt, und die Grenze, an der zwei von drei enden
 

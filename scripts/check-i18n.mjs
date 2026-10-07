@@ -19243,3 +19243,75 @@ console.log(`ffn-backward OK: ${fbValues} values, all four gradients match A2's 
   bgChecks += 10;
   console.log(`card balance gradient OK: ${bgChecks} checks -- slide 28 is the one place lecture 4 differentiates, and the app carried the loss without its derivative. L_bal = sum f_i*P_i is a dot product, so it is symmetric in f and P: swapping them returns ${bgFmt("en", L, 4)} again, and moe-balance's own example returns its 0.55 again -- read out of that card -- so NEITHER loss can show which half is differentiable. The gradient can: g_i = alpha*E*c_i/T^2 = ${G.map(g => bgFmt("en", g, 4)).join(" / ")} follows the token counts (g_1/g_3 = ${COUNTS[0] / COUNTS[2]}) where a gradient routed through f would follow the probabilities (${bgRatio(PROBS[0], PROBS[2])}), and f_i differs from P_i in every slot so that counterfactual is visible everywhere. It is independent of p, proved by varying P. On the logits p_j*(g_j - g_bar) with g_bar = L_bal/T = ${bgFmt("en", GBAR, 5)} sums to zero and pushes exactly one expert down -- not expert 2, which sits above the even share ${bgFmt("en", share, 1)} with 3 tokens and is still pulled up, because the yardstick is the weighted mean. The floor alpha is proved a stationary point in both directions (exactly zero at T = ${BT} with ${BC[0]} tokens each, demonstrably non-zero here), the ceiling alpha*E over a ${bgSweeps}-case sweep, and the floor's restriction to f = P is shown to be necessary. A dead expert gets g_i exactly 0 and is lifted only by -p_j*g_bar, which is shown to vanish as p_j -> 0 -- the computed reason DeepSeek v3 adds a per-expert bias; two experts with the SAME count are lifted ${bgRatio(ZG[2], ZG[3])}x apart, purely by the probability they already hold`);
 }
+
+// ---- copy latex: the one field that leaves the app as text, and its unenforced convention ----
+// `Copy LaTeX` / `LaTeX kopieren` puts f.latex on the clipboard verbatim (copyText(f.latex)), so
+// that field is the only card content a reader carries OUT of the app and pastes into a document.
+// In the file a LaTeX command is written `\\frac`, which is one backslash in the JS string. Two
+// cards wrote `\\\\frac` instead, so the clipboard received `\\frac` -- and in LaTeX `\\` is a row
+// break, not an escape, so the paste produced a row break followed by the bare word "frac". The
+// convention was load-bearing and nothing enforced it, exactly the shape of v133's `expr` lesson.
+//
+// The rule cannot simply be "no \\ before a letter": inside a matrix `\\` IS the row break, which
+// is why `rope` legitimately carries `q'_{2k-1}\\q'_{2k}`. So a doubled sequence is a defect only
+// where no environment could accept a row break, and that distinction is what the check draws --
+// it is the reason a blunter pattern would have had to exclude `rope` by name.
+{
+  const clFail = message => { throw new Error(`copy latex: ${message}`); };
+  let clChecks = 0, clCards = 0, clRowBreaks = 0, clCommands = 0, clPlain = 0;
+  // The copy path itself: if nothing copies f.latex any more, this whole block guards dead data.
+  if (!source.includes("copyText(f.latex)")) clFail("nothing copies f.latex to the clipboard any more, so either the button is gone or it copies something else");
+  if (!source.includes('data-copy-latex="${f.id}"')) clFail("the Copy LaTeX button no longer carries the card id, so the copy cannot find its card");
+  clChecks += 2;
+
+  const clValue = raw => JSON.parse(`"${raw}"`);          // the string the browser builds
+  const clEnvSpans = text => {                            // the spans where a row break is legal
+    const spans = [];
+    for (const hit of text.matchAll(/\\begin\{([a-zA-Z*]+)\}/gu)) {
+      const close = text.indexOf(`\\end{${hit[1]}}`, hit.index);
+      spans.push([hit.index, close < 0 ? text.length : close]);
+    }
+    return spans;
+  };
+  for (const [label, holder] of [["de", base.formulas.map(f => [f.id, f.latex])],
+    ["en", Object.entries(pack.formulas).map(([id, f]) => [id, f.latex]).filter(([, l]) => typeof l === "string")]]) {
+    for (const [id, latex] of holder) {
+      if (typeof latex !== "string") {
+        if (label === "de") clFail(`${id} has no latex field, so its Copy LaTeX button would copy undefined`);
+        continue;
+      }
+      clCards++;
+      const spans = clEnvSpans(latex);
+      for (const hit of latex.matchAll(/\\\\(?=[a-zA-Z])/gu)) {
+        const inside = spans.some(([from, to]) => hit.index > from && hit.index < to);
+        if (!inside) clFail(`${label}/${id} copies "\\\\${latex.slice(hit.index + 2, hit.index + 8)}" to the clipboard: a doubled backslash outside any environment, which LaTeX reads as a row break and then a bare word. Write a command as \\\\name in the file, which is one backslash in the string`);
+        clRowBreaks++;
+      }
+      // ... and the other direction: an empty field would mean the button copies nothing. A field
+      // with no command at all is still valid LaTeX -- `advantage` is A(x,y)=R(x,y)-b(x), which
+      // needs none -- so that case is counted and named rather than reported. The first version of
+      // this clause failed on it, and the assurance was wrong rather than the data.
+      const commands = (latex.match(/\\[a-zA-Z]+/gu) || []).filter(c => c !== "\\\\");
+      clCommands += commands.length;
+      if (!latex.trim()) clFail(`${label}/${id} has an empty latex field, so its Copy LaTeX button copies nothing`);
+      if (!commands.length && !/[_^{}]/u.test(latex)) {
+        if (id !== "advantage") clFail(`${label}/${id} carries neither a LaTeX command nor markup; only advantage is recorded as plain algebra, so a second such card needs a decision rather than a silent pass`);
+        clPlain++;
+      }
+      clChecks++;
+    }
+  }
+  // A fixture, so this block is proved sighted on every run rather than only under mutation: the
+  // exact defect it was written for, and the legitimate row break it must NOT report.
+  const clBust = latex => {
+    const spans = clEnvSpans(latex);
+    return [...latex.matchAll(/\\\\(?=[a-zA-Z])/gu)].some(hit => !spans.some(([from, to]) => hit.index > from && hit.index < to));
+  };
+  if (!clBust("B_{rank}=b_{fix}+\\\\frac{b_{shard}}{G}")) clFail("the fixture for the defect this block exists for is not caught, so the block cannot see");
+  if (!clBust("x+\\\\Big(y\\\\Big)")) clFail("a doubled command outside an environment is not caught");
+  if (clBust("\\begin{bmatrix}q_{1}\\\\q_{2}\\end{bmatrix}")) clFail("a legitimate matrix row break is reported as a defect, so the check would force rope to be excluded by name");
+  if (clBust("\\frac{a}{b}\\qquad\\theta")) clFail("correctly written LaTeX is reported as a defect");
+  clChecks += 4;
+  if (!(clCards >= base.formulas.length)) clFail(`only ${clCards} latex fields were scanned against ${base.formulas.length} cards, so the extraction stopped seeing them`);
+  console.log(`copy latex OK: ${clChecks} checks -- f.latex is the one card field that leaves the app as text, and two cards (decode-intensity-heads and zero-stage-ceiling) wrote \\\\frac where the file convention is \\frac, so the clipboard received a LaTeX row break followed by a bare word. ${clCards} latex fields in both languages now carry ${clCommands} commands and ${clRowBreaks} row breaks, every one of the latter inside an environment that accepts it -- which is how a legitimate matrix break in rope is kept without naming it as an exception, and ${clPlain} field (advantage) is plain algebra needing no command at all`);
+}
