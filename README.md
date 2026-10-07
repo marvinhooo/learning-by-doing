@@ -23,8 +23,9 @@ Die Plattform spart Lecture-Nacharbeit und Suchzeit, ersetzt aber nicht das eige
 - GitHub Pages veröffentlicht ausschließlich die statische Lernhilfe.
 - Supabase Auth schützt den persönlichen Lernstand und die privaten Kurs-PDFs.
 - `localStorage` speichert Änderungen sofort auf dem Gerät; Supabase synchronisiert sie nach dem Login.
+- Auch die zuletzt gelesene Seite mit Lecture-Kontext und relativer Scrollposition wird synchronisiert. Anmeldung, Rückkehr zum Tab und Wiederverbindung übernehmen den jüngeren Lesestand; ausdrücklich geöffnete Direktlinks haben Vorrang. Sprache und Farbschema bleiben auf dem Gerät. Die relative Scrollposition ist bei unterschiedlichen Bildschirmgrößen eine Annäherung, kein exakter Absatzanker.
 - Eine Progressive Web App (PWA) ermöglicht die Installation auf iPhone und iPad.
-- Service-Worker-Cache und Sprachbundle verwenden aktuell Version 113.
+- Service-Worker-Cache und Sprachbundle verwenden aktuell Version 114.
 - Die PDFs werden durch `.gitignore` vom öffentlichen Repository ausgeschlossen.
 - Auf iPhone und iPad besitzen zentrale Controls mindestens 44 Pixel große Touch-Ziele; Labs stapeln im Portrait-Modus für lesbare Erklärungen und Antwortoptionen.
 
@@ -67,3 +68,5 @@ python3 -m http.server 8765 --bind 127.0.0.1
 ```
 
 Dann `http://127.0.0.1:8765/` öffnen.
+
+Den Gerätewechsel prüft `node scripts/check-reading-sync.mjs` mit getrennten Browserprofilen und einem lokalen Cloud-Ersatz. Dafür muss `playwright` verfügbar sein, bei Bedarf über `NODE_PATH`; `CHROME_EXECUTABLE` kann den Pfad zu einem vorhandenen Chrome-Browser setzen. Es werden keine echten Zugangsdaten oder Supabase-Daten verwendet.
